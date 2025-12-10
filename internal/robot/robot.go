@@ -66,9 +66,9 @@ type StatusOutput struct {
 	GeneratedAt  time.Time     `json:"generated_at"`
 	System       SystemInfo    `json:"system"`
 	Sessions     []SessionInfo `json:"sessions"`
-	Summary      StatusSummary `json:"summary"`
-	Beads        *BeadsSummary `json:"beads,omitempty"`
-	GraphMetrics *GraphMetrics `json:"graph_metrics,omitempty"`
+	Summary      StatusSummary    `json:"summary"`
+	Beads        *bv.BeadsSummary `json:"beads,omitempty"`
+	GraphMetrics *GraphMetrics    `json:"graph_metrics,omitempty"`
 }
 
 // GraphMetrics provides bv graph analysis metrics for status output
@@ -296,7 +296,7 @@ func PrintStatus() error {
 
 	// Add beads summary if bv is available
 	if bv.IsInstalled() {
-		output.Beads = getBeadsSummary()
+		output.Beads = bv.GetBeadsSummary(BeadLimit)
 		output.GraphMetrics = getGraphMetrics()
 	}
 
@@ -832,7 +832,7 @@ func detectState(lines []string, title string) string {
 type SnapshotOutput struct {
 	Timestamp      string            `json:"ts"`
 	Sessions       []SnapshotSession `json:"sessions"`
-	BeadsSummary   *BeadsSummary     `json:"beads_summary,omitempty"`
+	BeadsSummary   *bv.BeadsSummary  `json:"beads_summary,omitempty"`
 	MailUnread     int               `json:"mail_unread,omitempty"`
 	Alerts         []string          `json:"alerts"`                    // Legacy: simple string alerts
 	AlertsDetailed []AlertInfo       `json:"alerts_detailed,omitempty"` // Rich alert objects
@@ -879,35 +879,6 @@ type SnapshotAgent struct {
 	OutputTailLines  int     `json:"output_tail_lines"`
 	CurrentBead      *string `json:"current_bead"`
 	PendingMail      int     `json:"pending_mail"`
-}
-
-// BeadsSummary provides issue tracking stats for snapshot
-type BeadsSummary struct {
-	Available      bool             `json:"available"`
-	Reason         string           `json:"reason,omitempty"` // Reason if not available
-	Project        string           `json:"project,omitempty"`
-	Total          int              `json:"total,omitempty"`
-	Open           int              `json:"open,omitempty"`
-	InProgress     int              `json:"in_progress,omitempty"`
-	Blocked        int              `json:"blocked,omitempty"`
-	Ready          int              `json:"ready,omitempty"`
-	Closed         int              `json:"closed,omitempty"`
-	ReadyPreview   []BeadPreview    `json:"ready_preview,omitempty"`
-	InProgressList []BeadInProgress `json:"in_progress_list,omitempty"`
-}
-
-// BeadPreview is a minimal bead representation for ready items
-type BeadPreview struct {
-	ID       string `json:"id"`
-	Title    string `json:"title"`
-	Priority string `json:"priority"` // e.g., "P0", "P1"
-}
-
-// BeadInProgress represents an in-progress bead with assignee
-type BeadInProgress struct {
-	ID       string `json:"id"`
-	Title    string `json:"title"`
-	Assignee string `json:"assignee,omitempty"`
 }
 
 // BeadLimit controls how many ready/in-progress beads to include in snapshot
@@ -986,7 +957,7 @@ func PrintSnapshot(cfg *config.Config) error {
 	}
 
 	// Try to get beads summary
-	beads := getBeadsSummary()
+	beads := bv.GetBeadsSummary(BeadLimit)
 	if beads != nil {
 		output.BeadsSummary = beads
 	}
@@ -1071,131 +1042,6 @@ func agentTypeString(t tmux.AgentType) string {
 	default:
 		return "unknown"
 	}
-}
-
-// getBeadsSummary attempts to get bead statistics from bd command
-func getBeadsSummary() *BeadsSummary {
-	result := &BeadsSummary{}
-
-	// Check if .beads directory exists
-	if _, err := os.Stat(".beads"); os.IsNotExist(err) {
-		result.Available = false
-		result.Reason = "no .beads/ directory"
-		return result
-	}
-
-	// Get current working directory for project path
-	if cwd, err := os.Getwd(); err == nil {
-		result.Project = cwd
-	}
-
-	// Try to run bd stats --json to get summary
-	cmd := exec.Command("bd", "stats", "--json")
-	output, err := cmd.Output()
-	if err != nil {
-		result.Available = false
-		result.Reason = fmt.Sprintf("bd stats failed: %v", err)
-		return result
-	}
-
-	// Parse the JSON output
-	var stats struct {
-		TotalIssues      int `json:"total_issues"`
-		OpenIssues       int `json:"open_issues"`
-		InProgressIssues int `json:"in_progress_issues"`
-		BlockedIssues    int `json:"blocked_issues"`
-		ReadyIssues      int `json:"ready_issues"`
-		ClosedIssues     int `json:"closed_issues"`
-	}
-	if err := json.Unmarshal(output, &stats); err != nil {
-		result.Available = false
-		result.Reason = fmt.Sprintf("parse stats failed: %v", err)
-		return result
-	}
-
-	result.Available = true
-	result.Total = stats.TotalIssues
-	result.Open = stats.OpenIssues
-	result.InProgress = stats.InProgressIssues
-	result.Blocked = stats.BlockedIssues
-	result.Ready = stats.ReadyIssues
-	result.Closed = stats.ClosedIssues
-
-	// Get ready preview (top N ready issues sorted by priority)
-	result.ReadyPreview = getReadyPreview(BeadLimit)
-
-	// Get in-progress list
-	result.InProgressList = getInProgressList(BeadLimit)
-
-	return result
-}
-
-// getReadyPreview returns top N ready beads sorted by priority
-func getReadyPreview(limit int) []BeadPreview {
-	var previews []BeadPreview
-
-	cmd := exec.Command("bd", "ready", "--json")
-	output, err := cmd.Output()
-	if err != nil {
-		return previews
-	}
-
-	var issues []struct {
-		ID       string `json:"id"`
-		Title    string `json:"title"`
-		Priority int    `json:"priority"`
-	}
-	if err := json.Unmarshal(output, &issues); err != nil {
-		return previews
-	}
-
-	// Take up to limit items
-	for i, issue := range issues {
-		if i >= limit {
-			break
-		}
-		previews = append(previews, BeadPreview{
-			ID:       issue.ID,
-			Title:    issue.Title,
-			Priority: fmt.Sprintf("P%d", issue.Priority),
-		})
-	}
-
-	return previews
-}
-
-// getInProgressList returns in-progress beads with assignees
-func getInProgressList(limit int) []BeadInProgress {
-	var items []BeadInProgress
-
-	cmd := exec.Command("bd", "list", "--status=in_progress", "--json")
-	output, err := cmd.Output()
-	if err != nil {
-		return items
-	}
-
-	var issues []struct {
-		ID       string `json:"id"`
-		Title    string `json:"title"`
-		Assignee string `json:"assignee"`
-	}
-	if err := json.Unmarshal(output, &issues); err != nil {
-		return items
-	}
-
-	// Take up to limit items
-	for i, issue := range issues {
-		if i >= limit {
-			break
-		}
-		items = append(items, BeadInProgress{
-			ID:       issue.ID,
-			Title:    issue.Title,
-			Assignee: issue.Assignee,
-		})
-	}
-
-	return items
 }
 
 // SendOutput is the structured output for --robot-send
