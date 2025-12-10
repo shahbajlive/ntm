@@ -17,20 +17,23 @@ import (
 
 func newScanCmd() *cobra.Command {
 	var (
-		languages      []string
-		exclude        []string
-		ci             bool
-		failOnWarning  bool
-		verbose        bool
-		timeoutSeconds int
-		stagedOnly     bool
-		diffOnly       bool
-		createBeads    bool
-		updateBeads    bool
-		minSeverity    string
-		dryRun         bool
-		watch          bool
-		notifyAgents   bool
+		languages       []string
+		exclude         []string
+		ci              bool
+		failOnWarning   bool
+		verbose         bool
+		timeoutSeconds  int
+		stagedOnly      bool
+		diffOnly        bool
+		createBeads     bool
+		updateBeads     bool
+		minSeverity     string
+		dryRun          bool
+		watch           bool
+		notifyAgents    bool
+		analyzeImpact   bool
+		showHotspots    bool
+		priorityReport  bool
 	)
 
 	cmd := &cobra.Command{
@@ -57,7 +60,10 @@ Examples:
   ntm scan --fail-on-warning # Exit non-zero on warnings
   ntm scan --create-beads    # Auto-create beads from findings
   ntm scan --update-beads    # Close beads for fixed issues
-  ntm scan --notify          # Notify agents via Agent Mail`,
+  ntm scan --notify          # Notify agents via Agent Mail
+  ntm scan --analyze-impact  # Show findings sorted by graph impact
+  ntm scan --hotspots        # Show quality hotspots by file
+  ntm scan --priority-report # Show smart priority report`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := "."
@@ -92,7 +98,7 @@ Examples:
 				return runScanWatch(absPath, opts, createBeads, updateBeads, notifyAgents, bridgeCfg)
 			}
 
-			return runScan(absPath, opts, createBeads, updateBeads, notifyAgents, bridgeCfg)
+			return runScan(absPath, opts, createBeads, updateBeads, notifyAgents, bridgeCfg, analyzeImpact, showHotspots, priorityReport)
 		},
 	}
 
@@ -113,6 +119,11 @@ Examples:
 	cmd.Flags().StringVar(&minSeverity, "min-severity", "warning", "Minimum severity for bead creation (critical|warning|info)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what beads would be created without creating them")
 
+	// Analysis flags
+	cmd.Flags().BoolVar(&analyzeImpact, "analyze-impact", false, "Show findings sorted by dependency graph impact")
+	cmd.Flags().BoolVar(&showHotspots, "hotspots", false, "Show quality hotspots by file")
+	cmd.Flags().BoolVar(&priorityReport, "priority-report", false, "Show smart priority report combining severity and graph position")
+
 	return cmd
 }
 
@@ -130,7 +141,7 @@ func parseSeverity(s string) scanner.Severity {
 	}
 }
 
-func runScan(path string, opts scanner.ScanOptions, createBeads, updateBeads, notifyAgents bool, bridgeCfg scanner.BridgeConfig) error {
+func runScan(path string, opts scanner.ScanOptions, createBeads, updateBeads, notifyAgents bool, bridgeCfg scanner.BridgeConfig, analyzeImpact, showHotspots, priorityReport bool) error {
 	t := theme.Current()
 
 	// Check if UBS is available
@@ -211,6 +222,36 @@ func runScan(path string, opts scanner.ScanOptions, createBeads, updateBeads, no
 		if updateResult != nil {
 			output["beads_updated"] = updateResult
 		}
+
+		// Add analysis data to JSON output if requested
+		existingBeadIDs := make(map[string]string)
+		if bridgeResult != nil {
+			for i, f := range result.Findings {
+				if i < len(bridgeResult.BeadIDs) {
+					sig := scanner.FindingSignature(f)
+					existingBeadIDs[sig] = bridgeResult.BeadIDs[i]
+				}
+			}
+		}
+
+		if analyzeImpact || showHotspots {
+			analysis, err := scanner.AnalyzeImpact(result, existingBeadIDs)
+			if err == nil {
+				if analyzeImpact {
+					output["impact_analysis"] = analysis
+				}
+				if showHotspots {
+					output["hotspots"] = analysis.Hotspots
+				}
+			}
+		}
+		if priorityReport {
+			report, err := scanner.ComputePriorities(result, existingBeadIDs)
+			if err == nil {
+				output["priority_report"] = report
+			}
+		}
+
 		return json.NewEncoder(os.Stdout).Encode(output)
 	}
 
@@ -223,6 +264,60 @@ func runScan(path string, opts scanner.ScanOptions, createBeads, updateBeads, no
 	}
 	if updateResult != nil {
 		printBeadsUpdateResults(t, updateResult, bridgeCfg.DryRun)
+	}
+
+	// Build existing bead signatures for analysis
+	existingBeadIDs := make(map[string]string)
+	if bridgeResult != nil {
+		for i, f := range result.Findings {
+			if i < len(bridgeResult.BeadIDs) {
+				sig := scanner.FindingSignature(f)
+				existingBeadIDs[sig] = bridgeResult.BeadIDs[i]
+			}
+		}
+	}
+
+	// Run impact analysis if requested
+	if analyzeImpact && len(result.Findings) > 0 {
+		analysis, err := scanner.AnalyzeImpact(result, existingBeadIDs)
+		if err != nil {
+			fmt.Printf("⚠ Impact analysis failed: %v\n", err)
+		} else {
+			fmt.Println()
+			fmt.Print(scanner.FormatImpactReport(analysis))
+		}
+	}
+
+	// Show hotspots if requested
+	if showHotspots && len(result.Findings) > 0 {
+		analysis, err := scanner.AnalyzeImpact(result, existingBeadIDs)
+		if err != nil {
+			fmt.Printf("⚠ Hotspot analysis failed: %v\n", err)
+		} else {
+			fmt.Println()
+			fmt.Println("Quality Hotspots")
+			fmt.Println("════════════════════════════════════════════════════")
+			for i, h := range analysis.Hotspots {
+				if i >= 10 {
+					fmt.Printf("  ... and %d more\n", len(analysis.Hotspots)-10)
+					break
+				}
+				fmt.Printf("  %d. %s - %d findings (impact: %.1f)\n",
+					i+1, h.File, h.FindingCount, h.ImpactScore)
+			}
+			fmt.Println()
+		}
+	}
+
+	// Show priority report if requested
+	if priorityReport && len(result.Findings) > 0 {
+		report, err := scanner.ComputePriorities(result, existingBeadIDs)
+		if err != nil {
+			fmt.Printf("⚠ Priority report failed: %v\n", err)
+		} else {
+			fmt.Println()
+			fmt.Print(scanner.FormatPriorityReport(report))
+		}
 	}
 
 	// Exit with error if requested and issues found
@@ -368,8 +463,8 @@ func runScanWatch(path string, opts scanner.ScanOptions, createBeads, updateBead
 		fmt.Printf("Change detected, re-scanning %s...\n", path)
 
 		// Run scan
-		// Note: We ignore error here to keep watching
-		if err := runScan(path, opts, createBeads, updateBeads, notifyAgents, bridgeCfg); err != nil {
+		// Note: We ignore error here to keep watching. Analysis flags disabled in watch mode.
+		if err := runScan(path, opts, createBeads, updateBeads, notifyAgents, bridgeCfg, false, false, false); err != nil {
 			fmt.Printf("\nError running scan: %v\n", err)
 		}
 		fmt.Println("\nWaiting for changes... (Ctrl+C to stop)")
@@ -391,7 +486,7 @@ func runScanWatch(path string, opts scanner.ScanOptions, createBeads, updateBead
 	// Run initial scan
 	fmt.Print("\033[H\033[2J")
 	fmt.Printf("Initial scan of %s...\n", path)
-	if err := runScan(path, opts, createBeads, updateBeads, notifyAgents, bridgeCfg); err != nil {
+	if err := runScan(path, opts, createBeads, updateBeads, notifyAgents, bridgeCfg, false, false, false); err != nil {
 		fmt.Printf("\nError running scan: %v\n", err)
 	}
 	fmt.Println("\nWaiting for changes... (Ctrl+C to stop)")
