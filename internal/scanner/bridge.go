@@ -93,6 +93,7 @@ func FindingSignature(f Finding) string {
 // BeadFromFinding creates a bead create command args from a Finding.
 func BeadFromFinding(f Finding, project string) BeadSpec {
 	priority := SeverityToPriority(f.Severity)
+	signature := FindingSignature(f)
 
 	// Build title: [{severity}] {rule_id}: {message} in {file}
 	title := fmt.Sprintf("[%s] ", strings.ToUpper(string(f.Severity)))
@@ -126,6 +127,8 @@ func BeadFromFinding(f Finding, project string) BeadSpec {
 		desc.WriteString(fmt.Sprintf("**Suggested Fix:** %s\n\n", f.Suggestion))
 	}
 
+	// Embed a stable signature so future runs can deduplicate/close correctly.
+	desc.WriteString(fmt.Sprintf("**Signature:** %s\n\n", signature))
 	desc.WriteString(fmt.Sprintf("---\n*Auto-created by UBS scan at %s*", time.Now().Format(time.RFC3339)))
 
 	return BeadSpec{
@@ -134,7 +137,7 @@ func BeadFromFinding(f Finding, project string) BeadSpec {
 		Priority:    int(priority),
 		Description: desc.String(),
 		Labels:      []string{"ubs-scan", string(f.Severity)},
-		Signature:   FindingSignature(f),
+		Signature:   signature,
 	}
 }
 
@@ -285,7 +288,15 @@ func loadExistingSignatures() (map[string]bool, error) {
 
 // extractSignatureFromDesc extracts the file:line signature from a bead description.
 func extractSignatureFromDesc(desc string) string {
-	// Look for "**File:** `path:line" pattern
+	// Prefer explicit signature line
+	for _, line := range strings.Split(desc, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "**Signature:**") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "**Signature:**"))
+		}
+	}
+
+	// Fallback: look for "**File:** `path:line" pattern (legacy format)
 	lines := strings.Split(desc, "\n")
 	for _, line := range lines {
 		if strings.HasPrefix(line, "**File:**") {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Dicklesworthstone/ntm/internal/scanner"
@@ -23,7 +24,14 @@ func newScanCmd() *cobra.Command {
 		timeoutSeconds  int
 		stagedOnly      bool
 		diffOnly        bool
+		// TODO: Enable once beads bridge is implemented (ntm-dv1c)
+		createBeads bool
+		updateBeads bool
+		minSeverity string
+		dryRun      bool
 	)
+	// Suppress unused variable warnings until beads bridge is implemented
+	_, _, _, _ = createBeads, updateBeads, minSeverity, dryRun
 
 	cmd := &cobra.Command{
 		Use:   "scan [path]",
@@ -42,7 +50,9 @@ Examples:
   ntm scan --diff            # Scan only modified files
   ntm scan --only=golang     # Restrict to Go files
   ntm scan --json            # Output JSON for automation
-  ntm scan --fail-on-warning # Exit non-zero on warnings`,
+  ntm scan --fail-on-warning # Exit non-zero on warnings
+  ntm scan --create-beads    # Auto-create beads from findings
+  ntm scan --update-beads    # Close beads for fixed issues`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := "."
@@ -149,13 +159,9 @@ func runScan(path string, opts scanner.ScanOptions) error {
 	// Text output
 	printScanResults(t, result, opts.FailOnWarning)
 
-	// Print beads bridge results
-	if bridgeResult != nil {
-		printBeadsBridgeResults(t, bridgeResult, bridgeCfg.DryRun)
-	}
-	if updateResult != nil {
-		printBeadsUpdateResults(t, updateResult, bridgeCfg.DryRun)
-	}
+	// Print beads bridge results (disabled pending ntm-dv1c)
+	// if bridgeResult != nil { printBeadsBridgeResults(...) }
+	// if updateResult != nil { printBeadsUpdateResults(...) }
 
 	// Exit with error if requested and issues found
 	if opts.FailOnWarning && result.HasWarning() {
