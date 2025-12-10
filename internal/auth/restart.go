@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/Dicklesworthstone/ntm/internal/rotation"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
@@ -40,7 +41,7 @@ func (o *Orchestrator) RegisterAuthFlow(provider string, flow AuthFlow) {
 // ExecuteRestartStrategy performs the terminate-switch-restart flow
 func (o *Orchestrator) ExecuteRestartStrategy(paneID string, provider string, targetEmail string) error {
 	// 1. Terminate existing session gracefully
-	if err := o.TerminateSession(paneID); err != nil {
+	if err := o.TerminateSession(paneID, provider); err != nil {
 		return fmt.Errorf("terminating session: %w", err)
 	}
 
@@ -57,8 +58,16 @@ func (o *Orchestrator) ExecuteRestartStrategy(paneID string, provider string, ta
 }
 
 // TerminateSession tries to gracefully stop the agent, then force kills if needed
-func (o *Orchestrator) TerminateSession(paneID string) error {
-	// Try graceful exit first (Ctrl+C)
+func (o *Orchestrator) TerminateSession(paneID string, provider string) error {
+	prov := rotation.GetProvider(provider)
+
+	// Try provider-specific exit command first if available
+	if prov != nil && prov.ExitCommand() != "" {
+		_ = tmux.SendKeys(paneID, prov.ExitCommand(), true)
+		time.Sleep(1 * time.Second)
+	}
+
+	// Try graceful exit (Ctrl+C)
 	if err := tmux.SendInterrupt(paneID); err != nil {
 		return err
 	}
@@ -71,9 +80,6 @@ func (o *Orchestrator) TerminateSession(paneID string) error {
 	}
 	time.Sleep(1 * time.Second)
 
-	// Send exit command just in case (though we want to keep the pane open, just stop the agent)
-	// Actually, we don't want to close the pane, just the agent process.
-	// If the agent is running as a foreground process, Ctrl+C should drop to shell.
 	return nil
 }
 
@@ -115,25 +121,22 @@ func (o *Orchestrator) PromptBrowserAuth(email string) {
 
 // StartNewAgentSession launches the agent command in the pane
 func (o *Orchestrator) StartNewAgentSession(paneID string, provider string) error {
-	var agentCmd string
-	switch provider {
-	case "claude":
-		agentCmd = o.cfg.Agents.Claude
-	case "codex":
-		agentCmd = o.cfg.Agents.Codex
-	case "gemini":
-		agentCmd = o.cfg.Agents.Gemini
-	default:
+	prov := rotation.GetProvider(provider)
+	if prov == nil {
 		return fmt.Errorf("unknown provider: %s", provider)
 	}
 
-	// We need the project directory to cd into it
-	// Since we are restarting in an existing pane, we might assume we are already there,
-	// but to be safe we should cd again if we know it.
-	// However, extracting the project dir from paneID is tricky without session context.
-	// For this implementation, we'll assume the shell is already in the right dir
-	// or we just run the command.
-	// Ideally, we'd lookup session -> project dir.
+	var agentCmd string
+	switch prov.Name() {
+	case "Claude":
+		agentCmd = o.cfg.Agents.Claude
+	case "Codex":
+		agentCmd = o.cfg.Agents.Codex
+	case "Gemini":
+		agentCmd = o.cfg.Agents.Gemini
+	default:
+		return fmt.Errorf("unsupported provider: %s", prov.Name())
+	}
 
 	// For now, just run the agent command
 	return tmux.SendKeys(paneID, agentCmd, true)

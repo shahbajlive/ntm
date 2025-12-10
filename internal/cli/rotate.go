@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Dicklesworthstone/ntm/internal/auth"
+	"github.com/Dicklesworthstone/ntm/internal/rotation"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/spf13/cobra"
 )
@@ -118,7 +119,7 @@ func executeRestartRotation(session string, paneIdx int, paneID, provider, targe
 
 	// Step 1: Terminate session
 	fmt.Println("Step 1/3: Terminating agent session...")
-	if err := orchestrator.TerminateSession(paneID); err != nil {
+	if err := orchestrator.TerminateSession(paneID, provider); err != nil {
 		return fmt.Errorf("terminating session: %w", err)
 	}
 
@@ -170,13 +171,24 @@ func executeReauthRotation(session string, paneIdx int, paneID, provider string,
 	fmt.Printf("║  Provider: %-43s ║\n", provider)
 	fmt.Printf("╚════════════════════════════════════════════════════════╝\n\n")
 
-	// Only Claude supported for re-auth currently
-	if provider != "cc" && provider != "claude" {
-		return fmt.Errorf("re-auth strategy only supported for Claude currently (provider=%s)", provider)
+	prov := rotation.GetProvider(provider)
+	if prov == nil {
+		return fmt.Errorf("unknown provider: %s", provider)
 	}
 
-	// Step 1: Send /login command
-	fmt.Println("Step 1/3: Sending /login command...")
+	if !prov.SupportsReauth() {
+		return fmt.Errorf("re-auth strategy not supported for provider %s (try restart strategy)", prov.Name())
+	}
+
+	// Step 1: Send login command
+	fmt.Printf("Step 1/3: Sending %s command...\n", prov.LoginCommand())
+	
+	// Only Claude has specialized auth flow implementation for now
+	// For others, we might need generic flow or specific implementations
+	if prov.Name() != "Claude" {
+		return fmt.Errorf("re-auth flow implementation pending for %s", prov.Name())
+	}
+
 	authFlow := auth.NewClaudeAuthFlow(false) // false = not remote/SSH
 	if err := authFlow.InitiateAuth(paneID); err != nil {
 		return fmt.Errorf("initiating auth: %w", err)
@@ -222,7 +234,7 @@ func executeReauthRotation(session string, paneIdx int, paneID, provider string,
 
 	// Step 3: Send continuation prompt
 	fmt.Println("\nStep 3/3: Sending continuation prompt...")
-	continuation := "continue. Use ultrathink"
+	continuation := prov.ContinuationPrompt()
 	if cfg != nil && cfg.Rotation.ContinuationPrompt != "" {
 		continuation = cfg.Rotation.ContinuationPrompt
 	}
