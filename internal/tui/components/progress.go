@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Dicklesworthstone/ntm/internal/tui/styles"
+	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -30,17 +31,18 @@ type ProgressTickMsg time.Time
 
 // NewProgressBar creates a new progress bar with defaults
 func NewProgressBar(width int) ProgressBar {
+	t := theme.Current()
 	return ProgressBar{
 		Width:       width,
 		Percent:     0,
 		ShowPercent: true,
 		ShowLabel:   false,
 		GradientColors: []string{
-			"#89b4fa", // Blue
-			"#94e2d5", // Teal
-			"#a6e3a1", // Green
+			string(t.Blue),
+			string(t.Teal),
+			string(t.Green),
 		},
-		EmptyColor:    lipgloss.Color("#313244"),
+		EmptyColor:    t.Surface0,
 		FilledChar:    "█",
 		EmptyChar:     "░",
 		Animated:      true,
@@ -101,13 +103,13 @@ func (p ProgressBar) View() string {
 	if p.ShowPercent {
 		percentStr := fmt.Sprintf(" %3.0f%%", p.Percent*100)
 		bar += lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#cdd6f4")).
+			Foreground(theme.Current().Text).
 			Render(percentStr)
 	}
 
 	if p.ShowLabel && p.Label != "" {
 		bar = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#a6adc8")).
+			Foreground(theme.Current().Subtext).
 			Render(p.Label+" ") + bar
 	}
 
@@ -143,10 +145,15 @@ type IndeterminateBar struct {
 
 // NewIndeterminateBar creates a new indeterminate progress bar
 func NewIndeterminateBar(width int) IndeterminateBar {
+	t := theme.Current()
 	return IndeterminateBar{
 		Width:    width,
 		BarWidth: 10,
-		Colors:   []string{"#89b4fa", "#cba6f7", "#f5c2e7"},
+		Colors: []string{
+			string(t.Blue),
+			string(t.Mauve),
+			string(t.Pink),
+		},
 	}
 }
 
@@ -185,7 +192,7 @@ func (b IndeterminateBar) View() string {
 
 	// Build bar
 	var result strings.Builder
-	bgStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#313244"))
+	bgStyle := lipgloss.NewStyle().Foreground(theme.Current().Surface0)
 
 	// Empty before
 	result.WriteString(bgStyle.Render(strings.Repeat("░", pos)))
@@ -204,7 +211,7 @@ func (b IndeterminateBar) View() string {
 
 	if b.ShowLabel && b.Label != "" {
 		output = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#a6adc8")).
+			Foreground(theme.Current().Subtext).
 			Render(b.Label+" ") + output
 	}
 

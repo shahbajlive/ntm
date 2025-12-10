@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/Dicklesworthstone/ntm/internal/tui/styles"
+	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -31,45 +32,50 @@ var (
 
 	// Icon variants
 	LogoIcon      = "󰆍" // Terminal icon (Nerd Font)
-	LogoIconPlain = "▣"  // Plain Unicode fallback
+	LogoIconPlain = "▣" // Plain Unicode fallback
 )
 
-// Catppuccin gradient colors
-var (
-	GradientPrimary = []string{
-		"#89b4fa", // Blue
-		"#b4befe", // Lavender
-		"#cba6f7", // Mauve
-	}
+func gradientPrimary() []string {
+	t := theme.Current()
+	return []string{string(t.Blue), string(t.Lavender), string(t.Mauve)}
+}
 
-	GradientSecondary = []string{
-		"#cba6f7", // Mauve
-		"#f5c2e7", // Pink
-		"#f38ba8", // Red
-	}
+func gradientSecondary() []string {
+	t := theme.Current()
+	return []string{string(t.Mauve), string(t.Pink), string(t.Red)}
+}
 
-	GradientSuccess = []string{
-		"#94e2d5", // Teal
-		"#a6e3a1", // Green
-		"#f9e2af", // Yellow
-	}
+func gradientSuccess() []string {
+	t := theme.Current()
+	return []string{string(t.Teal), string(t.Green), string(t.Yellow)}
+}
 
-	GradientRainbow = []string{
-		"#f38ba8", // Red
-		"#fab387", // Peach
-		"#f9e2af", // Yellow
-		"#a6e3a1", // Green
-		"#89dceb", // Sky
-		"#89b4fa", // Blue
-		"#cba6f7", // Mauve
+func gradientRainbow() []string {
+	t := theme.Current()
+	return []string{
+		string(t.Red),
+		string(t.Peach),
+		string(t.Yellow),
+		string(t.Green),
+		string(t.Sky),
+		string(t.Blue),
+		string(t.Mauve),
 	}
+}
 
-	GradientAgent = map[string][]string{
-		"claude": {"#cba6f7", "#b4befe", "#89b4fa"}, // Purple to blue
-		"codex":  {"#89b4fa", "#74c7ec", "#89dceb"}, // Blue to cyan
-		"gemini": {"#f9e2af", "#fab387", "#f38ba8"}, // Yellow to red
+func gradientAgent(agent string) []string {
+	t := theme.Current()
+	switch agent {
+	case "claude":
+		return []string{string(t.Mauve), string(t.Lavender), string(t.Blue)}
+	case "codex":
+		return []string{string(t.Blue), string(t.Sapphire), string(t.Sky)}
+	case "gemini":
+		return []string{string(t.Yellow), string(t.Peach), string(t.Red)}
+	default:
+		return gradientPrimary()
 	}
-)
+}
 
 // RenderBanner renders the large logo with gradient
 func RenderBanner(animated bool, tick int) string {
@@ -77,9 +83,9 @@ func RenderBanner(animated bool, tick int) string {
 
 	for _, line := range LogoLarge {
 		if animated {
-			lines = append(lines, styles.Shimmer(line, tick, GradientPrimary...))
+			lines = append(lines, styles.Shimmer(line, tick, gradientPrimary()...))
 		} else {
-			lines = append(lines, styles.GradientText(line, GradientPrimary...))
+			lines = append(lines, styles.GradientText(line, gradientPrimary()...))
 		}
 	}
 
@@ -92,9 +98,9 @@ func RenderBannerMedium(animated bool, tick int) string {
 
 	for _, line := range LogoMedium {
 		if animated {
-			lines = append(lines, styles.Shimmer(line, tick, GradientPrimary...))
+			lines = append(lines, styles.Shimmer(line, tick, gradientPrimary()...))
 		} else {
-			lines = append(lines, styles.GradientText(line, GradientPrimary...))
+			lines = append(lines, styles.GradientText(line, gradientPrimary()...))
 		}
 	}
 
@@ -103,13 +109,13 @@ func RenderBannerMedium(animated bool, tick int) string {
 
 // RenderInlineLogo renders a small inline logo
 func RenderInlineLogo() string {
-	return styles.GradientText(LogoSmall, GradientPrimary...)
+	return styles.GradientText(LogoSmall, gradientPrimary()...)
 }
 
 // RenderSubtitle renders a styled subtitle
 func RenderSubtitle(text string) string {
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#a6adc8")).
+		Foreground(theme.Current().Subtext).
 		Italic(true).
 		Render(text)
 }
@@ -117,19 +123,19 @@ func RenderSubtitle(text string) string {
 // RenderVersion renders a styled version string
 func RenderVersion(version string) string {
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#6c7086")).
+		Foreground(theme.Current().Overlay).
 		Render("v" + version)
 }
 
 // RenderHeaderBar renders a full header bar with title
 func RenderHeaderBar(title string, width int) string {
 	// Gradient divider
-	divider := styles.GradientDivider(width, GradientPrimary...)
+	divider := styles.GradientDivider(width, gradientPrimary()...)
 
 	// Centered title
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#cdd6f4"))
+		Foreground(theme.Current().Text)
 
 	centeredTitle := styles.CenterText(titleStyle.Render(title), width)
 
@@ -140,7 +146,7 @@ func RenderHeaderBar(title string, width int) string {
 func RenderSection(title string, width int) string {
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#89b4fa"))
+		Foreground(theme.Current().Primary)
 
 	// Gradient line after title
 	titleLen := len(title) + 2
@@ -149,7 +155,7 @@ func RenderSection(title string, width int) string {
 		remaining = 0
 	}
 
-	line := styles.GradientText(strings.Repeat("─", remaining), GradientPrimary...)
+	line := styles.GradientText(strings.Repeat("─", remaining), gradientPrimary()...)
 
 	return titleStyle.Render(title) + " " + line
 }
@@ -161,20 +167,20 @@ func RenderAgentBadge(agentType string) string {
 
 	switch agentType {
 	case "claude", "cc":
-		bgColor = "#cba6f7"
-		fgColor = "#1e1e2e"
+		bgColor = string(theme.Current().Mauve)
+		fgColor = string(theme.Current().Crust)
 		icon = "󰗣"
 	case "codex", "cod":
-		bgColor = "#89b4fa"
-		fgColor = "#1e1e2e"
+		bgColor = string(theme.Current().Blue)
+		fgColor = string(theme.Current().Crust)
 		icon = ""
 	case "gemini", "gmi":
-		bgColor = "#f9e2af"
-		fgColor = "#1e1e2e"
+		bgColor = string(theme.Current().Yellow)
+		fgColor = string(theme.Current().Crust)
 		icon = "󰊤"
 	default:
-		bgColor = "#a6e3a1"
-		fgColor = "#1e1e2e"
+		bgColor = string(theme.Current().Green)
+		fgColor = string(theme.Current().Crust)
 		icon = ""
 	}
 
@@ -193,25 +199,25 @@ func RenderStatusBadge(status string) string {
 
 	switch status {
 	case "running", "active":
-		bgColor = "#a6e3a1"
+		bgColor = string(theme.Semantic().StatusSuccess)
 		icon = "●"
 	case "idle":
-		bgColor = "#f9e2af"
+		bgColor = string(theme.Semantic().StatusIdle)
 		icon = "○"
 	case "error", "failed":
-		bgColor = "#f38ba8"
+		bgColor = string(theme.Semantic().StatusError)
 		icon = "✗"
 	case "success", "done":
-		bgColor = "#a6e3a1"
+		bgColor = string(theme.Semantic().StatusSuccess)
 		icon = "✓"
 	default:
-		bgColor = "#6c7086"
+		bgColor = string(theme.Semantic().FgSecondary)
 		icon = "•"
 	}
 
 	return lipgloss.NewStyle().
 		Background(lipgloss.Color(bgColor)).
-		Foreground(lipgloss.Color("#1e1e2e")).
+		Foreground(theme.Semantic().FgInverse).
 		Padding(0, 1).
 		Render(icon + " " + status)
 }
@@ -221,13 +227,13 @@ func RenderKeyMap(keys map[string]string, width int) string {
 	var lines []string
 
 	keyStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color("#45475a")).
-		Foreground(lipgloss.Color("#cdd6f4")).
+		Background(theme.Current().Surface1).
+		Foreground(theme.Current().Text).
 		Bold(true).
 		Padding(0, 1)
 
 	descStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#a6adc8"))
+		Foreground(theme.Current().Subtext)
 
 	for key, desc := range keys {
 		lines = append(lines, keyStyle.Render(key)+" "+descStyle.Render(desc))
@@ -239,10 +245,11 @@ func RenderKeyMap(keys map[string]string, width int) string {
 
 // RenderFooter renders a styled footer
 func RenderFooter(text string, width int) string {
-	divider := styles.GradientDivider(width, "#45475a", "#313244")
+	t := theme.Current()
+	divider := styles.GradientDivider(width, string(t.Surface1), string(t.Surface0))
 
 	footerStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#6c7086")).
+		Foreground(t.Overlay).
 		Italic(true)
 
 	return divider + "\n" + styles.CenterText(footerStyle.Render(text), width)
@@ -251,7 +258,7 @@ func RenderFooter(text string, width int) string {
 // RenderHint renders a dimmed hint text
 func RenderHint(text string) string {
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#6c7086")).
+		Foreground(theme.Current().Overlay).
 		Italic(true).
 		Render(text)
 }
@@ -259,7 +266,7 @@ func RenderHint(text string) string {
 // RenderHighlight renders highlighted text
 func RenderHighlight(text string) string {
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#f5e0dc")).
+		Foreground(theme.Current().Rosewater).
 		Bold(true).
 		Render(text)
 }
@@ -267,7 +274,7 @@ func RenderHighlight(text string) string {
 // RenderCommand renders a command with styling
 func RenderCommand(cmd string) string {
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#89b4fa")).
+		Foreground(theme.Current().Primary).
 		Bold(true).
 		Render(cmd)
 }
@@ -275,21 +282,21 @@ func RenderCommand(cmd string) string {
 // RenderArg renders an argument with styling
 func RenderArg(arg string) string {
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#a6e3a1")).
+		Foreground(theme.Current().Green).
 		Render("<" + arg + ">")
 }
 
 // RenderFlag renders a flag with styling
 func RenderFlag(flag string) string {
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#f9e2af")).
+		Foreground(theme.Current().Yellow).
 		Render(flag)
 }
 
 // RenderExample renders an example with styling
 func RenderExample(example string) string {
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#fab387")).
+		Foreground(theme.Current().Peach).
 		Italic(true).
 		Render(example)
 }

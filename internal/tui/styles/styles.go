@@ -6,8 +6,18 @@ import (
 	"math"
 	"strings"
 
+	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
 	"github.com/charmbracelet/lipgloss"
 )
+
+func defaultGradient() []string {
+	t := theme.Current()
+	return []string{string(t.Blue), string(t.Mauve), string(t.Pink)}
+}
+
+func defaultSurface1() lipgloss.Color {
+	return theme.Current().Surface1
+}
 
 // GradientDirection specifies gradient orientation
 type GradientDirection int
@@ -112,7 +122,7 @@ func GradientBar(width int, colors ...string) string {
 // GradientBorder creates a box with gradient border
 func GradientBorder(content string, width int, colors ...string) string {
 	if len(colors) < 2 {
-		colors = []string{"#89b4fa", "#cba6f7", "#f5c2e7"}
+		colors = defaultGradient()
 	}
 
 	// Box drawing characters
@@ -161,7 +171,8 @@ func Glow(text string, baseColor, glowColor string) string {
 // Shimmer creates an animated shimmer effect (returns frame for given tick)
 func Shimmer(text string, tick int, colors ...string) string {
 	if len(colors) < 2 {
-		colors = []string{"#89b4fa", "#cba6f7", "#f5c2e7", "#89b4fa"}
+		grad := defaultGradient()
+		colors = append(append([]string{}, grad...), grad[0])
 	}
 
 	runes := []rune(text)
@@ -202,14 +213,15 @@ func Shimmer(text string, tick int, colors ...string) string {
 
 // Rainbow applies rainbow colors to text
 func Rainbow(text string) string {
+	t := theme.Current()
 	return GradientText(text,
-		"#f38ba8", // Red
-		"#fab387", // Orange
-		"#f9e2af", // Yellow
-		"#a6e3a1", // Green
-		"#89dceb", // Cyan
-		"#89b4fa", // Blue
-		"#cba6f7", // Purple
+		string(t.Red),
+		string(t.Peach),
+		string(t.Yellow),
+		string(t.Green),
+		string(t.Sky),
+		string(t.Blue),
+		string(t.Mauve),
 	)
 }
 
@@ -250,11 +262,12 @@ func ProgressBar(percent float64, width int, filled, empty string, colors ...str
 	emptyWidth := width - filledWidth
 
 	if len(colors) < 2 {
-		colors = []string{"#89b4fa", "#a6e3a1"}
+		t := theme.Current()
+		colors = []string{string(t.Blue), string(t.Green)}
 	}
 
 	filledStr := GradientText(strings.Repeat(filled, filledWidth), colors...)
-	emptyStr := lipgloss.NewStyle().Foreground(lipgloss.Color("#45475a")).Render(strings.Repeat(empty, emptyWidth))
+	emptyStr := lipgloss.NewStyle().Foreground(defaultSurface1()).Render(strings.Repeat(empty, emptyWidth))
 
 	return filledStr + emptyStr
 }

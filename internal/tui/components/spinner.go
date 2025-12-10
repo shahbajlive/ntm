@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Dicklesworthstone/ntm/internal/tui/styles"
+	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -38,12 +39,12 @@ var spinnerFrames = map[SpinnerStyle][]string{
 
 // Spinner is an animated spinner component
 type Spinner struct {
-	Style     SpinnerStyle
-	Color     lipgloss.Color
-	Frame     int
-	FPS       time.Duration
-	Label     string
-	Gradient  bool
+	Style          SpinnerStyle
+	Color          lipgloss.Color
+	Frame          int
+	FPS            time.Duration
+	Label          string
+	Gradient       bool
 	GradientColors []string
 }
 
@@ -52,13 +53,18 @@ type SpinnerTickMsg time.Time
 
 // NewSpinner creates a new spinner with defaults
 func NewSpinner() Spinner {
+	t := theme.Current()
 	return Spinner{
 		Style:    SpinnerDots,
-		Color:    lipgloss.Color("#cba6f7"),
+		Color:    t.Mauve,
 		Frame:    0,
 		FPS:      time.Millisecond * 80,
 		Gradient: false,
-		GradientColors: []string{"#89b4fa", "#cba6f7", "#f5c2e7"},
+		GradientColors: []string{
+			string(t.Blue),
+			string(t.Mauve),
+			string(t.Pink),
+		},
 	}
 }
 
