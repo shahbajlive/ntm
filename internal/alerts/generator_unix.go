@@ -30,7 +30,9 @@ func (g *Generator) checkDiskSpace() *Alert {
 	}
 
 	// Calculate free space in GB
-	freeGB := float64(stat.Bavail*uint64(stat.Bsize)) / (1024 * 1024 * 1024)
+	// Convert to float64 directly to handle different field types across Unix variants
+	// (Bavail is int64 on Linux/FreeBSD, uint64 on macOS)
+	freeGB := float64(stat.Bavail) * float64(stat.Bsize) / (1024 * 1024 * 1024)
 
 	if freeGB < g.config.DiskLowThresholdGB {
 		severity := SeverityWarning

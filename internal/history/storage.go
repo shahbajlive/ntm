@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	historyFileName = "history.jsonl"
+	historyFileName   = "history.jsonl"
 	defaultMaxEntries = 10000
 )
 
@@ -19,8 +19,8 @@ var (
 	// ErrNoHistory is returned when history file doesn't exist
 	ErrNoHistory = errors.New("no history file found")
 
-	// historyMu protects concurrent access to history file
-	historyMu sync.Mutex
+	// internal mutex for goroutine safety
+	localMu sync.Mutex
 )
 
 // StoragePath returns the path to the history file.
@@ -37,15 +37,22 @@ func StoragePath() string {
 	return filepath.Join(dataDir, "ntm", historyFileName)
 }
 
+// acquireLock is implemented in platform-specific files:
+// - lock_unix.go for Unix systems (with flock)
+// - lock_windows.go for Windows (mutex only)
+
 // Append adds an entry to the history file.
-// Thread-safe and atomic (writes full line or nothing).
+// Thread-safe and process-safe.
 func Append(entry *HistoryEntry) error {
-	historyMu.Lock()
-	defer historyMu.Unlock()
+	unlock, err := acquireLock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 
 	path := StoragePath()
 
-	// Ensure directory exists
+	// Ensure directory exists (again, but cheap)
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}
@@ -69,8 +76,11 @@ func Append(entry *HistoryEntry) error {
 // ReadAll reads all history entries from the file.
 // Returns empty slice if file doesn't exist.
 func ReadAll() ([]HistoryEntry, error) {
-	historyMu.Lock()
-	defer historyMu.Unlock()
+	unlock, err := acquireLock()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 
 	return readAllLocked()
 }
@@ -112,8 +122,11 @@ func readAllLocked() ([]HistoryEntry, error) {
 // ReadRecent reads the last n entries efficiently.
 // Reads from end of file when possible.
 func ReadRecent(n int) ([]HistoryEntry, error) {
-	historyMu.Lock()
-	defer historyMu.Unlock()
+	unlock, err := acquireLock()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 
 	// For simplicity, read all and return last n
 	// Could be optimized with tail-reading for large files
@@ -147,8 +160,11 @@ func ReadForSession(session string) ([]HistoryEntry, error) {
 
 // Count returns the number of entries in history.
 func Count() (int, error) {
-	historyMu.Lock()
-	defer historyMu.Unlock()
+	unlock, err := acquireLock()
+	if err != nil {
+		return 0, err
+	}
+	defer unlock()
 
 	path := StoragePath()
 
@@ -172,11 +188,14 @@ func Count() (int, error) {
 
 // Clear removes all history.
 func Clear() error {
-	historyMu.Lock()
-	defer historyMu.Unlock()
+	unlock, err := acquireLock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 
 	path := StoragePath()
-	err := os.Remove(path)
+	err = os.Remove(path)
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -185,8 +204,11 @@ func Clear() error {
 
 // Prune keeps only the last n entries, removing older ones.
 func Prune(keep int) (int, error) {
-	historyMu.Lock()
-	defer historyMu.Unlock()
+	unlock, err := acquireLock()
+	if err != nil {
+		return 0, err
+	}
+	defer unlock()
 
 	entries, err := readAllLocked()
 	if err != nil {
@@ -201,15 +223,16 @@ func Prune(keep int) (int, error) {
 	toKeep := entries[len(entries)-keep:]
 	removed := len(entries) - keep
 
-	// Rewrite file
+	// Rewrite file atomically
 	path := StoragePath()
-	f, err := os.Create(path)
+	dir := filepath.Dir(path)
+	tmpFile, err := os.CreateTemp(dir, "history-*.tmp")
 	if err != nil {
 		return 0, err
 	}
-	defer f.Close()
+	defer os.Remove(tmpFile.Name()) // clean up on error
 
-	writer := bufio.NewWriter(f)
+	writer := bufio.NewWriter(tmpFile)
 	for _, entry := range toKeep {
 		data, err := json.Marshal(entry)
 		if err != nil {
@@ -223,7 +246,19 @@ func Prune(keep int) (int, error) {
 		}
 	}
 
-	return removed, writer.Flush()
+	if err := writer.Flush(); err != nil {
+		return 0, err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return 0, err
+	}
+
+	// Atomic rename
+	if err := os.Rename(tmpFile.Name(), path); err != nil {
+		return 0, err
+	}
+
+	return removed, nil
 }
 
 // Search finds entries matching a query string in the prompt.
@@ -281,8 +316,11 @@ func Exists() bool {
 
 // ExportTo writes history to a specific file.
 func ExportTo(path string) error {
-	historyMu.Lock()
-	defer historyMu.Unlock()
+	unlock, err := acquireLock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 
 	entries, err := readAllLocked()
 	if err != nil {
@@ -340,11 +378,11 @@ func ImportFrom(path string) (int, error) {
 
 // Stats returns summary statistics about history.
 type Stats struct {
-	TotalEntries    int `json:"total_entries"`
-	SuccessCount    int `json:"success_count"`
-	FailureCount    int `json:"failure_count"`
-	UniqueSessions  int `json:"unique_sessions"`
-	FileSizeBytes   int64 `json:"file_size_bytes"`
+	TotalEntries   int   `json:"total_entries"`
+	SuccessCount   int   `json:"success_count"`
+	FailureCount   int   `json:"failure_count"`
+	UniqueSessions int   `json:"unique_sessions"`
+	FileSizeBytes  int64 `json:"file_size_bytes"`
 }
 
 // GetStats returns history statistics.
