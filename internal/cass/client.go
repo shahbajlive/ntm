@@ -8,6 +8,9 @@ import (
 	"time"
 )
 
+// ErrNotInstalled is returned when the cass binary is not found
+var ErrNotInstalled = fmt.Errorf("cass is not installed")
+
 // Executor interface allows mocking the cass binary execution
 type Executor interface {
 	Run(ctx context.Context, args ...string) ([]byte, error)

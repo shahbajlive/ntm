@@ -9,12 +9,18 @@ import (
 
 // Health performs a quick health check
 func (c *Client) Health(ctx context.Context) (*StatusResponse, error) {
+	if !c.IsInstalled() {
+		return nil, ErrNotInstalled
+	}
 	// Use "status" as health check for now, unless "health" is distinct in CASS robot mode
 	return c.runStatusCmd(ctx, "status")
 }
 
 // Status returns full index status
 func (c *Client) Status(ctx context.Context) (*StatusResponse, error) {
+	if !c.IsInstalled() {
+		return nil, ErrNotInstalled
+	}
 	return c.runStatusCmd(ctx, "status")
 }
 
@@ -37,6 +43,10 @@ func (c *Client) runStatusCmd(ctx context.Context, cmd string) (*StatusResponse,
 
 // Capabilities returns CASS feature discovery
 func (c *Client) Capabilities(ctx context.Context) (*Capabilities, error) {
+	if !c.IsInstalled() {
+		return nil, ErrNotInstalled
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 

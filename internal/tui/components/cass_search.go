@@ -164,6 +164,14 @@ func (m *CassSearchModel) SetSize(width, height int) {
 
 // View renders the component
 func (m CassSearchModel) View() string {
+	if m.err == cass.ErrNotInstalled {
+		return lipgloss.NewStyle().
+			Foreground(lipgloss.Color("204")).
+			Align(lipgloss.Center).
+			Width(m.width).
+			Render("CASS is not installed.\n\nInstall with: brew install cass\nThen try again.")
+	}
+
 	return lipgloss.JoinVertical(lipgloss.Left,
 		m.textInput.View(),
 		m.list.View(),

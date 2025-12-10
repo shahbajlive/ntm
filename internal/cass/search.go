@@ -8,6 +8,10 @@ import (
 
 // Search performs a search query against CASS
 func (c *Client) Search(ctx context.Context, opts SearchOptions) (*SearchResponse, error) {
+	if !c.IsInstalled() {
+		return nil, ErrNotInstalled
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 

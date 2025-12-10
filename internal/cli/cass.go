@@ -29,6 +29,23 @@ func newCassCmd() *cobra.Command {
 	return cmd
 }
 
+func handleCassError(err error) error {
+	if err == cass.ErrNotInstalled {
+		if IsJSONOutput() {
+			return output.PrintJSON(map[string]interface{}{
+				"error": "cass_not_installed",
+				"hint":  "Install CASS to enable this feature",
+			})
+		}
+		fmt.Println("CASS is not installed.")
+		fmt.Println("To enable cross-agent session search:")
+		fmt.Println("  brew install nightowlai/tap/cass    # macOS")
+		fmt.Println("  cargo install cass                  # From source")
+		return nil
+	}
+	return err
+}
+
 func newCassStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
@@ -41,13 +58,9 @@ func newCassStatusCmd() *cobra.Command {
 
 func runCassStatus() error {
 	client := cass.NewClient()
-	if !client.IsInstalled() {
-		return fmt.Errorf("cass binary not found (install from github.com/nightowlai/cass)")
-	}
-
 	status, err := client.Status(context.Background())
 	if err != nil {
-		return err
+		return handleCassError(err)
 	}
 
 	if IsJSONOutput() {
@@ -113,7 +126,7 @@ func runCassSearch(query, agent, workspace, since string, limit, offset int) err
 		Offset:    offset,
 	})
 	if err != nil {
-		return err
+		return handleCassError(err)
 	}
 
 	if IsJSONOutput() {
@@ -160,7 +173,7 @@ func runCassInsights(since string) error {
 		Limit: 0,
 	})
 	if err != nil {
-		return err
+		return handleCassError(err)
 	}
 
 	if IsJSONOutput() {
@@ -222,7 +235,7 @@ func runCassTimeline(since, groupBy string) error {
 	client := cass.NewClient()
 	resp, err := client.Timeline(context.Background(), since, groupBy)
 	if err != nil {
-		return err
+		return handleCassError(err)
 	}
 
 	if IsJSONOutput() {
