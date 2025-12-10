@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Dicklesworthstone/ntm/internal/auth"
+	"github.com/Dicklesworthstone/ntm/internal/quota"
 	"github.com/Dicklesworthstone/ntm/internal/rotation"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/spf13/cobra"
@@ -19,6 +20,7 @@ func newRotateCmd() *cobra.Command {
 	var targetAccount string
 	var dryRun bool
 	var timeout int
+	var allLimited bool
 
 	cmd := &cobra.Command{
 		Use:   "rotate [session]",
@@ -30,6 +32,7 @@ Use --preserve-context to re-authenticate the existing session instead.
 
 Examples:
   ntm rotate myproject --pane=0
+  ntm rotate myproject --all-limited       # Rotate all rate-limited panes
   ntm rotate myproject --pane=0 --preserve-context
   ntm rotate myproject --pane=0 --account=backup1@gmail.com`,
 		Args: cobra.MaximumNArgs(1),
@@ -44,8 +47,12 @@ Examples:
 				session = tmux.GetCurrentSession()
 			}
 
+			if allLimited {
+				return rotateAllLimited(session, targetAccount, dryRun)
+			}
+
 			if paneIndex < 0 {
-				return fmt.Errorf("pane index required (use --pane=N)")
+				return fmt.Errorf("pane index required (use --pane=N) or --all-limited")
 			}
 
 			// Get pane info
@@ -101,8 +108,130 @@ Examples:
 	cmd.Flags().StringVar(&targetAccount, "account", "", "Target account email (optional)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Print action without executing")
 	cmd.Flags().IntVar(&timeout, "timeout", 300, "Timeout in seconds for auth completion")
+	cmd.Flags().BoolVar(&allLimited, "all-limited", false, "Rotate all rate-limited panes in the session")
 
 	return cmd
+}
+
+func rotateAllLimited(session, targetAccount string, dryRun bool) error {
+	// 1. Identify limited panes
+	fmt.Printf("Scanning session '%s' for rate-limited panes...\n", session)
+	panes, err := tmux.GetPanes(session)
+	if err != nil {
+		return err
+	}
+
+	var limitedPanes []tmux.Pane
+	fetcher := &quota.PTYFetcher{CommandTimeout: 5 * time.Second}
+	ctx := context.Background()
+
+	for _, p := range panes {
+		// Skip user panes
+		if p.Type == tmux.AgentUser {
+			continue
+		}
+
+		// Check quota
+		var provider quota.Provider
+		switch p.Type {
+		case tmux.AgentClaude:
+			provider = quota.ProviderClaude
+		case tmux.AgentCodex:
+			provider = quota.ProviderCodex
+		case tmux.AgentGemini:
+			provider = quota.ProviderGemini
+		default:
+			continue
+		}
+
+		fmt.Printf("  Checking %s (index %d)... ", p.Title, p.Index)
+		info, err := fetcher.FetchQuota(ctx, p.ID, provider)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			continue
+		}
+
+		if info.IsLimited {
+			fmt.Printf("LIMITED\n")
+			limitedPanes = append(limitedPanes, p)
+		} else {
+			fmt.Printf("OK\n")
+		}
+	}
+
+	if len(limitedPanes) == 0 {
+		fmt.Println("No rate-limited panes found.")
+		return nil
+	}
+
+	fmt.Printf("\nFound %d limited panes to rotate.\n", len(limitedPanes))
+
+	// Suggest account from config if not specified
+	if targetAccount == "" && cfg != nil {
+		// Use first limited pane to suggest account
+		providerStr := string(limitedPanes[0].Type)
+		if suggested := cfg.Rotation.SuggestNextAccount(providerStr, ""); suggested != nil {
+			targetAccount = suggested.Email
+			if suggested.Alias != "" {
+				targetAccount = fmt.Sprintf("%s (%s)", suggested.Email, suggested.Alias)
+			}
+		}
+	}
+	if targetAccount == "" {
+		targetAccount = "<your other account>"
+	}
+
+	if dryRun {
+		fmt.Printf("Dry run: would rotate %d panes to %s\n", len(limitedPanes), targetAccount)
+		return nil
+	}
+
+	// Batch Rotation Flow
+	orchestrator := auth.NewOrchestrator(cfg)
+
+	// 1. Terminate all
+	fmt.Println("\nStep 1/3: Terminating sessions...")
+	for _, p := range limitedPanes {
+		fmt.Printf("  Terminating %s (pane %d)...\n", p.Title, p.Index)
+		if err := orchestrator.TerminateSession(p.ID, string(p.Type)); err != nil {
+			fmt.Printf("    Error terminating: %v\n", err)
+		}
+	}
+
+	// 2. Wait for shells
+	fmt.Println("Step 2/3: Waiting for shell prompts...")
+	for _, p := range limitedPanes {
+		_ = orchestrator.WaitForShellPrompt(p.ID, 5*time.Second)
+	}
+
+	// 3. Prompt user ONCE
+	fmt.Printf("\n")
+	fmt.Printf("╔════════════════════════════════════════════════════════╗\n")
+	fmt.Printf("║  👉 ACTION REQUIRED                                    ║\n")
+	fmt.Printf("╠════════════════════════════════════════════════════════╣\n")
+	fmt.Printf("║  Switch your browser to:                               ║\n")
+	fmt.Printf("║    %s\n", targetAccount)
+	fmt.Printf("║                                                        ║\n")
+	fmt.Printf("║  This will authenticate %d agents at once.              ║\n", len(limitedPanes))
+	fmt.Printf("║  Then press ENTER to continue...                       ║\n")
+	fmt.Printf("╚════════════════════════════════════════════════════════╝\n")
+
+	if cfg != nil && cfg.Rotation.AutoOpenBrowser {
+		openAccountsPage()
+	}
+	_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
+
+	// 4. Start all
+	fmt.Println("\nStep 3/3: Starting new sessions...")
+	for _, p := range limitedPanes {
+		fmt.Printf("  Starting %s...\n", p.Title)
+		if err := orchestrator.StartNewAgentSession(p.ID, string(p.Type)); err != nil {
+			fmt.Printf("    Error starting: %v\n", err)
+		}
+	}
+
+	fmt.Println("\n✓ Batch rotation complete.")
+	return nil
 }
 
 func executeRestartRotation(session string, paneIdx int, paneID, provider, targetAccount string) error {
