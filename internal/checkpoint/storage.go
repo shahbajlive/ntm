@@ -58,7 +58,8 @@ func (s *Storage) PanesDirPath(sessionName, checkpointID string) string {
 
 // GenerateID creates a unique checkpoint ID from timestamp and name.
 func GenerateID(name string) string {
-	timestamp := time.Now().Format("20060102-150405")
+	// Use milliseconds to prevent collisions in automated scenarios
+	timestamp := time.Now().Format("20060102-150405.000")
 	// Sanitize name for filesystem safety
 	safeName := sanitizeName(name)
 	if safeName == "" {
