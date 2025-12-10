@@ -223,11 +223,21 @@ func aggregateStats(eventList []events.Event, days int, since string, cutoff tim
 				stats.TotalCharsSent += int(length)
 			}
 
+			// Aggregate token estimates
+			var tokenEst int
+			if tokens, ok := event.Data["estimated_tokens"].(float64); ok {
+				tokenEst = int(tokens)
+			} else if length, ok := event.Data["prompt_length"].(float64); ok {
+				// Fallback: estimate from prompt_length (~3.5 chars/token)
+				tokenEst = int(length) * 10 / 35
+			}
+			stats.TotalTokensEst += tokenEst
+
 			// Update per-type stats based on target_types
 			if targetTypes, ok := event.Data["target_types"].(string); ok {
 				targets := parseTargetTypes(targetTypes)
 				for _, t := range targets {
-					updateAgentStats(stats.AgentBreakdown, t, 0, 1, 0)
+					updateAgentStats(stats.AgentBreakdown, t, 0, 1, tokenEst)
 				}
 			}
 
@@ -243,11 +253,11 @@ func aggregateStats(eventList []events.Event, days int, since string, cutoff tim
 }
 
 // updateAgentStats updates or creates agent stats entry.
-func updateAgentStats(breakdown map[string]AgentStats, agentType string, countDelta, promptsDelta, charsDelta int) {
+func updateAgentStats(breakdown map[string]AgentStats, agentType string, countDelta, promptsDelta, tokensDelta int) {
 	current := breakdown[agentType]
 	current.Count += countDelta
 	current.Prompts += promptsDelta
-	current.CharsSent += charsDelta
+	current.TokensEst += tokensDelta
 	breakdown[agentType] = current
 }
 
