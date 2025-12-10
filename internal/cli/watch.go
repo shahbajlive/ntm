@@ -18,15 +18,15 @@ import (
 
 func newWatchCmd() *cobra.Command {
 	var (
-		filterClaude  bool
-		filterCodex   bool
-		filterGemini  bool
-		filterPane    string
-		activityOnly  bool
-		tailLines     int
-		noColor       bool
-		noTimestamps  bool
-		pollInterval  int
+		filterClaude bool
+		filterCodex  bool
+		filterGemini bool
+		filterPane   string
+		activityOnly bool
+		tailLines    int
+		noColor      bool
+		noTimestamps bool
+		pollInterval int
 	)
 
 	cmd := &cobra.Command{
@@ -150,8 +150,6 @@ func runWatch(session string, opts watchOptions) error {
 // paneState tracks the state of a pane for diffing
 type paneState struct {
 	lastOutput string
-	lastHash   string
-	lineCount  int
 }
 
 func watchLoop(ctx context.Context, session string, opts watchOptions, t theme.Theme) error {
@@ -204,7 +202,10 @@ func watchLoop(ctx context.Context, session string, opts watchOptions, t theme.T
 			}
 			output, err := tmux.CapturePaneOutput(paneID, lines)
 			if err != nil {
-				continue
+				if opts.activityOnly {
+					continue
+				}
+				return fmt.Errorf("failed to capture pane output: %w", err)
 			}
 
 			// Compute diff

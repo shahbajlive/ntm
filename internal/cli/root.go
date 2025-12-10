@@ -462,6 +462,7 @@ func init() {
 		newCopyCmd(),
 		newSaveCmd(),
 		newGrepCmd(),
+		newExtractCmd(),
 
 		// Session persistence
 		newCheckpointCmd(),
