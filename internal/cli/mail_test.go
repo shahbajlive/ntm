@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ type mailStub struct {
 	readAgents   []string
 	ackAgents    []string
 	ensureCalled int
+	failIDs      map[int]string // messageID -> error message
 }
 
 type fetchCall struct {
@@ -32,7 +34,7 @@ type fetchCall struct {
 
 func newMailStub(t *testing.T, inbox []agentmail.InboxMessage) *mailStub {
 	t.Helper()
-	stub := &mailStub{inbox: inbox}
+	stub := &mailStub{inbox: inbox, failIDs: make(map[int]string)}
 
 	stub.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/health" {
@@ -68,6 +70,19 @@ func newMailStub(t *testing.T, inbox []agentmail.InboxMessage) *mailStub {
 			}
 		}
 
+		writeError := func(w http.ResponseWriter, id interface{}, code int, msg string) {
+			resp := agentmail.JSONRPCResponse{
+				JSONRPC: "2.0",
+				ID:      id,
+				Error: &agentmail.JSONRPCError{
+					Code:    code,
+					Message: msg,
+				},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(&resp)
+		}
+
 		switch name {
 		case "ensure_project":
 			stub.ensureCalled++
@@ -100,11 +115,19 @@ func newMailStub(t *testing.T, inbox []agentmail.InboxMessage) *mailStub {
 			id := toInt(args["message_id"])
 			stub.readIDs = append(stub.readIDs, id)
 			stub.readAgents = append(stub.readAgents, toString(args["agent_name"]))
+			if msg, ok := stub.failIDs[id]; ok {
+				writeError(w, rpc.ID, -32000, msg)
+				return
+			}
 			writeResponse(map[string]interface{}{})
 		case "acknowledge_message":
 			id := toInt(args["message_id"])
 			stub.ackIDs = append(stub.ackIDs, id)
 			stub.ackAgents = append(stub.ackAgents, toString(args["agent_name"]))
+			if msg, ok := stub.failIDs[id]; ok {
+				writeError(w, rpc.ID, -32000, msg)
+				return
+			}
 			writeResponse(map[string]interface{}{})
 		default:
 			http.Error(w, "unknown tool "+name, http.StatusNotFound)
@@ -150,14 +173,14 @@ func toString(v interface{}) string {
 	return val
 }
 
-func execCommand(t *testing.T, args ...string) error {
+func execCommand(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	resetFlags()
 	rootCmd.SetArgs(args)
 	var buf bytes.Buffer
 	rootCmd.SetOut(&buf)
 	rootCmd.SetErr(&buf)
-	return rootCmd.Execute()
+	return buf.String(), rootCmd.Execute()
 }
 
 func TestMailMarkRequiresSelector(t *testing.T) {
@@ -168,7 +191,7 @@ func TestMailMarkRequiresSelector(t *testing.T) {
 	t.Setenv("AGENT_MAIL_URL", stub.server.URL+"/")
 	t.Setenv("AGENT_NAME", "EnvAgent")
 
-	err := execCommand(t, "mail", "read", "mysession", "--agent", "EnvAgent")
+	_, err := execCommand(t, "mail", "read", "mysession", "--agent", "EnvAgent")
 	if err == nil {
 		t.Fatalf("expected error when no ids/filters/all provided")
 	}
@@ -181,7 +204,7 @@ func TestMailMarkRequiresAgentOrEnv(t *testing.T) {
 
 	t.Setenv("AGENT_MAIL_URL", stub.server.URL+"/")
 
-	err := execCommand(t, "mail", "ack", "mysession", "5")
+	_, err := execCommand(t, "mail", "ack", "mysession", "5")
 	if err == nil {
 		t.Fatalf("expected error when agent is missing")
 	}
@@ -195,7 +218,7 @@ func TestMailAckUsesEnvAgent(t *testing.T) {
 	t.Setenv("AGENT_MAIL_URL", stub.server.URL+"/")
 	t.Setenv("AGENT_NAME", "EnvAgent")
 
-	if err := execCommand(t, "mail", "ack", "mysession", "42", "--json"); err != nil {
+	if _, err := execCommand(t, "mail", "ack", "mysession", "42", "--json"); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 
@@ -204,6 +227,24 @@ func TestMailAckUsesEnvAgent(t *testing.T) {
 	}
 	if len(stub.ackAgents) != 1 || stub.ackAgents[0] != "EnvAgent" {
 		t.Fatalf("expected agent EnvAgent, got %v", stub.ackAgents)
+	}
+}
+
+func TestMailMarkReportsErrorsInJSON(t *testing.T) {
+	inbox := []agentmail.InboxMessage{}
+	stub := newMailStub(t, inbox)
+	stub.failIDs[99] = "already acknowledged"
+	defer stub.Close()
+
+	t.Setenv("AGENT_MAIL_URL", stub.server.URL+"/")
+	t.Setenv("AGENT_NAME", "EnvAgent")
+
+	out, err := execCommand(t, "mail", "ack", "mysession", "99", "--json")
+	if err != nil {
+		t.Fatalf("expected command to finish with JSON summary, got error: %v", err)
+	}
+	if !strings.Contains(out, `"errors":1`) {
+		t.Fatalf("expected JSON summary to report errors, got: %s", out)
 	}
 }
 
@@ -218,7 +259,7 @@ func TestMailReadWithFilters(t *testing.T) {
 
 	t.Setenv("AGENT_MAIL_URL", stub.server.URL+"/")
 
-	if err := execCommand(t, "mail", "read", "mysession", "--agent", "TestAgent", "--urgent", "--from", "BlueBear"); err != nil {
+	if _, err := execCommand(t, "mail", "read", "mysession", "--agent", "TestAgent", "--urgent", "--from", "BlueBear"); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 

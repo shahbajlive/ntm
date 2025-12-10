@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strconv"
@@ -103,7 +104,7 @@ Examples:
 				return fmt.Errorf("message body cannot be empty")
 			}
 
-			return runMailSendOverseer(session, to, subject, body, threadID, all)
+			return runMailSendOverseer(cmd, session, to, subject, body, threadID, all)
 		},
 	}
 
@@ -164,7 +165,7 @@ func newMailMarkCmd(action mailAction) *cobra.Command {
 				return err
 			}
 
-			return runMailMark(session, agent, action, ids, urgent, fromAgent, all, limit)
+			return runMailMark(cmd, session, agent, action, ids, urgent, fromAgent, all, limit)
 		},
 	}
 
@@ -202,7 +203,7 @@ type markSummary struct {
 	IDs       []int  `json:"ids"`
 }
 
-func runMailMark(session, agent string, action mailAction, ids []int, urgent bool, fromAgent string, all bool, limit int) error {
+func runMailMark(cmd *cobra.Command, session, agent string, action mailAction, ids []int, urgent bool, fromAgent string, all bool, limit int) error {
 	projectKey, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("getting working directory: %w", err)
@@ -249,7 +250,7 @@ func runMailMark(session, agent string, action mailAction, ids []int, urgent boo
 		}
 		if len(ids) == 0 {
 			if IsJSONOutput() {
-				return encodeJSONResult(markSummary{Action: string(action), Agent: agent})
+				return encodeJSONResult(cmd.OutOrStdout(), markSummary{Action: string(action), Agent: agent})
 			}
 			fmt.Println("No matching messages found.")
 			return nil
@@ -284,7 +285,7 @@ func runMailMark(session, agent string, action mailAction, ids []int, urgent boo
 	}
 
 	if IsJSONOutput() {
-		return encodeJSONResult(markSummary{
+		return encodeJSONResult(cmd.OutOrStdout(), markSummary{
 			Action:    string(action),
 			Agent:     agent,
 			Processed: processed,
@@ -563,7 +564,11 @@ func truncateSubject(body string, maxLen int) string {
 
 // encodeJSONResult is a helper to output JSON.
 func encodeJSONResult(v interface{}) error {
-	encoder := json.NewEncoder(os.Stdout)
+	w := io.Writer(os.Stdout)
+	if rootCmd != nil && rootCmd.OutOrStdout() != nil {
+		w = rootCmd.OutOrStdout()
+	}
+	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(v)
 }
