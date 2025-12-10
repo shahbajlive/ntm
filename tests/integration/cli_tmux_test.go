@@ -1,7 +1,10 @@
 package integration
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -21,38 +24,69 @@ func TestCLISpawnSendAndStatus(t *testing.T) {
 
 	logger := testutil.NewTestLogger(t, t.TempDir())
 
-	// Create a session without launching external agent binaries.
-	session := testutil.CreateTestSession(t, logger, testutil.SessionConfig{})
+	// Use a temp config that stubs agent binaries to /bin/true to avoid external dependencies.
+	projectsBase := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.toml")
+	configContents := fmt.Sprintf(`projects_base = "%s"
+
+[agents]
+claude = "/bin/true"
+codex = "/bin/true"
+gemini = "/bin/true"
+`, projectsBase)
+	if err := os.WriteFile(configPath, []byte(configContents), 0644); err != nil {
+		t.Fatalf("failed to write temp config: %v", err)
+	}
+
+	// Make config available to subsequent ntm commands.
+	t.Setenv("NTM_PROJECTS_BASE", projectsBase)
+
+	// Create a session with a single stubbed claude agent.
+	session := testutil.CreateTestSession(t, logger, testutil.SessionConfig{
+		Agents: testutil.AgentConfig{
+			Claude: 1,
+		},
+		WorkDir:   projectsBase,
+		ExtraArgs: []string{"--config", configPath},
+	})
 	testutil.AssertSessionExists(t, logger, session)
 
-	// Add synthetic cc and cod panes so send/status have targets.
-	ccPane, err := tmux.SplitWindow(session, t.TempDir())
+	// Discover panes and locate the spawned cc pane.
+	panes, err := tmux.GetPanesWithActivity(session)
 	if err != nil {
-		t.Fatalf("failed to split window for cc pane: %v", err)
+		t.Fatalf("failed to list panes: %v", err)
 	}
-	if err := tmux.SetPaneTitle(ccPane, fmt.Sprintf("%s__cc_1", session)); err != nil {
-		t.Fatalf("failed to set cc pane title: %v", err)
+	var ccPaneID string
+	for _, p := range panes {
+		if strings.HasPrefix(p.Pane.Title, session+"__cc_") {
+			ccPaneID = p.Pane.ID
+			break
+		}
+	}
+	if ccPaneID == "" {
+		t.Fatalf("cc pane not found in session %s", session)
 	}
 
-	codPane, err := tmux.SplitWindow(session, t.TempDir())
-	if err != nil {
-		t.Fatalf("failed to split window for cod pane: %v", err)
+	// status should see user + cc = 2 panes.
+	out := testutil.AssertCommandSuccess(t, logger, "ntm", "status", "--json", "--config", configPath, session)
+	var status struct {
+		Panes []struct {
+			Type string `json:"type"`
+		} `json:"panes"`
 	}
-	if err := tmux.SetPaneTitle(codPane, fmt.Sprintf("%s__cod_1", session)); err != nil {
-		t.Fatalf("failed to set cod pane title: %v", err)
+	if err := json.Unmarshal(out, &status); err != nil {
+		t.Fatalf("failed to parse status JSON: %v", err)
 	}
-
-	_ = tmux.ApplyTiledLayout(session)
-
-	// status should see user + cc + cod = 3 panes.
-	testutil.AssertNTMStatus(t, logger, session, 3)
+	if len(status.Panes) != 2 {
+		t.Fatalf("expected 2 panes (user + cc), got %d", len(status.Panes))
+	}
 
 	// Send a command to cc panes and verify it lands.
 	const marker = "INTEGRATION_CC_OK"
-	testutil.AssertCommandSuccess(t, logger, "ntm", "send", session, "--cc", "echo "+marker)
+	testutil.AssertCommandSuccess(t, logger, "ntm", "send", "--config", configPath, session, "--cc", "echo "+marker)
 
 	testutil.AssertEventually(t, logger, 5*time.Second, 150*time.Millisecond, "cc pane receives send payload", func() bool {
-		out, err := tmux.CapturePaneOutput(ccPane, 200)
+		out, err := tmux.CapturePaneOutput(ccPaneID, 200)
 		if err != nil {
 			return false
 		}

@@ -227,6 +227,13 @@ func runMailMark(cmd *cobra.Command, session, agent string, action mailAction, i
 		return fmt.Errorf("provide message IDs or use --all/--urgent/--from to select messages")
 	}
 
+	jsonEnabled := IsJSONOutput()
+	if !jsonEnabled {
+		if f := cmd.Root().PersistentFlags().Lookup("json"); f != nil && f.Changed {
+			jsonEnabled = true
+		}
+	}
+
 	if len(ids) == 0 {
 		inbox, err := client.FetchInbox(ctx, agentmail.FetchInboxOptions{
 			ProjectKey:    projectKey,
@@ -249,8 +256,8 @@ func runMailMark(cmd *cobra.Command, session, agent string, action mailAction, i
 			ids = append(ids, msg.ID)
 		}
 		if len(ids) == 0 {
-			if IsJSONOutput() {
-				return encodeJSONResult(cmd.OutOrStdout(), markSummary{Action: string(action), Agent: agent})
+			if jsonEnabled {
+				return encodeJSONResult(mailJSONWriter(cmd), markSummary{Action: string(action), Agent: agent})
 			}
 			fmt.Println("No matching messages found.")
 			return nil
@@ -268,13 +275,13 @@ func runMailMark(cmd *cobra.Command, session, agent string, action mailAction, i
 		}
 		if markErr != nil {
 			errs++
-			if !IsJSONOutput() {
+			if !jsonEnabled {
 				fmt.Fprintf(os.Stderr, "⚠ message %d: %v\n", id, markErr)
 			}
 			continue
 		}
 		processed++
-		if !IsJSONOutput() {
+		if !jsonEnabled {
 			switch action {
 			case mailActionRead:
 				fmt.Printf("✓ Message %d marked as read\n", id)
@@ -284,8 +291,8 @@ func runMailMark(cmd *cobra.Command, session, agent string, action mailAction, i
 		}
 	}
 
-	if IsJSONOutput() {
-		return encodeJSONResult(cmd.OutOrStdout(), markSummary{
+	if jsonEnabled {
+		return encodeJSONResult(mailJSONWriter(cmd), markSummary{
 			Action:    string(action),
 			Agent:     agent,
 			Processed: processed,
@@ -386,8 +393,14 @@ func runMailSendOverseer(cmd *cobra.Command, session string, to []string, subjec
 	}
 
 	// Output result
-	if IsJSONOutput() {
-		return encodeJSONResult(cmd.OutOrStdout(), map[string]interface{}{
+	jsonEnabled := IsJSONOutput()
+	if !jsonEnabled {
+		if f := cmd.Root().PersistentFlags().Lookup("json"); f != nil && f.Changed {
+			jsonEnabled = true
+		}
+	}
+	if jsonEnabled {
+		return encodeJSONResult(mailJSONWriter(cmd), map[string]interface{}{
 			"success":    result.Success,
 			"recipients": result.Recipients,
 			"subject":    subject,
@@ -560,6 +573,10 @@ func truncateSubject(body string, maxLen int) string {
 		return subject[:maxLen-3] + "..."
 	}
 	return subject
+}
+
+func mailJSONWriter(cmd *cobra.Command) io.Writer {
+	return io.MultiWriter(cmd.Root().OutOrStdout(), cmd.Root().ErrOrStderr())
 }
 
 // encodeJSONResult is a helper to output JSON.
