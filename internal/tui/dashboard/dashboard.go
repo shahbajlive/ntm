@@ -183,7 +183,7 @@ func (m Model) fetchSessionData() tea.Cmd {
 
 		// Check compaction for each pane
 		// Note: We use a local map here to avoid race conditions with the model's map
-		paneStatus := make(map[int]PaneStatus)
+		_ = make(map[int]PaneStatus) // paneStatus - TODO: Use once compaction refactor is complete
 		
 		// Create a temporary compaction checker for this fetch
 		// In a real scenario, we might want to share state, but for now this avoids 
@@ -215,10 +215,11 @@ func (m Model) fetchSessionData() tea.Cmd {
 			}
 			
 			// Capture output
-			output, err := tmux.CapturePaneOutput(pane.ID, 50)
+			capturedOutput, err := tmux.CapturePaneOutput(pane.ID, 50)
 			if err != nil {
 				continue
 			}
+			_ = capturedOutput // TODO: Use once compaction refactor is complete
 			
 			// We can't safely call m.compaction.CheckAndRecover here if it mutates state
 			// and is also used by other goroutines (unlikely as tea.Cmd is one at a time, 

@@ -429,6 +429,7 @@ func init() {
 		// Session persistence
 		newCheckpointCmd(),
 		newRollbackCmd(),
+		newSessionPersistCmd(),
 
 		// Utilities
 		newPaletteCmd(),
