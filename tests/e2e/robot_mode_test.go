@@ -40,6 +40,12 @@ func TestRobotVersion(t *testing.T) {
 	if payload.GoVersion == "" {
 		t.Fatalf("missing go_version field in output")
 	}
+	if payload.Commit == "" {
+		t.Fatalf("missing commit field in output")
+	}
+	if payload.BuildDate == "" {
+		t.Fatalf("missing build_date field in output")
+	}
 }
 
 func TestRobotStatusEmptySessions(t *testing.T) {
@@ -53,7 +59,13 @@ func TestRobotStatusEmptySessions(t *testing.T) {
 	var payload struct {
 		GeneratedAt string                   `json:"generated_at"`
 		Sessions    []map[string]interface{} `json:"sessions"`
-		Summary     map[string]interface{}   `json:"summary"`
+		Summary     struct {
+			TotalSessions int `json:"total_sessions"`
+			TotalAgents   int `json:"total_agents"`
+			ClaudeCount   int `json:"claude_count"`
+			CodexCount    int `json:"codex_count"`
+			GeminiCount   int `json:"gemini_count"`
+		} `json:"summary"`
 	}
 
 	if err := json.Unmarshal(out, &payload); err != nil {
@@ -68,8 +80,8 @@ func TestRobotStatusEmptySessions(t *testing.T) {
 		t.Fatalf("missing sessions array")
 	}
 
-	if payload.Summary == nil {
-		t.Fatalf("missing summary object")
+	if payload.Summary.TotalSessions < 0 || payload.Summary.TotalAgents < 0 {
+		t.Fatalf("summary counts should be non-negative: %+v", payload.Summary)
 	}
 }
 
@@ -93,6 +105,9 @@ func TestRobotPlan(t *testing.T) {
 	if payload.GeneratedAt == "" {
 		t.Fatalf("missing generated_at field")
 	}
+	if _, err := time.Parse(time.RFC3339, payload.GeneratedAt); err != nil {
+		t.Fatalf("generated_at not RFC3339: %v", err)
+	}
 
 	if payload.Actions == nil {
 		t.Fatalf("missing actions array")
@@ -100,6 +115,15 @@ func TestRobotPlan(t *testing.T) {
 
 	if payload.Recommendation == "" {
 		t.Fatalf("missing recommendation field")
+	}
+
+	for i, action := range payload.Actions {
+		if _, ok := action["priority"]; !ok {
+			t.Fatalf("actions[%d] missing priority", i)
+		}
+		if cmd, ok := action["command"].(string); !ok || strings.TrimSpace(cmd) == "" {
+			t.Fatalf("actions[%d] missing non-empty command", i)
+		}
 	}
 }
 
