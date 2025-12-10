@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Dicklesworthstone/ntm/internal/output"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/spf13/cobra"
 )
@@ -34,26 +35,39 @@ Examples:
 }
 
 func runAdd(session string, ccCount, codCount, gmiCount int) error {
-	if err := tmux.EnsureInstalled(); err != nil {
+	// Helper for JSON error output
+	outputError := func(err error) error {
+		if IsJSONOutput() {
+			return output.PrintJSON(output.NewError(err.Error()))
+		}
 		return err
 	}
 
+	if err := tmux.EnsureInstalled(); err != nil {
+		return outputError(err)
+	}
+
 	if !tmux.SessionExists(session) {
-		return fmt.Errorf("session '%s' does not exist (use 'ntm spawn' to create)", session)
+		return outputError(fmt.Errorf("session '%s' does not exist (use 'ntm spawn' to create)", session))
 	}
 
 	totalAgents := ccCount + codCount + gmiCount
 	if totalAgents == 0 {
-		return fmt.Errorf("no agents specified (use --cc, --cod, or --gmi)")
+		return outputError(fmt.Errorf("no agents specified (use --cc, --cod, or --gmi)"))
 	}
 
 	dir := cfg.GetProjectDir(session)
-	fmt.Printf("Adding %d agent(s) to session '%s'...\n", totalAgents, session)
+	if !IsJSONOutput() {
+		fmt.Printf("Adding %d agent(s) to session '%s'...\n", totalAgents, session)
+	}
+
+	// Track newly added panes for JSON output
+	var newPanes []output.PaneResponse
 
 	// Get existing panes to determine next indices
 	panes, err := tmux.GetPanes(session)
 	if err != nil {
-		return err
+		return outputError(err)
 	}
 
 	maxCC, maxCod, maxGmi := 0, 0, 0
@@ -85,57 +99,91 @@ func runAdd(session string, ccCount, codCount, gmiCount int) error {
 	for i := 0; i < ccCount; i++ {
 		paneID, err := tmux.SplitWindow(session, dir)
 		if err != nil {
-			return fmt.Errorf("creating pane: %w", err)
+			return outputError(fmt.Errorf("creating pane: %w", err))
 		}
 
 		num := maxCC + i + 1
 		title := fmt.Sprintf("%s__cc_%d", session, num)
 		if err := tmux.SetPaneTitle(paneID, title); err != nil {
-			return fmt.Errorf("setting pane title: %w", err)
+			return outputError(fmt.Errorf("setting pane title: %w", err))
 		}
 
 		cmd := fmt.Sprintf("cd %q && %s", dir, cfg.Agents.Claude)
 		if err := tmux.SendKeys(paneID, cmd, true); err != nil {
-			return fmt.Errorf("launching agent: %w", err)
+			return outputError(fmt.Errorf("launching agent: %w", err))
 		}
+
+		// Track for JSON output
+		newPanes = append(newPanes, output.PaneResponse{
+			Title:   title,
+			Type:    "claude",
+			Command: cmd,
+		})
 	}
 
 	// Add Codex agents
 	for i := 0; i < codCount; i++ {
 		paneID, err := tmux.SplitWindow(session, dir)
 		if err != nil {
-			return fmt.Errorf("creating pane: %w", err)
+			return outputError(fmt.Errorf("creating pane: %w", err))
 		}
 
 		num := maxCod + i + 1
 		title := fmt.Sprintf("%s__cod_%d", session, num)
 		if err := tmux.SetPaneTitle(paneID, title); err != nil {
-			return fmt.Errorf("setting pane title: %w", err)
+			return outputError(fmt.Errorf("setting pane title: %w", err))
 		}
 
 		cmd := fmt.Sprintf("cd %q && %s", dir, cfg.Agents.Codex)
 		if err := tmux.SendKeys(paneID, cmd, true); err != nil {
-			return fmt.Errorf("launching agent: %w", err)
+			return outputError(fmt.Errorf("launching agent: %w", err))
 		}
+
+		// Track for JSON output
+		newPanes = append(newPanes, output.PaneResponse{
+			Title:   title,
+			Type:    "codex",
+			Command: cmd,
+		})
 	}
 
 	// Add Gemini agents
 	for i := 0; i < gmiCount; i++ {
 		paneID, err := tmux.SplitWindow(session, dir)
 		if err != nil {
-			return fmt.Errorf("creating pane: %w", err)
+			return outputError(fmt.Errorf("creating pane: %w", err))
 		}
 
 		num := maxGmi + i + 1
 		title := fmt.Sprintf("%s__gmi_%d", session, num)
 		if err := tmux.SetPaneTitle(paneID, title); err != nil {
-			return fmt.Errorf("setting pane title: %w", err)
+			return outputError(fmt.Errorf("setting pane title: %w", err))
 		}
 
 		cmd := fmt.Sprintf("cd %q && %s", dir, cfg.Agents.Gemini)
 		if err := tmux.SendKeys(paneID, cmd, true); err != nil {
-			return fmt.Errorf("launching agent: %w", err)
+			return outputError(fmt.Errorf("launching agent: %w", err))
 		}
+
+		// Track for JSON output
+		newPanes = append(newPanes, output.PaneResponse{
+			Title:   title,
+			Type:    "gemini",
+			Command: cmd,
+		})
+	}
+
+	// JSON output mode
+	if IsJSONOutput() {
+		return output.PrintJSON(output.AddResponse{
+			TimestampedResponse: output.NewTimestamped(),
+			Session:             session,
+			AddedClaude:         ccCount,
+			AddedCodex:          codCount,
+			AddedGemini:         gmiCount,
+			TotalAdded:          totalAgents,
+			NewPanes:            newPanes,
+		})
 	}
 
 	fmt.Printf("✓ Added %dx cc, %dx cod, %dx gmi\n", ccCount, codCount, gmiCount)

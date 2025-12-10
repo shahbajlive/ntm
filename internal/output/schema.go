@@ -72,7 +72,7 @@ type AgentCountsResponse struct {
 	Total   int `json:"total"`
 }
 
-// SpawnResponse is the output format for spawn/create commands
+// SpawnResponse is the output format for spawn command (with agents)
 type SpawnResponse struct {
 	TimestampedResponse
 	Session          string              `json:"session"`
@@ -80,6 +80,28 @@ type SpawnResponse struct {
 	WorkingDirectory string              `json:"working_directory,omitempty"`
 	Panes            []PaneResponse      `json:"panes"`
 	AgentCounts      AgentCountsResponse `json:"agent_counts"`
+}
+
+// CreateResponse is the output format for create command (basic session)
+type CreateResponse struct {
+	TimestampedResponse
+	Session          string           `json:"session"`
+	Created          bool             `json:"created"`
+	AlreadyExisted   bool             `json:"already_existed,omitempty"`
+	WorkingDirectory string           `json:"working_directory,omitempty"`
+	PaneCount        int              `json:"pane_count"`
+	Panes            []PaneResponse   `json:"panes,omitempty"`
+}
+
+// AddResponse is the output format for add command (adding agents to session)
+type AddResponse struct {
+	TimestampedResponse
+	Session     string           `json:"session"`
+	AddedClaude int              `json:"added_claude"`
+	AddedCodex  int              `json:"added_codex"`
+	AddedGemini int              `json:"added_gemini"`
+	TotalAdded  int              `json:"total_added"`
+	NewPanes    []PaneResponse   `json:"new_panes,omitempty"`
 }
 
 // SendResponse is the output format for send command

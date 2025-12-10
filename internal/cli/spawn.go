@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Dicklesworthstone/ntm/internal/agentmail"
+	"github.com/Dicklesworthstone/ntm/internal/output"
 	"github.com/Dicklesworthstone/ntm/internal/recipe"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/spf13/cobra"
@@ -85,32 +86,47 @@ Examples:
 }
 
 func runSpawn(session string, ccCount, codCount, gmiCount int, userPane bool) error {
-	if err := tmux.EnsureInstalled(); err != nil {
+	// Helper for JSON error output
+	outputError := func(err error) error {
+		if IsJSONOutput() {
+			return output.PrintJSON(output.NewError(err.Error()))
+		}
 		return err
 	}
 
+	if err := tmux.EnsureInstalled(); err != nil {
+		return outputError(err)
+	}
+
 	if err := tmux.ValidateSessionName(session); err != nil {
-		return err
+		return outputError(err)
 	}
 
 	totalAgents := ccCount + codCount + gmiCount
 	if totalAgents == 0 {
-		return fmt.Errorf("no agents specified (use --cc, --cod, or --gmi)")
+		return outputError(fmt.Errorf("no agents specified (use --cc, --cod, or --gmi)"))
 	}
 
 	dir := cfg.GetProjectDir(session)
 
 	// Check if directory exists
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		fmt.Printf("Directory not found: %s\n", dir)
-		if !confirm("Create it?") {
-			fmt.Println("Aborted.")
-			return nil
+		if IsJSONOutput() {
+			// Auto-create directory without prompting in JSON mode
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return outputError(fmt.Errorf("creating directory: %w", err))
+			}
+		} else {
+			fmt.Printf("Directory not found: %s\n", dir)
+			if !confirm("Create it?") {
+				fmt.Println("Aborted.")
+				return nil
+			}
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return fmt.Errorf("creating directory: %w", err)
+			}
+			fmt.Printf("Created %s\n", dir)
 		}
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return fmt.Errorf("creating directory: %w", err)
-		}
-		fmt.Printf("Created %s\n", dir)
 	}
 
 	// Calculate total panes needed
@@ -121,26 +137,30 @@ func runSpawn(session string, ccCount, codCount, gmiCount int, userPane bool) er
 
 	// Create or use existing session
 	if !tmux.SessionExists(session) {
-		fmt.Printf("Creating session '%s' in %s...\n", session, dir)
+		if !IsJSONOutput() {
+			fmt.Printf("Creating session '%s' in %s...\n", session, dir)
+		}
 		if err := tmux.CreateSession(session, dir); err != nil {
-			return fmt.Errorf("creating session: %w", err)
+			return outputError(fmt.Errorf("creating session: %w", err))
 		}
 	}
 
 	// Get current pane count
 	panes, err := tmux.GetPanes(session)
 	if err != nil {
-		return err
+		return outputError(err)
 	}
 	existingPanes := len(panes)
 
 	// Add more panes if needed
 	if existingPanes < totalPanes {
 		toAdd := totalPanes - existingPanes
-		fmt.Printf("Creating %d pane(s) (%d -> %d)...\n", toAdd, existingPanes, totalPanes)
+		if !IsJSONOutput() {
+			fmt.Printf("Creating %d pane(s) (%d -> %d)...\n", toAdd, existingPanes, totalPanes)
+		}
 		for i := 0; i < toAdd; i++ {
 			if _, err := tmux.SplitWindow(session, dir); err != nil {
-				return fmt.Errorf("creating pane: %w", err)
+				return outputError(fmt.Errorf("creating pane: %w", err))
 			}
 		}
 	}
@@ -148,7 +168,7 @@ func runSpawn(session string, ccCount, codCount, gmiCount int, userPane bool) er
 	// Get updated pane list
 	panes, err = tmux.GetPanes(session)
 	if err != nil {
-		return err
+		return outputError(err)
 	}
 
 	// Start assigning agents (skip first pane if user pane)
@@ -158,18 +178,20 @@ func runSpawn(session string, ccCount, codCount, gmiCount int, userPane bool) er
 	}
 
 	agentNum := startIdx
-	fmt.Printf("Launching agents: %dx cc, %dx cod, %dx gmi...\n", ccCount, codCount, gmiCount)
+	if !IsJSONOutput() {
+		fmt.Printf("Launching agents: %dx cc, %dx cod, %dx gmi...\n", ccCount, codCount, gmiCount)
+	}
 
 	// Launch Claude agents
 	for i := 0; i < ccCount && agentNum < len(panes); i++ {
 		pane := panes[agentNum]
 		title := fmt.Sprintf("%s__cc_%d", session, i+1)
 		if err := tmux.SetPaneTitle(pane.ID, title); err != nil {
-			return fmt.Errorf("setting pane title: %w", err)
+			return outputError(fmt.Errorf("setting pane title: %w", err))
 		}
 		cmd := fmt.Sprintf("cd %q && %s", dir, cfg.Agents.Claude)
 		if err := tmux.SendKeys(pane.ID, cmd, true); err != nil {
-			return fmt.Errorf("launching claude agent: %w", err)
+			return outputError(fmt.Errorf("launching claude agent: %w", err))
 		}
 		agentNum++
 	}
@@ -179,11 +201,11 @@ func runSpawn(session string, ccCount, codCount, gmiCount int, userPane bool) er
 		pane := panes[agentNum]
 		title := fmt.Sprintf("%s__cod_%d", session, i+1)
 		if err := tmux.SetPaneTitle(pane.ID, title); err != nil {
-			return fmt.Errorf("setting pane title: %w", err)
+			return outputError(fmt.Errorf("setting pane title: %w", err))
 		}
 		cmd := fmt.Sprintf("cd %q && %s", dir, cfg.Agents.Codex)
 		if err := tmux.SendKeys(pane.ID, cmd, true); err != nil {
-			return fmt.Errorf("launching codex agent: %w", err)
+			return outputError(fmt.Errorf("launching codex agent: %w", err))
 		}
 		agentNum++
 	}
@@ -193,13 +215,53 @@ func runSpawn(session string, ccCount, codCount, gmiCount int, userPane bool) er
 		pane := panes[agentNum]
 		title := fmt.Sprintf("%s__gmi_%d", session, i+1)
 		if err := tmux.SetPaneTitle(pane.ID, title); err != nil {
-			return fmt.Errorf("setting pane title: %w", err)
+			return outputError(fmt.Errorf("setting pane title: %w", err))
 		}
 		cmd := fmt.Sprintf("cd %q && %s", dir, cfg.Agents.Gemini)
 		if err := tmux.SendKeys(pane.ID, cmd, true); err != nil {
-			return fmt.Errorf("launching gemini agent: %w", err)
+			return outputError(fmt.Errorf("launching gemini agent: %w", err))
 		}
 		agentNum++
+	}
+
+	// Get final pane list for output
+	finalPanes, _ := tmux.GetPanes(session)
+
+	// JSON output mode
+	if IsJSONOutput() {
+		paneResponses := make([]output.PaneResponse, len(finalPanes))
+		agentCounts := output.AgentCountsResponse{}
+		for i, p := range finalPanes {
+			paneResponses[i] = output.PaneResponse{
+				Index:   p.Index,
+				Title:   p.Title,
+				Type:    agentTypeToString(p.Type),
+				Active:  p.Active,
+				Width:   p.Width,
+				Height:  p.Height,
+				Command: p.Command,
+			}
+			switch p.Type {
+			case tmux.AgentClaude:
+				agentCounts.Claude++
+			case tmux.AgentCodex:
+				agentCounts.Codex++
+			case tmux.AgentGemini:
+				agentCounts.Gemini++
+			default:
+				agentCounts.User++
+			}
+		}
+		agentCounts.Total = agentCounts.Claude + agentCounts.Codex + agentCounts.Gemini
+
+		return output.PrintJSON(output.SpawnResponse{
+			TimestampedResponse: output.NewTimestamped(),
+			Session:             session,
+			Created:             true, // spawn always creates or reuses
+			WorkingDirectory:    dir,
+			Panes:               paneResponses,
+			AgentCounts:         agentCounts,
+		})
 	}
 
 	fmt.Printf("✓ Launched %d agent(s)\n", totalAgents)

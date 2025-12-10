@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/Dicklesworthstone/ntm/internal/output"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/spf13/cobra"
 )
@@ -35,10 +36,16 @@ Example:
 
 func runCreate(session string, panes int) error {
 	if err := tmux.EnsureInstalled(); err != nil {
+		if IsJSONOutput() {
+			return output.PrintJSON(output.NewError(err.Error()))
+		}
 		return err
 	}
 
 	if err := tmux.ValidateSessionName(session); err != nil {
+		if IsJSONOutput() {
+			return output.PrintJSON(output.NewError(err.Error()))
+		}
 		return err
 	}
 
@@ -51,27 +58,64 @@ func runCreate(session string, panes int) error {
 
 	// Check if directory exists
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		fmt.Printf("Directory not found: %s\n", dir)
-		if !confirm("Create it?") {
-			fmt.Println("Aborted.")
-			return nil
+		if IsJSONOutput() {
+			// In JSON mode, auto-create directory without prompting
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return output.PrintJSON(output.NewError(fmt.Sprintf("creating directory: %v", err)))
+			}
+		} else {
+			fmt.Printf("Directory not found: %s\n", dir)
+			if !confirm("Create it?") {
+				fmt.Println("Aborted.")
+				return nil
+			}
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return fmt.Errorf("creating directory: %w", err)
+			}
+			fmt.Printf("Created %s\n", dir)
 		}
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return fmt.Errorf("creating directory: %w", err)
-		}
-		fmt.Printf("Created %s\n", dir)
 	}
 
 	// Check if session already exists
 	if tmux.SessionExists(session) {
+		if IsJSONOutput() {
+			// Return info about existing session
+			existingPanes, _ := tmux.GetPanes(session)
+			paneResponses := make([]output.PaneResponse, len(existingPanes))
+			for i, p := range existingPanes {
+				paneResponses[i] = output.PaneResponse{
+					Index:   p.Index,
+					Title:   p.Title,
+					Type:    agentTypeToString(p.Type),
+					Active:  p.Active,
+					Width:   p.Width,
+					Height:  p.Height,
+					Command: p.Command,
+				}
+			}
+			return output.PrintJSON(output.CreateResponse{
+				TimestampedResponse: output.NewTimestamped(),
+				Session:             session,
+				Created:             false,
+				AlreadyExisted:      true,
+				WorkingDirectory:    dir,
+				PaneCount:           len(existingPanes),
+				Panes:               paneResponses,
+			})
+		}
 		fmt.Printf("Session '%s' already exists\n", session)
 		return tmux.AttachOrSwitch(session)
 	}
 
-	fmt.Printf("Creating session '%s' with %d pane(s)...\n", session, panes)
+	if !IsJSONOutput() {
+		fmt.Printf("Creating session '%s' with %d pane(s)...\n", session, panes)
+	}
 
 	// Create the session
 	if err := tmux.CreateSession(session, dir); err != nil {
+		if IsJSONOutput() {
+			return output.PrintJSON(output.NewError(fmt.Sprintf("creating session: %v", err)))
+		}
 		return fmt.Errorf("creating session: %w", err)
 	}
 
@@ -79,9 +123,37 @@ func runCreate(session string, panes int) error {
 	if panes > 1 {
 		for i := 1; i < panes; i++ {
 			if _, err := tmux.SplitWindow(session, dir); err != nil {
+				if IsJSONOutput() {
+					return output.PrintJSON(output.NewError(fmt.Sprintf("creating pane %d: %v", i+1, err)))
+				}
 				return fmt.Errorf("creating pane %d: %w", i+1, err)
 			}
 		}
+	}
+
+	// JSON output mode: return structured response
+	if IsJSONOutput() {
+		finalPanes, _ := tmux.GetPanes(session)
+		paneResponses := make([]output.PaneResponse, len(finalPanes))
+		for i, p := range finalPanes {
+			paneResponses[i] = output.PaneResponse{
+				Index:   p.Index,
+				Title:   p.Title,
+				Type:    agentTypeToString(p.Type),
+				Active:  p.Active,
+				Width:   p.Width,
+				Height:  p.Height,
+				Command: p.Command,
+			}
+		}
+		return output.PrintJSON(output.CreateResponse{
+			TimestampedResponse: output.NewTimestamped(),
+			Session:             session,
+			Created:             true,
+			WorkingDirectory:    dir,
+			PaneCount:           len(finalPanes),
+			Panes:               paneResponses,
+		})
 	}
 
 	fmt.Printf("Created session '%s' with %d pane(s)\n", session, panes)
@@ -95,4 +167,18 @@ func confirm(prompt string) bool {
 	answer, _ := reader.ReadString('\n')
 	answer = strings.TrimSpace(strings.ToLower(answer))
 	return answer == "y" || answer == "yes"
+}
+
+// agentTypeToString converts a tmux.AgentType to a string for JSON output
+func agentTypeToString(t tmux.AgentType) string {
+	switch t {
+	case tmux.AgentClaude:
+		return "claude"
+	case tmux.AgentCodex:
+		return "codex"
+	case tmux.AgentGemini:
+		return "gemini"
+	default:
+		return "user"
+	}
 }

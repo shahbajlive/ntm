@@ -1,12 +1,25 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/spf13/cobra"
 )
+
+// SendResult is the JSON output for the send command.
+type SendResult struct {
+	Success       bool     `json:"success"`
+	Session       string   `json:"session"`
+	PromptPreview string   `json:"prompt_preview,omitempty"`
+	Targets       []int    `json:"targets"`
+	Delivered     int      `json:"delivered"`
+	Failed        int      `json:"failed"`
+	Error         string   `json:"error,omitempty"`
+}
 
 func newSendCmd() *cobra.Command {
 	var targetCC, targetCod, targetGmi, targetAll, skipFirst bool
@@ -25,7 +38,8 @@ Examples:
   ntm send myproject --cod --gmi "run the tests"        # Codex and Gemini
   ntm send myproject --all "git status"                 # All panes
   ntm send myproject --pane=2 "specific pane"           # Specific pane
-  ntm send myproject --skip-first "restart"             # Skip user pane`,
+  ntm send myproject --skip-first "restart"             # Skip user pane
+  ntm send myproject --json "run tests"                 # JSON output`,
 		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			session := args[0]
@@ -45,35 +59,80 @@ Examples:
 }
 
 func runSend(session, prompt string, targetCC, targetCod, targetGmi, targetAll, skipFirst bool, paneIndex int) error {
-	if err := tmux.EnsureInstalled(); err != nil {
+	// Helper for JSON error output
+	outputError := func(err error) error {
+		if jsonOutput {
+			result := SendResult{
+				Success: false,
+				Session: session,
+				Error:   err.Error(),
+			}
+			return json.NewEncoder(os.Stdout).Encode(result)
+		}
 		return err
 	}
 
+	if err := tmux.EnsureInstalled(); err != nil {
+		return outputError(err)
+	}
+
 	if !tmux.SessionExists(session) {
-		return fmt.Errorf("session '%s' not found", session)
+		return outputError(fmt.Errorf("session '%s' not found", session))
 	}
 
 	panes, err := tmux.GetPanes(session)
 	if err != nil {
-		return err
+		return outputError(err)
 	}
 
 	if len(panes) == 0 {
-		return fmt.Errorf("no panes found in session '%s'", session)
+		return outputError(fmt.Errorf("no panes found in session '%s'", session))
 	}
+
+	// Track results for JSON output
+	var targets []int
+	delivered := 0
+	failed := 0
 
 	// If specific pane requested
 	if paneIndex >= 0 {
 		for _, p := range panes {
 			if p.Index == paneIndex {
+				targets = append(targets, paneIndex)
 				if err := tmux.SendKeys(p.ID, prompt, true); err != nil {
+					failed++
+					if jsonOutput {
+						result := SendResult{
+							Success:       false,
+							Session:       session,
+							PromptPreview: truncatePrompt(prompt, 50),
+							Targets:       targets,
+							Delivered:     delivered,
+							Failed:        failed,
+							Error:         err.Error(),
+						}
+						return json.NewEncoder(os.Stdout).Encode(result)
+					}
 					return err
+				}
+				delivered++
+
+				if jsonOutput {
+					result := SendResult{
+						Success:       true,
+						Session:       session,
+						PromptPreview: truncatePrompt(prompt, 50),
+						Targets:       targets,
+						Delivered:     delivered,
+						Failed:        failed,
+					}
+					return json.NewEncoder(os.Stdout).Encode(result)
 				}
 				fmt.Printf("Sent to pane %d\n", paneIndex)
 				return nil
 			}
 		}
-		return fmt.Errorf("pane %d not found", paneIndex)
+		return outputError(fmt.Errorf("pane %d not found", paneIndex))
 	}
 
 	// Determine which panes to target
@@ -83,7 +142,6 @@ func runSend(session, prompt string, targetCC, targetCod, targetGmi, targetAll, 
 		skipFirst = true
 	}
 
-	count := 0
 	for i, p := range panes {
 		// Skip first pane if requested
 		if skipFirst && i == 0 {
@@ -112,16 +170,37 @@ func runSend(session, prompt string, targetCC, targetCod, targetGmi, targetAll, 
 			}
 		}
 
+		targets = append(targets, p.Index)
 		if err := tmux.SendKeys(p.ID, prompt, true); err != nil {
-			return fmt.Errorf("sending to pane %d: %w", p.Index, err)
+			failed++
+			if !jsonOutput {
+				return fmt.Errorf("sending to pane %d: %w", p.Index, err)
+			}
+		} else {
+			delivered++
 		}
-		count++
 	}
 
-	if count == 0 {
+	// JSON output mode
+	if jsonOutput {
+		result := SendResult{
+			Success:       failed == 0,
+			Session:       session,
+			PromptPreview: truncatePrompt(prompt, 50),
+			Targets:       targets,
+			Delivered:     delivered,
+			Failed:        failed,
+		}
+		if failed > 0 {
+			result.Error = fmt.Sprintf("%d pane(s) failed", failed)
+		}
+		return json.NewEncoder(os.Stdout).Encode(result)
+	}
+
+	if len(targets) == 0 {
 		fmt.Println("No matching panes found")
 	} else {
-		fmt.Printf("Sent to %d pane(s)\n", count)
+		fmt.Printf("Sent to %d pane(s)\n", delivered)
 	}
 
 	return nil
@@ -221,4 +300,12 @@ func runKill(session string, force bool) error {
 
 	fmt.Printf("Killed session '%s'\n", session)
 	return nil
+}
+
+// truncatePrompt truncates a prompt to the specified length for display
+func truncatePrompt(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
 }
