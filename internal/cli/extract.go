@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/Dicklesworthstone/ntm/internal/codeblock"
@@ -13,18 +14,21 @@ import (
 // ExtractResponse is the JSON output format for extract command.
 type ExtractResponse struct {
 	output.TimestampedResponse
-	Session    string               `json:"session"`
-	Source     string               `json:"source"`     // Session or session:pane
+	Session    string                `json:"session"`
+	Source     string                `json:"source"` // Session or session:pane
 	Blocks     []codeblock.CodeBlock `json:"blocks"`
-	TotalFound int                  `json:"total_found"`
+	TotalFound int                   `json:"total_found"`
 }
 
 func newExtractCmd() *cobra.Command {
 	var (
-		language  string
-		lastPane  bool
-		lines     int
-		paneIndex string
+		language   string
+		lastPane   bool
+		lines      int
+		paneIndex  string
+		copyFlag   bool
+		applyFlag  bool
+		selectFlag int
 	)
 
 	cmd := &cobra.Command{
@@ -37,6 +41,9 @@ Examples:
   ntm extract myproject cc_1         # Extract from specific pane
   ntm extract myproject --last       # From most recent active pane
   ntm extract myproject --lang=python  # Only Python blocks
+  ntm extract myproject --copy       # Copy all blocks to clipboard
+  ntm extract myproject --copy -s 1  # Copy specific block (1-indexed)
+  ntm extract myproject --apply      # Apply blocks to detected files
   ntm extract myproject --json       # Output as JSON`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -47,18 +54,21 @@ Examples:
 				paneIndex = args[1]
 			}
 
-			return runExtract(sessionName, paneIndex, language, lastPane, lines)
+			return runExtract(sessionName, paneIndex, language, lastPane, lines, copyFlag, applyFlag, selectFlag)
 		},
 	}
 
 	cmd.Flags().StringVarP(&language, "lang", "l", "", "Filter by language (e.g., python, go, bash)")
 	cmd.Flags().BoolVar(&lastPane, "last", false, "Extract from most recent active pane")
 	cmd.Flags().IntVarP(&lines, "lines", "n", 500, "Number of lines to capture from pane")
+	cmd.Flags().BoolVarP(&copyFlag, "copy", "c", false, "Copy extracted code to clipboard")
+	cmd.Flags().BoolVarP(&applyFlag, "apply", "a", false, "Apply code blocks to detected files")
+	cmd.Flags().IntVarP(&selectFlag, "select", "s", 0, "Select specific block by number (1-indexed)")
 
 	return cmd
 }
 
-func runExtract(sessionName, paneIndex, language string, lastPane bool, lines int) error {
+func runExtract(sessionName, paneIndex, language string, lastPane bool, lines int, copyFlag, applyFlag bool, selectBlock int) error {
 	// Check session exists
 	if !tmux.SessionExists(sessionName) {
 		if IsJSONOutput() {
@@ -114,7 +124,7 @@ func runExtract(sessionName, paneIndex, language string, lastPane bool, lines in
 	// Create parser with optional language filter
 	parser := codeblock.NewParser()
 	if language != "" {
-		parser.WithLanguageFilter([]string{language})
+		parser = parser.WithLanguageFilter([]string{language})
 	}
 
 	// Extract from all target panes
@@ -142,6 +152,18 @@ func runExtract(sessionName, paneIndex, language string, lastPane bool, lines in
 		allBlocks = append(allBlocks, blocks...)
 	}
 
+	// Filter by selection if specified
+	if selectBlock > 0 {
+		if selectBlock > len(allBlocks) {
+			if IsJSONOutput() {
+				return output.PrintJSON(output.NewErrorWithCode("INVALID_SELECTION",
+					fmt.Sprintf("block %d does not exist (found %d blocks)", selectBlock, len(allBlocks))))
+			}
+			return fmt.Errorf("block %d does not exist (found %d blocks)", selectBlock, len(allBlocks))
+		}
+		allBlocks = []codeblock.CodeBlock{allBlocks[selectBlock-1]}
+	}
+
 	// Output
 	if IsJSONOutput() {
 		response := ExtractResponse{
@@ -160,6 +182,17 @@ func runExtract(sessionName, paneIndex, language string, lastPane bool, lines in
 		return nil
 	}
 
+	// Handle copy flag
+	if copyFlag {
+		return handleExtractCopy(allBlocks)
+	}
+
+	// Handle apply flag
+	if applyFlag {
+		return handleExtractApply(allBlocks)
+	}
+
+	// Default: list blocks
 	fmt.Printf("Found %d code block(s) in %s:\n\n", len(allBlocks), source)
 
 	for i, block := range allBlocks {
@@ -192,6 +225,102 @@ func runExtract(sessionName, paneIndex, language string, lastPane bool, lines in
 		fmt.Println()
 	}
 
+	return nil
+}
+
+// handleExtractCopy copies code blocks to clipboard
+func handleExtractCopy(blocks []codeblock.CodeBlock) error {
+	if len(blocks) == 0 {
+		return fmt.Errorf("no code blocks to copy")
+	}
+
+	// Build combined content
+	var parts []string
+	for i, block := range blocks {
+		if len(blocks) > 1 {
+			// Add separator for multiple blocks
+			langDisplay := block.Language
+			if langDisplay == "" {
+				langDisplay = "text"
+			}
+			parts = append(parts, fmt.Sprintf("// === Block %d (%s) ===", i+1, langDisplay))
+		}
+		parts = append(parts, block.Content)
+	}
+	combined := strings.Join(parts, "\n\n")
+
+	// Use the shared clipboard function
+	if err := copyToClipboard(combined); err != nil {
+		return fmt.Errorf("failed to copy to clipboard: %w", err)
+	}
+
+	lineCount := strings.Count(combined, "\n") + 1
+	fmt.Printf("✓ Copied %d code block(s) (%d lines) to clipboard\n", len(blocks), lineCount)
+	return nil
+}
+
+// handleExtractApply applies code blocks to files
+func handleExtractApply(blocks []codeblock.CodeBlock) error {
+	if len(blocks) == 0 {
+		return fmt.Errorf("no code blocks to apply")
+	}
+
+	applied := 0
+	skipped := 0
+
+	for i, block := range blocks {
+		if block.FilePath == "" {
+			fmt.Printf("[%d] Skipped: no file path detected\n", i+1)
+			skipped++
+			continue
+		}
+
+		// Show what we're about to do
+		langDisplay := block.Language
+		if langDisplay == "" {
+			langDisplay = "text"
+		}
+
+		action := "update"
+		if block.IsNew {
+			action = "create"
+		}
+
+		fmt.Printf("[%d] %s %s (%s)\n", i+1, action, block.FilePath, langDisplay)
+
+		// Check if file exists
+		_, err := os.Stat(block.FilePath)
+		fileExists := err == nil
+
+		if fileExists && !block.IsNew {
+			// Show diff preview (first few lines)
+			fmt.Printf("    Preview: %d lines of code\n", strings.Count(block.Content, "\n")+1)
+		}
+
+		// Ask for confirmation
+		fmt.Printf("    Apply? [y]es / [n]o / [s]kip all: ")
+		var response string
+		fmt.Scanln(&response)
+
+		switch strings.ToLower(strings.TrimSpace(response)) {
+		case "y", "yes":
+			// Write the file
+			if err := os.WriteFile(block.FilePath, []byte(block.Content), 0644); err != nil {
+				fmt.Printf("    ✗ Failed to write: %v\n", err)
+				continue
+			}
+			fmt.Printf("    ✓ Applied to %s\n", block.FilePath)
+			applied++
+		case "s", "skip":
+			fmt.Printf("Skipping remaining blocks\n")
+			break
+		default:
+			fmt.Printf("    Skipped\n")
+			skipped++
+		}
+	}
+
+	fmt.Printf("\nApplied: %d, Skipped: %d\n", applied, skipped)
 	return nil
 }
 
