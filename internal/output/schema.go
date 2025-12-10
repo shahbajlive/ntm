@@ -56,7 +56,8 @@ type SessionResponse struct {
 type PaneResponse struct {
 	Index   int    `json:"index"`
 	Title   string `json:"title"`
-	Type    string `json:"type"` // claude, codex, gemini, user
+	Type    string `json:"type"`              // claude, codex, gemini, user
+	Variant string `json:"variant,omitempty"` // model alias or persona name
 	Active  bool   `json:"active,omitempty"`
 	Width   int    `json:"width,omitempty"`
 	Height  int    `json:"height,omitempty"`

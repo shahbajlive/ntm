@@ -95,21 +95,15 @@ Examples:
 	return cmd
 }
 
-// runSpawnWithSpecs is a wrapper around runSpawn that handles agent specs
-// For now, it just uses the total counts - model-specific spawning is in ntm-z2k
+// runSpawnWithSpecs handles agent specs with model-specific pane naming
 func runSpawnWithSpecs(session string, specs AgentSpecs, ccCount, codCount, gmiCount int, userPane bool) error {
-	// TODO (ntm-z2k): Use specs for model-specific pane naming
-	// For now, just log if model-specific specs are used
-	for _, spec := range specs {
-		if spec.Model != "" && !IsJSONOutput() {
-			fmt.Printf("Note: Model '%s' specified for %s agents (full support in upcoming update)\n",
-				spec.Model, spec.Type)
-		}
-	}
-	return runSpawn(session, ccCount, codCount, gmiCount, userPane)
+	// Flatten specs to get individual agents with their models
+	agents := specs.Flatten()
+	return runSpawnAgents(session, agents, ccCount, codCount, gmiCount, userPane)
 }
 
-func runSpawn(session string, ccCount, codCount, gmiCount int, userPane bool) error {
+// runSpawnAgents launches agents with model-specific pane naming
+func runSpawnAgents(session string, agents []FlatAgent, ccCount, codCount, gmiCount int, userPane bool) error {
 	// Helper for JSON error output
 	outputError := func(err error) error {
 		if IsJSONOutput() {
@@ -248,44 +242,36 @@ func runSpawn(session string, ccCount, codCount, gmiCount int, userPane bool) er
 		fmt.Printf("Launching agents: %dx cc, %dx cod, %dx gmi...\n", ccCount, codCount, gmiCount)
 	}
 
-	// Launch Claude agents
-	for i := 0; i < ccCount && agentNum < len(panes); i++ {
+	// Launch agents using flattened specs (preserves model info for pane naming)
+	for _, agent := range agents {
+		if agentNum >= len(panes) {
+			break
+		}
 		pane := panes[agentNum]
-		title := fmt.Sprintf("%s__cc_%d", session, i+1)
-		if err := tmux.SetPaneTitle(pane.ID, title); err != nil {
-			return outputError(fmt.Errorf("setting pane title: %w", err))
-		}
-		cmd := fmt.Sprintf("cd %q && %s", dir, cfg.Agents.Claude)
-		if err := tmux.SendKeys(pane.ID, cmd, true); err != nil {
-			return outputError(fmt.Errorf("launching claude agent: %w", err))
-		}
-		agentNum++
-	}
 
-	// Launch Codex agents
-	for i := 0; i < codCount && agentNum < len(panes); i++ {
-		pane := panes[agentNum]
-		title := fmt.Sprintf("%s__cod_%d", session, i+1)
+		// Format pane title with optional model variant
+		// Format: {session}__{type}_{index} or {session}__{type}_{index}_{variant}
+		title := FormatPaneName(session, agent.Type, agent.Index, agent.Model)
 		if err := tmux.SetPaneTitle(pane.ID, title); err != nil {
 			return outputError(fmt.Errorf("setting pane title: %w", err))
 		}
-		cmd := fmt.Sprintf("cd %q && %s", dir, cfg.Agents.Codex)
-		if err := tmux.SendKeys(pane.ID, cmd, true); err != nil {
-			return outputError(fmt.Errorf("launching codex agent: %w", err))
-		}
-		agentNum++
-	}
 
-	// Launch Gemini agents
-	for i := 0; i < gmiCount && agentNum < len(panes); i++ {
-		pane := panes[agentNum]
-		title := fmt.Sprintf("%s__gmi_%d", session, i+1)
-		if err := tmux.SetPaneTitle(pane.ID, title); err != nil {
-			return outputError(fmt.Errorf("setting pane title: %w", err))
+		// Get agent command based on type
+		var agentCmd string
+		switch agent.Type {
+		case AgentTypeClaude:
+			agentCmd = cfg.Agents.Claude
+		case AgentTypeCodex:
+			agentCmd = cfg.Agents.Codex
+		case AgentTypeGemini:
+			agentCmd = cfg.Agents.Gemini
+		default:
+			continue
 		}
-		cmd := fmt.Sprintf("cd %q && %s", dir, cfg.Agents.Gemini)
+
+		cmd := fmt.Sprintf("cd %q && %s", dir, agentCmd)
 		if err := tmux.SendKeys(pane.ID, cmd, true); err != nil {
-			return outputError(fmt.Errorf("launching gemini agent: %w", err))
+			return outputError(fmt.Errorf("launching %s agent: %w", agent.Type, err))
 		}
 		agentNum++
 	}
@@ -302,6 +288,7 @@ func runSpawn(session string, ccCount, codCount, gmiCount int, userPane bool) er
 				Index:   p.Index,
 				Title:   p.Title,
 				Type:    agentTypeToString(p.Type),
+				Variant: p.Variant, // Model alias or persona name
 				Active:  p.Active,
 				Width:   p.Width,
 				Height:  p.Height,

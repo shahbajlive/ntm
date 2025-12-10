@@ -6,10 +6,15 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// paneNameRegex matches the NTM pane naming convention:
+// session__type_index or session__type_index_variant
+var paneNameRegex = regexp.MustCompile(`^.+__(\w+)_\d+(?:_(\w+))?$`)
 
 // AgentType represents the type of AI agent
 type AgentType string
@@ -27,6 +32,7 @@ type Pane struct {
 	Index    int
 	Title    string
 	Type     AgentType
+	Variant  string // Model alias or persona name (from pane title)
 	Command  string
 	Width    int
 	Height   int
@@ -41,6 +47,30 @@ type Session struct {
 	Panes      []Pane
 	Attached   bool
 	Created    string
+}
+
+// parseAgentFromTitle extracts agent type and variant from a pane title.
+// Title format: {session}__{type}_{index} or {session}__{type}_{index}_{variant}
+// Returns AgentUser and empty variant if title doesn't match NTM format.
+func parseAgentFromTitle(title string) (AgentType, string) {
+	matches := paneNameRegex.FindStringSubmatch(title)
+	if matches == nil {
+		// Not an NTM-formatted title, default to user
+		return AgentUser, ""
+	}
+
+	// matches[1] = type (cc, cod, gmi)
+	// matches[2] = variant (may be empty)
+	agentType := AgentType(matches[1])
+	variant := matches[2]
+
+	// Validate agent type
+	switch agentType {
+	case AgentClaude, AgentCodex, AgentGemini:
+		return agentType, variant
+	default:
+		return AgentUser, ""
+	}
 }
 
 // IsInstalled checks if tmux is available
@@ -197,15 +227,9 @@ func GetPanes(session string) ([]Pane, error) {
 			Active:  active,
 		}
 
-		// Determine agent type from title
-		pane.Type = AgentUser
-		if strings.Contains(pane.Title, "__cc") {
-			pane.Type = AgentClaude
-		} else if strings.Contains(pane.Title, "__cod") {
-			pane.Type = AgentCodex
-		} else if strings.Contains(pane.Title, "__gmi") {
-			pane.Type = AgentGemini
-		}
+		// Parse pane title using regex to extract type and variant
+		// Format: {session}__{type}_{index} or {session}__{type}_{index}_{variant}
+		pane.Type, pane.Variant = parseAgentFromTitle(pane.Title)
 
 		panes = append(panes, pane)
 	}
@@ -440,15 +464,8 @@ func GetPanesWithActivity(session string) ([]PaneActivity, error) {
 			Active:  active,
 		}
 
-		// Determine agent type from title
-		pane.Type = AgentUser
-		if strings.Contains(pane.Title, "__cc") {
-			pane.Type = AgentClaude
-		} else if strings.Contains(pane.Title, "__cod") {
-			pane.Type = AgentCodex
-		} else if strings.Contains(pane.Title, "__gmi") {
-			pane.Type = AgentGemini
-		}
+		// Parse pane title using regex to extract type and variant
+		pane.Type, pane.Variant = parseAgentFromTitle(pane.Title)
 
 		panes = append(panes, PaneActivity{
 			Pane:         pane,
