@@ -164,10 +164,22 @@ func (b IndeterminateBar) Update(msg tea.Msg) (IndeterminateBar, tea.Cmd) {
 
 // View renders the indeterminate bar
 func (b IndeterminateBar) View() string {
+	// Ensure bar width is smaller than total width
+	barWidth := b.BarWidth
+	if barWidth >= b.Width {
+		barWidth = b.Width - 1
+	}
+	if barWidth < 1 {
+		barWidth = 1
+	}
+
 	// Calculate position (bouncing back and forth)
-	period := (b.Width - b.BarWidth) * 2
+	period := (b.Width - barWidth) * 2
+	if period < 1 {
+		period = 1
+	}
 	pos := b.Tick % period
-	if pos >= b.Width-b.BarWidth {
+	if pos >= b.Width-barWidth {
 		pos = period - pos
 	}
 
@@ -179,11 +191,11 @@ func (b IndeterminateBar) View() string {
 	result.WriteString(bgStyle.Render(strings.Repeat("░", pos)))
 
 	// Moving bar with gradient
-	bar := styles.GradientText(strings.Repeat("█", b.BarWidth), b.Colors...)
+	bar := styles.GradientText(strings.Repeat("█", barWidth), b.Colors...)
 	result.WriteString(bar)
 
 	// Empty after
-	remaining := b.Width - pos - b.BarWidth
+	remaining := b.Width - pos - barWidth
 	if remaining > 0 {
 		result.WriteString(bgStyle.Render(strings.Repeat("░", remaining)))
 	}

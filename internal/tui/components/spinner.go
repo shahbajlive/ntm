@@ -71,7 +71,10 @@ func (s Spinner) Init() tea.Cmd {
 func (s Spinner) Update(msg tea.Msg) (Spinner, tea.Cmd) {
 	switch msg.(type) {
 	case SpinnerTickMsg:
-		frames := spinnerFrames[s.Style]
+		frames, ok := spinnerFrames[s.Style]
+		if !ok || len(frames) == 0 {
+			frames = spinnerFrames[SpinnerDots]
+		}
 		s.Frame = (s.Frame + 1) % len(frames)
 		return s, s.tick()
 	}
@@ -80,7 +83,10 @@ func (s Spinner) Update(msg tea.Msg) (Spinner, tea.Cmd) {
 
 // View renders the spinner
 func (s Spinner) View() string {
-	frames := spinnerFrames[s.Style]
+	frames, ok := spinnerFrames[s.Style]
+	if !ok || len(frames) == 0 {
+		frames = spinnerFrames[SpinnerDots] // fallback to default
+	}
 	frame := frames[s.Frame%len(frames)]
 
 	var rendered string

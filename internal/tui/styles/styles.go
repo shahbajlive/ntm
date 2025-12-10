@@ -74,9 +74,11 @@ func GradientText(text string, colors ...string) string {
 
 	for i, r := range runes {
 		// Calculate position in gradient (0.0 to 1.0)
-		pos := float64(i) / float64(n-1)
+		var pos float64
 		if n == 1 {
 			pos = 0
+		} else {
+			pos = float64(i) / float64(n-1)
 		}
 
 		// Find which segment we're in
@@ -300,6 +302,9 @@ var BounceSpinnerFrames = []string{
 
 // GetSpinnerFrame returns the spinner frame for the given tick
 func GetSpinnerFrame(tick int, frames []string) string {
+	if len(frames) == 0 {
+		return "⠋" // default fallback
+	}
 	return frames[tick%len(frames)]
 }
 

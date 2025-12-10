@@ -164,7 +164,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.panes) > 0 && m.cursor < len(m.panes) {
 				// Zoom to selected pane
 				p := m.panes[m.cursor]
-				_ = tmux.ZoomPane(p.ID)
+				_ = tmux.ZoomPane(m.session, p.Index)
 				return m, tea.Quit
 			}
 
