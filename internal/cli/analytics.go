@@ -17,22 +17,24 @@ import (
 
 // AnalyticsStats holds aggregated analytics data.
 type AnalyticsStats struct {
-	Period         string                    `json:"period"`
-	TotalSessions  int                       `json:"total_sessions"`
-	TotalAgents    int                       `json:"total_agents"`
-	TotalPrompts   int                       `json:"total_prompts"`
-	TotalCharsSent int                       `json:"total_chars_sent"`
-	AgentBreakdown map[string]AgentStats     `json:"agent_breakdown"`
-	SessionDetails []SessionSummary          `json:"sessions,omitempty"`
-	ErrorCount     int                       `json:"error_count"`
-	ErrorTypes     map[string]int            `json:"error_types,omitempty"`
+	Period          string                    `json:"period"`
+	TotalSessions   int                       `json:"total_sessions"`
+	TotalAgents     int                       `json:"total_agents"`
+	TotalPrompts    int                       `json:"total_prompts"`
+	TotalCharsSent  int                       `json:"total_chars_sent"`
+	TotalTokensEst  int                       `json:"total_tokens_estimated"`
+	AgentBreakdown  map[string]AgentStats     `json:"agent_breakdown"`
+	SessionDetails  []SessionSummary          `json:"sessions,omitempty"`
+	ErrorCount      int                       `json:"error_count"`
+	ErrorTypes      map[string]int            `json:"error_types,omitempty"`
 }
 
 // AgentStats holds per-agent-type statistics.
 type AgentStats struct {
-	Count       int `json:"count"`
-	Prompts     int `json:"prompts"`
-	CharsSent   int `json:"chars_sent"`
+	Count      int `json:"count"`
+	Prompts    int `json:"prompts"`
+	CharsSent  int `json:"chars_sent"`
+	TokensEst  int `json:"tokens_estimated"`
 }
 
 // SessionSummary provides details about a single session.
@@ -403,7 +405,12 @@ func outputStatsText(stats AnalyticsStats, showSessions bool) error {
 	if len(stats.AgentBreakdown) > 0 {
 		fmt.Printf("\nAgent Breakdown:\n")
 		for agentType, agentStats := range stats.AgentBreakdown {
-			fmt.Printf("  %s:\n", strings.Title(agentType))
+			// Capitalize first letter (strings.Title is deprecated)
+			displayName := agentType
+			if len(agentType) > 0 {
+				displayName = strings.ToUpper(agentType[:1]) + agentType[1:]
+			}
+			fmt.Printf("  %s:\n", displayName)
 			fmt.Printf("    Spawned:  %d\n", agentStats.Count)
 			fmt.Printf("    Prompts:  %d\n", agentStats.Prompts)
 		}

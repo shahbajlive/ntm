@@ -134,13 +134,13 @@ func (l *Logger) Close() error {
 
 // maybeRotate checks if rotation is needed and performs it.
 func (l *Logger) maybeRotate() {
-	// Only rotate once per day at most
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	// Only rotate once per day at most (check under lock to avoid TOCTOU)
 	if time.Since(l.lastRotation) < 24*time.Hour {
 		return
 	}
-
-	l.mu.Lock()
-	defer l.mu.Unlock()
 
 	l.lastRotation = time.Now()
 
@@ -270,12 +270,16 @@ func EmitSessionCreate(session string, claudeCount, codexCount, geminiCount int,
 
 // EmitPromptSend logs a prompt send event.
 func EmitPromptSend(session string, targetCount, promptLength int, template, targetTypes string, hasContext bool) {
+	// Estimate tokens based on prompt length (using ~3.5 chars/token heuristic)
+	estimatedTokens := promptLength * 10 / 35
+
 	Emit(EventPromptSend, session, PromptSendData{
-		TargetCount:  targetCount,
-		PromptLength: promptLength,
-		Template:     template,
-		TargetTypes:  targetTypes,
-		HasContext:   hasContext,
+		TargetCount:     targetCount,
+		PromptLength:    promptLength,
+		Template:        template,
+		TargetTypes:     targetTypes,
+		HasContext:      hasContext,
+		EstimatedTokens: estimatedTokens,
 	})
 }
 

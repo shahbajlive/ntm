@@ -66,7 +66,7 @@ type ThresholdConfig struct {
 	// BlockErrors blocks if >= this many errors (0 = disabled)
 	BlockErrors int `toml:"block_errors" yaml:"block_errors"`
 
-	// FailErrors fails if >= this many errors (0 = disabled)
+	// FailErrors fails if > this many errors (0 = any error fails, -1 = disabled)
 	FailErrors int `toml:"fail_errors" yaml:"fail_errors"`
 
 	// ShowWarnings includes warnings in output
@@ -319,6 +319,7 @@ func (t *ThresholdConfig) ShouldFail(criticalCount, errorCount int) bool {
 	if t.FailCritical && criticalCount > 0 {
 		return true
 	}
+	// FailErrors < 0 disables this check; >= 0 fails if errorCount exceeds threshold
 	if t.FailErrors >= 0 && errorCount > t.FailErrors {
 		return true
 	}

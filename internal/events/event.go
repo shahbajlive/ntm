@@ -83,11 +83,12 @@ type AgentSpawnData struct {
 
 // PromptSendData contains data for prompt_send events.
 type PromptSendData struct {
-	TargetCount   int    `json:"target_count"`
-	PromptLength  int    `json:"prompt_length"`
-	Template      string `json:"template,omitempty"`
-	HasContext    bool   `json:"has_context,omitempty"`
-	TargetTypes   string `json:"target_types,omitempty"`
+	TargetCount     int    `json:"target_count"`
+	PromptLength    int    `json:"prompt_length"`
+	Template        string `json:"template,omitempty"`
+	HasContext      bool   `json:"has_context,omitempty"`
+	TargetTypes     string `json:"target_types,omitempty"`
+	EstimatedTokens int    `json:"estimated_tokens,omitempty"`
 }
 
 // CheckpointData contains data for checkpoint events.
@@ -124,11 +125,12 @@ func ToMap(v interface{}) map[string]interface{} {
 		}
 	case PromptSendData:
 		return map[string]interface{}{
-			"target_count":  d.TargetCount,
-			"prompt_length": d.PromptLength,
-			"template":      d.Template,
-			"has_context":   d.HasContext,
-			"target_types":  d.TargetTypes,
+			"target_count":     d.TargetCount,
+			"prompt_length":    d.PromptLength,
+			"template":         d.Template,
+			"has_context":      d.HasContext,
+			"target_types":     d.TargetTypes,
+			"estimated_tokens": d.EstimatedTokens,
 		}
 	case CheckpointData:
 		return map[string]interface{}{
