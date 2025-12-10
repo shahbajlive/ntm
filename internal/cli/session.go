@@ -173,20 +173,99 @@ Examples:
 }
 
 func runStatus(session string) error {
-	if err := tmux.EnsureInstalled(); err != nil {
+	// Helper for JSON error output
+	outputError := func(err error) error {
+		if IsJSONOutput() {
+			return output.PrintJSON(output.NewError(err.Error()))
+		}
 		return err
 	}
 
+	if err := tmux.EnsureInstalled(); err != nil {
+		return outputError(err)
+	}
+
 	if !tmux.SessionExists(session) {
+		if IsJSONOutput() {
+			return output.PrintJSON(output.StatusResponse{
+				TimestampedResponse: output.NewTimestamped(),
+				Session:             session,
+				Exists:              false,
+			})
+		}
 		return fmt.Errorf("session '%s' not found", session)
 	}
 
 	panes, err := tmux.GetPanes(session)
 	if err != nil {
-		return err
+		return outputError(err)
 	}
 
 	dir := cfg.GetProjectDir(session)
+
+	// JSON output mode - build structured response
+	if IsJSONOutput() {
+		detector := status.NewDetector()
+		paneResponses := make([]output.PaneResponse, len(panes))
+		agentCounts := output.AgentCountsResponse{}
+
+		for i, p := range panes {
+			// Detect agent status
+			agentStatus, _ := detector.Detect(p.ID)
+			statusStr := "unknown"
+			switch agentStatus.State {
+			case status.StateIdle:
+				statusStr = "idle"
+			case status.StateWorking:
+				statusStr = "working"
+			case status.StateError:
+				statusStr = "error"
+			}
+
+			paneResponses[i] = output.PaneResponse{
+				Index:   p.Index,
+				Title:   p.Title,
+				Type:    agentTypeToString(p.Type),
+				Active:  p.Active,
+				Width:   p.Width,
+				Height:  p.Height,
+				Command: p.Command,
+				Status:  statusStr,
+			}
+
+			switch p.Type {
+			case tmux.AgentClaude:
+				agentCounts.Claude++
+			case tmux.AgentCodex:
+				agentCounts.Codex++
+			case tmux.AgentGemini:
+				agentCounts.Gemini++
+			default:
+				agentCounts.User++
+			}
+		}
+		agentCounts.Total = agentCounts.Claude + agentCounts.Codex + agentCounts.Gemini
+
+		// Check if session is attached
+		attached := false
+		sessions, _ := tmux.ListSessions()
+		for _, s := range sessions {
+			if s.Name == session {
+				attached = s.Attached
+				break
+			}
+		}
+
+		return output.PrintJSON(output.StatusResponse{
+			TimestampedResponse: output.NewTimestamped(),
+			Session:             session,
+			Exists:              true,
+			Attached:            attached,
+			WorkingDirectory:    dir,
+			Panes:               paneResponses,
+			AgentCounts:         agentCounts,
+		})
+	}
 
 	// Use theme colors
 	t := theme.Current()

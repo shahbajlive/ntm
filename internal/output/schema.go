@@ -61,6 +61,7 @@ type PaneResponse struct {
 	Width   int    `json:"width,omitempty"`
 	Height  int    `json:"height,omitempty"`
 	Command string `json:"command,omitempty"`
+	Status  string `json:"status,omitempty"` // idle, working, error
 }
 
 // AgentCountsResponse is the standard format for agent counts
