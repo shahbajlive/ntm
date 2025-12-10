@@ -207,6 +207,7 @@ func (m Model) Init() tea.Cmd {
 		m.tick(),
 		m.fetchSessionDataWithOutputs(),
 		m.fetchHealthStatus(),
+		m.fetchStatuses(),
 		m.fetchAgentMailStatus(),
 	)
 }
@@ -312,9 +313,7 @@ func (m Model) fetchAgentMailStatus() tea.Cmd {
 }
 
 func (m Model) refresh() tea.Cmd {
-	return tea.Tick(m.refreshInterval, func(t time.Time) tea.Msg {
-		return RefreshMsg{}
-	})
+	return tea.Tick(m.refreshInterval, func(t time.Time) tea.Msg { return RefreshMsg{} })
 }
 
 // Helper struct to carry output data
@@ -356,6 +355,18 @@ func (m Model) fetchSessionDataWithOutputs() tea.Cmd {
 	}
 }
 
+// fetchStatuses runs unified status detection across all panes
+func (m Model) fetchStatuses() tea.Cmd {
+	return func() tea.Msg {
+		statuses, err := m.detector.DetectAll(m.session)
+		if err != nil {
+			// Keep UI responsive even if detection fails
+			return StatusUpdateMsg{Statuses: nil, Time: time.Now()}
+		}
+		return StatusUpdateMsg{Statuses: statuses, Time: time.Now()}
+	}
+}
+
 // Update implements tea.Model
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -370,8 +381,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.tick()
 
 	case RefreshMsg:
-		// Trigger async fetch
-		return m, m.fetchSessionDataWithOutputs()
+		// Trigger async fetch for pane data and status detection
+		return m, tea.Batch(
+			m.fetchSessionDataWithOutputs(),
+			m.fetchStatuses(),
+		)
 
 	case SessionDataWithOutputMsg:
 		if msg.Err != nil {
@@ -425,6 +439,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Schedule next refresh
 		return m, m.refresh()
 
+	case StatusUpdateMsg:
+		// Build index lookup for current panes
+		paneIndexByID := make(map[string]int)
+		for _, p := range m.panes {
+			paneIndexByID[p.ID] = p.Index
+		}
+
+		for _, st := range msg.Statuses {
+			idx, ok := paneIndexByID[st.PaneID]
+			if !ok {
+				continue
+			}
+
+			ps := m.paneStatus[idx]
+			state := string(st.State)
+
+			// Compaction warning should override idle/working but not errors
+			if ps.LastCompaction != nil && state != string(status.StateError) {
+				state = "compacted"
+			}
+			ps.State = state
+			m.paneStatus[idx] = ps
+			m.agentStatuses[st.PaneID] = st
+		}
+		m.lastRefresh = msg.Time
+		return m, nil
+
 	case HealthCheckMsg:
 		m.healthStatus = msg.Status
 		m.healthMessage = msg.Message
@@ -455,11 +496,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, dashKeys.Refresh):
 			// Manual refresh
-			return m, m.fetchSessionDataWithOutputs()
+			return m, tea.Batch(
+				m.fetchSessionDataWithOutputs(),
+				m.fetchStatuses(),
+			)
 
 		case key.Matches(msg, dashKeys.ContextRefresh):
 			// Force context refresh (same as regular refresh but with user intent to see context)
-			return m, m.fetchSessionDataWithOutputs()
+			return m, tea.Batch(
+				m.fetchSessionDataWithOutputs(),
+				m.fetchStatuses(),
+			)
 
 		case key.Matches(msg, dashKeys.MailRefresh):
 			// Refresh Agent Mail data
