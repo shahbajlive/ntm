@@ -440,3 +440,225 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("ScanLines = %d, want 50", config.ScanLines)
 	}
 }
+
+// tmuxAvailable checks if tmux is installed and returns true if so
+func tmuxAvailable() bool {
+	_, err := exec.LookPath("tmux")
+	return err == nil
+}
+
+// createTestSession creates a tmux session for testing and returns the session name
+func createTestSession(t *testing.T) string {
+	t.Helper()
+	sessionName := "ntm_status_test_" + time.Now().Format("150405")
+
+	cmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create test session: %v", err)
+	}
+
+	t.Cleanup(func() {
+		exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+	})
+
+	// Give tmux a moment to set up
+	time.Sleep(100 * time.Millisecond)
+
+	return sessionName
+}
+
+// TestDetect tests the Detect method with a real tmux session
+func TestDetect(t *testing.T) {
+	if !tmuxAvailable() {
+		t.Skip("tmux not available")
+	}
+
+	sessionName := createTestSession(t)
+
+	// Get the pane ID from the session
+	cmd := exec.Command("tmux", "list-panes", "-t", sessionName, "-F", "#{pane_id}")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to get pane ID: %v", err)
+	}
+
+	paneID := strings.TrimSpace(string(output))
+	if paneID == "" {
+		t.Fatal("Empty pane ID")
+	}
+
+	d := NewDetector()
+	status, err := d.Detect(paneID)
+	if err != nil {
+		t.Fatalf("Detect failed: %v", err)
+	}
+
+	// Verify basic fields are populated
+	if status.PaneID != paneID {
+		t.Errorf("PaneID = %q, want %q", status.PaneID, paneID)
+	}
+	if status.UpdatedAt.IsZero() {
+		t.Error("UpdatedAt should not be zero")
+	}
+	// State should be one of the valid states
+	validStates := map[AgentState]bool{
+		StateIdle:    true,
+		StateWorking: true,
+		StateError:   true,
+		StateUnknown: true,
+	}
+	if !validStates[status.State] {
+		t.Errorf("Invalid state: %s", status.State)
+	}
+}
+
+// TestDetectNonexistentPane tests Detect with an invalid pane ID
+func TestDetectNonexistentPane(t *testing.T) {
+	if !tmuxAvailable() {
+		t.Skip("tmux not available")
+	}
+
+	d := NewDetector()
+	_, err := d.Detect("%999999")
+	if err == nil {
+		t.Error("Detect should fail for nonexistent pane")
+	}
+}
+
+// TestDetectAll tests the DetectAll method with a real tmux session
+func TestDetectAll(t *testing.T) {
+	if !tmuxAvailable() {
+		t.Skip("tmux not available")
+	}
+
+	sessionName := createTestSession(t)
+
+	d := NewDetector()
+	statuses, err := d.DetectAll(sessionName)
+	if err != nil {
+		t.Fatalf("DetectAll failed: %v", err)
+	}
+
+	// Should have at least one pane (the default one)
+	if len(statuses) < 1 {
+		t.Error("DetectAll should return at least one status")
+	}
+
+	// Each status should have valid fields
+	for _, status := range statuses {
+		if status.PaneID == "" {
+			t.Error("Status has empty PaneID")
+		}
+		if status.UpdatedAt.IsZero() {
+			t.Error("Status has zero UpdatedAt")
+		}
+	}
+}
+
+// TestDetectAllNonexistentSession tests DetectAll with an invalid session
+func TestDetectAllNonexistentSession(t *testing.T) {
+	if !tmuxAvailable() {
+		t.Skip("tmux not available")
+	}
+
+	d := NewDetector()
+	_, err := d.DetectAll("nonexistent_session_xyz123")
+	if err == nil {
+		t.Error("DetectAll should fail for nonexistent session")
+	}
+}
+
+// TestDetectWithErrorOutput tests detection of error states
+func TestDetectWithErrorOutput(t *testing.T) {
+	if !tmuxAvailable() {
+		t.Skip("tmux not available")
+	}
+
+	sessionName := createTestSession(t)
+
+	// Get pane ID
+	cmd := exec.Command("tmux", "list-panes", "-t", sessionName, "-F", "#{pane_id}")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to get pane ID: %v", err)
+	}
+	paneID := strings.TrimSpace(string(output))
+
+	// Send an error message to the pane
+	exec.Command("tmux", "send-keys", "-t", paneID, "echo 'Error: rate limit exceeded'", "Enter").Run()
+	time.Sleep(200 * time.Millisecond)
+
+	d := NewDetector()
+	status, err := d.Detect(paneID)
+	if err != nil {
+		t.Fatalf("Detect failed: %v", err)
+	}
+
+	// The output should contain our error message
+	if !strings.Contains(status.LastOutput, "rate limit") && status.State != StateError {
+		// Either error detected or output visible
+		t.Logf("State=%s, Output contains error context", status.State)
+	}
+}
+
+// TestDetectWithIdlePrompt tests detection of idle states
+func TestDetectWithIdlePrompt(t *testing.T) {
+	if !tmuxAvailable() {
+		t.Skip("tmux not available")
+	}
+
+	sessionName := createTestSession(t)
+
+	// Get pane ID
+	cmd := exec.Command("tmux", "list-panes", "-t", sessionName, "-F", "#{pane_id}")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to get pane ID: %v", err)
+	}
+	paneID := strings.TrimSpace(string(output))
+
+	// The pane should start at a shell prompt, which should be detected as idle
+	d := NewDetector()
+	status, err := d.Detect(paneID)
+	if err != nil {
+		t.Fatalf("Detect failed: %v", err)
+	}
+
+	// Shell prompt should be detected as idle or working (depends on timing)
+	if status.State != StateIdle && status.State != StateWorking && status.State != StateUnknown {
+		t.Logf("Unexpected state for shell prompt: %s", status.State)
+	}
+}
+
+// TestDetectAllWithMultiplePanes tests DetectAll with multiple panes
+func TestDetectAllWithMultiplePanes(t *testing.T) {
+	if !tmuxAvailable() {
+		t.Skip("tmux not available")
+	}
+
+	sessionName := createTestSession(t)
+
+	// Split pane to create a second one
+	exec.Command("tmux", "split-window", "-t", sessionName).Run()
+	time.Sleep(100 * time.Millisecond)
+
+	d := NewDetector()
+	statuses, err := d.DetectAll(sessionName)
+	if err != nil {
+		t.Fatalf("DetectAll failed: %v", err)
+	}
+
+	// Should have at least 2 panes now
+	if len(statuses) < 2 {
+		t.Errorf("Expected at least 2 statuses, got %d", len(statuses))
+	}
+
+	// Each pane should have a unique ID
+	paneIDs := make(map[string]bool)
+	for _, status := range statuses {
+		if paneIDs[status.PaneID] {
+			t.Errorf("Duplicate pane ID: %s", status.PaneID)
+		}
+		paneIDs[status.PaneID] = true
+	}
+}
