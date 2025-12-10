@@ -386,6 +386,15 @@ func TestKillCommandIntegration(t *testing.T) {
 	logger.Log("Creating session for kill test: %s", session)
 	logger.Log("NTM_PROJECTS_BASE: %s", projectsBase)
 
+	// Register cleanup in case test fails before we kill the session
+	t.Cleanup(func() {
+		// Only try to kill if we haven't already verified it's gone
+		if testutil.SessionExists(session) {
+			logger.Log("Cleanup: killing orphaned session %s", session)
+			exec.Command("tmux", "kill-session", "-t", session).Run()
+		}
+	})
+
 	// Spawn with correct environment and --json flag to avoid terminal attachment
 	cmd := exec.Command("ntm", "spawn", session, "--cc=1", "--json")
 	// Filter out NTM_PROJECTS_BASE from existing env and set our own
@@ -490,7 +499,9 @@ func TestSpawnWithWorkDir(t *testing.T) {
 		if pane.Type == "user" {
 			// Send pwd command
 			target := fmt.Sprintf("%s:%d", session, pane.Index)
-			exec.Command("tmux", "send-keys", "-t", target, "pwd", "Enter").Run()
+			if err := exec.Command("tmux", "send-keys", "-t", target, "pwd", "Enter").Run(); err != nil {
+				t.Fatalf("failed to send pwd command: %v", err)
+			}
 			time.Sleep(200 * time.Millisecond)
 
 			// Capture output
