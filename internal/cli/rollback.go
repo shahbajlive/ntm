@@ -181,6 +181,19 @@ func performRollback(cp *checkpoint.Checkpoint, workDir string, noStash, noGit b
 	t := theme.Current()
 	var stashName string
 
+	// 1. Interrupt agents to stop them from writing to files during rollback
+	if !jsonOutput {
+		fmt.Println("Interrupting agents...")
+	}
+	// Interrupt all agents (no tags)
+	if err := runInterrupt(cp.SessionName, nil); err != nil {
+		if !jsonOutput {
+			fmt.Printf("%s! Warning: failed to interrupt agents: %v%s\n", colorize(t.Warning), err, "\033[0m")
+		}
+	} else if !jsonOutput {
+		fmt.Printf("%s\u2713%s Agents interrupted\n", colorize(t.Success), "\033[0m")
+	}
+
 	if !noGit && workDir != "" && cp.Git.Commit != "" {
 		// Stash current changes if needed
 		if !noStash && hasUncommittedChanges(workDir) {
