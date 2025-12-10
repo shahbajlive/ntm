@@ -1,10 +1,114 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
+
+// TestSendRealSession tests sending a prompt to a real tmux session
+func TestSendRealSession(t *testing.T) {
+	if !tmux.IsInstalled() {
+		t.Skip("tmux not installed")
+	}
+
+	// Setup temp dir for projects
+	tmpDir, err := os.MkdirTemp("", "ntm-test-send")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Save/Restore global config
+	oldCfg := cfg
+	oldJsonOutput := jsonOutput
+	defer func() {
+		cfg = oldCfg
+		jsonOutput = oldJsonOutput
+	}()
+
+	cfg = config.Default()
+	cfg.ProjectsBase = tmpDir
+	jsonOutput = true // Use JSON output to avoid polluting test logs
+
+	// Use a simple echo command that persists for a bit so we can capture it
+	// We use 'read' to keep the pane open/active if needed, or just sleep
+	cfg.Agents.Claude = "cat" // Simple cat will echo whatever we send to stdin/tty?
+	// Actually, SendKeys sends keystrokes. "cat" will print them back. Perfect.
+
+	sessionName := fmt.Sprintf("ntm-test-send-%d", time.Now().UnixNano())
+	defer func() {
+		_ = tmux.KillSession(sessionName)
+	}()
+
+	// Define agents
+	agents := []FlatAgent{
+		{Type: AgentTypeClaude, Index: 1, Model: "test-model"},
+	}
+
+	// Create project dir
+	projectDir := filepath.Join(tmpDir, sessionName)
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatalf("failed to create project dir: %v", err)
+	}
+
+	// Spawn session
+	err = spawnSessionLogic(sessionName, agents, 1, 0, 0, true, false, "", nil)
+	if err != nil {
+		t.Fatalf("spawnSessionLogic failed: %v", err)
+	}
+
+	// Wait for session to settle
+	time.Sleep(500 * time.Millisecond)
+
+	// Send a prompt
+	prompt := "Hello NTM Test"
+	targets := SendTargets{} // Empty targets = default behavior (all agents)
+	
+	// Send to all agents (skip user pane default)
+	err = runSendWithTargets(sessionName, prompt, targets, false, true, -1, "")
+	if err != nil {
+		t.Fatalf("runSendWithTargets failed: %v", err)
+	}
+
+	// Wait for keys to be processed by tmux/shell
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify output in pane
+	// We spawned 1 Claude agent, so it should be at index 1 (index 0 is user)
+	// We need to find the pane ID or just use index
+	panes, err := tmux.GetPanes(sessionName)
+	if err != nil {
+		t.Fatalf("failed to get panes: %v", err)
+	}
+
+	var agentPane *tmux.Pane
+	for i := range panes {
+		if panes[i].Type == tmux.AgentClaude {
+			agentPane = &panes[i]
+			break
+		}
+	}
+
+	if agentPane == nil {
+		t.Fatal("Agent pane not found")
+	}
+
+	output, err := tmux.CapturePaneOutput(agentPane.ID, 10)
+	if err != nil {
+		t.Fatalf("CapturePaneOutput failed: %v", err)
+	}
+
+	if !strings.Contains(output, prompt) {
+		t.Errorf("Pane output did not contain prompt %q. Got:\n%s", prompt, output)
+	}
+}
 
 // TestGetPromptContentFromArgs tests reading prompt from positional arguments
 func TestGetPromptContentFromArgs(t *testing.T) {
