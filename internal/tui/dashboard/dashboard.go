@@ -10,6 +10,7 @@ import (
 
 	"github.com/Dicklesworthstone/ntm/internal/agentmail"
 	"github.com/Dicklesworthstone/ntm/internal/bv"
+	"github.com/Dicklesworthstone/ntm/internal/scanner"
 	"github.com/Dicklesworthstone/ntm/internal/status"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/internal/tokens"
@@ -39,6 +40,13 @@ type StatusUpdateMsg struct {
 type HealthCheckMsg struct {
 	Status  string // "ok", "warning", "critical", "no_baseline", "unavailable"
 	Message string
+}
+
+// ScanStatusMsg is sent when UBS scan completes
+type ScanStatusMsg struct {
+	Status   string
+	Totals   scanner.ScanTotals
+	Duration time.Duration
 }
 
 // AgentMailUpdateMsg is sent when Agent Mail data is fetched
@@ -246,6 +254,51 @@ func (m Model) fetchHealthStatus() tea.Cmd {
 		return HealthCheckMsg{
 			Status:  status,
 			Message: result.Message,
+		}
+	}
+}
+
+// fetchScanStatus performs a quick UBS scan for badge display (diff-only)
+func (m Model) fetchScanStatus() tea.Cmd {
+	return func() tea.Msg {
+		if !scanner.IsAvailable() {
+			return ScanStatusMsg{Status: "unavailable"}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
+		opts := scanner.ScanOptions{
+			DiffOnly: true,
+			Timeout:  15 * time.Second,
+		}
+
+		start := time.Now()
+		result, err := scanner.QuickScanWithOptions(ctx, ".", opts)
+		if err != nil {
+			return ScanStatusMsg{Status: "error"}
+		}
+		if result == nil {
+			return ScanStatusMsg{Status: "unavailable"}
+		}
+
+		status := "clean"
+		switch {
+		case result.Totals.Critical > 0:
+			status = "critical"
+		case result.Totals.Warning > 0:
+			status = "warning"
+		}
+
+		dur := result.Duration
+		if dur == 0 {
+			dur = time.Since(start)
+		}
+
+		return ScanStatusMsg{
+			Status:   status,
+			Totals:   result.Totals,
+			Duration: dur,
 		}
 	}
 }
