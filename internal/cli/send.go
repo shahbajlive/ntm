@@ -12,6 +12,7 @@ import (
 
 	"github.com/Dicklesworthstone/ntm/internal/checkpoint"
 	"github.com/Dicklesworthstone/ntm/internal/hooks"
+	"github.com/Dicklesworthstone/ntm/internal/prompt"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
@@ -32,6 +33,7 @@ func newSendCmd() *cobra.Command {
 	var targetCC, targetCod, targetGmi, targetAll, skipFirst bool
 	var paneIndex int
 	var promptFile, prefix, suffix string
+	var contextFiles []string
 
 	cmd := &cobra.Command{
 		Use:   "send <session> [prompt]",
@@ -45,6 +47,10 @@ Prompt can be provided as:
   - From a file using --file
   - From stdin when piped/redirected
 
+File Context Injection:
+Use --context (-c) to include file contents in the prompt. Files are prepended
+with headers and code fences. Supports line ranges: path:10-50, path:10-, path:-50
+
 When using --file or stdin, use --prefix and --suffix to wrap the content.
 
 Examples:
@@ -57,15 +63,36 @@ Examples:
   ntm send myproject --json "run tests"                 # JSON output
   ntm send myproject --file prompts/review.md           # From file
   cat error.log | ntm send myproject --cc               # From stdin
-  git diff | ntm send myproject --all --prefix "Review these changes:"  # Stdin with prefix`,
+  git diff | ntm send myproject --all --prefix "Review these changes:"  # Stdin with prefix
+  ntm send myproject -c src/auth.py "Refactor this"     # With file context
+  ntm send myproject -c src/api.go:10-50 "Review lines" # With line range
+  ntm send myproject -c a.go -c b.go "Compare these"    # Multiple files`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			session := args[0]
-			prompt, err := getPromptContent(args[1:], promptFile, prefix, suffix)
+			promptText, err := getPromptContent(args[1:], promptFile, prefix, suffix)
 			if err != nil {
 				return err
 			}
-			return runSend(session, prompt, targetCC, targetCod, targetGmi, targetAll, skipFirst, paneIndex)
+
+			// Inject file context if specified
+			if len(contextFiles) > 0 {
+				var specs []prompt.FileSpec
+				for _, cf := range contextFiles {
+					spec, err := prompt.ParseFileSpec(cf)
+					if err != nil {
+						return fmt.Errorf("invalid --context spec '%s': %w", cf, err)
+					}
+					specs = append(specs, spec)
+				}
+
+				promptText, err = prompt.InjectFiles(specs, promptText)
+				if err != nil {
+					return err
+				}
+			}
+
+			return runSend(session, promptText, targetCC, targetCod, targetGmi, targetAll, skipFirst, paneIndex)
 		},
 	}
 
@@ -78,6 +105,7 @@ Examples:
 	cmd.Flags().StringVarP(&promptFile, "file", "f", "", "read prompt from file")
 	cmd.Flags().StringVar(&prefix, "prefix", "", "text to prepend to file/stdin content")
 	cmd.Flags().StringVar(&suffix, "suffix", "", "text to append to file/stdin content")
+	cmd.Flags().StringArrayVarP(&contextFiles, "context", "c", nil, "file to include as context (repeatable, supports path:start-end)")
 
 	return cmd
 }
