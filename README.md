@@ -1,9 +1,10 @@
 # NTM - Named Tmux Manager
 
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-blue.svg)
-![Go Version](https://img.shields.io/badge/go-1.22+-00ADD8.svg)
+![Go Version](https://img.shields.io/badge/go-1.25+-00ADD8.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
-![Status](https://img.shields.io/badge/status-stable-brightgreen.svg)
+![CI](https://img.shields.io/github/actions/workflow/status/Dicklesworthstone/ntm/ci.yml?label=CI)
+![Release](https://img.shields.io/github/v/release/Dicklesworthstone/ntm?include_prereleases)
 
 **A powerful tmux session management tool for orchestrating multiple AI coding agents in parallel.**
 
@@ -17,6 +18,33 @@ curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/install.
 ```
 
 </div>
+
+---
+
+## Quick Start
+
+```bash
+# Install NTM
+curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/install.sh | bash
+
+# Add shell integration
+echo 'eval "$(ntm init zsh)"' >> ~/.zshrc && source ~/.zshrc
+
+# Run the interactive tutorial
+ntm tutorial
+
+# Check dependencies
+ntm deps -v
+
+# Create your first multi-agent session
+ntm spawn myproject --cc=2 --cod=1
+
+# Send a prompt to all Claude agents
+ntm send myproject --cc "Hello! Explore this codebase and summarize its architecture."
+
+# Open the command palette
+ntm palette myproject
+```
 
 ---
 
@@ -168,6 +196,32 @@ ntm bind --unbind             # Remove the binding
 
 After binding, press F6 inside any tmux session to open the palette in a floating popup.
 
+### Interactive Tutorial
+
+Get started quickly with the built-in interactive tutorial:
+
+```bash
+ntm tutorial              # Launch the animated tutorial
+ntm tutorial --skip       # Skip animations (accessibility mode)
+```
+
+The tutorial walks you through:
+- Core concepts (sessions, panes, agents)
+- Essential commands with examples
+- Multi-agent coordination strategies
+- Power user tips and keyboard shortcuts
+
+### Self-Update
+
+Keep NTM up-to-date with the built-in upgrade command:
+
+```bash
+ntm upgrade               # Check for updates and prompt to install
+ntm upgrade --check       # Check only, don't install
+ntm upgrade --yes         # Auto-confirm installation
+ntm upgrade --force       # Force reinstall even if up-to-date
+```
+
 ### Dependency Check
 
 Verify all required tools are installed:
@@ -191,6 +245,27 @@ curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/install.
 
 ```bash
 brew install dicklesworthstone/tap/ntm
+```
+
+### Go Install
+
+```bash
+go install github.com/Dicklesworthstone/ntm/cmd/ntm@latest
+```
+
+### Docker
+
+Run NTM in a container (useful for CI/CD or isolated environments):
+
+```bash
+# Pull the latest image
+docker pull ghcr.io/dicklesworthstone/ntm:latest
+
+# Run interactively
+docker run -it --rm ghcr.io/dicklesworthstone/ntm:latest
+
+# Or use a specific version
+docker pull ghcr.io/dicklesworthstone/ntm:v1.0.0
 ```
 
 ### From Source
@@ -373,6 +448,8 @@ ntm bind                   # Set up F6 keybinding for palette popup
 | `ntm bind` | | `[--key=F6] [--unbind] [--show]` | Configure tmux F6 keybinding |
 | `ntm config init` | | | Create default config file |
 | `ntm config show` | | | Display current configuration |
+| `ntm tutorial` | | `[--skip] [--slide=N]` | Interactive tutorial |
+| `ntm upgrade` | | `[--check] [--yes] [--force]` | Self-update to latest version |
 
 **Examples:**
 
@@ -382,6 +459,48 @@ knt myproject       # Prompts for confirmation
 knt -f myproject    # Force kill, no prompt
 ntm bind            # Set up F6 popup keybinding
 ntm config init     # Create ~/.config/ntm/config.toml
+ntm tutorial        # Launch interactive tutorial
+ntm upgrade         # Check for and install updates
+```
+
+### AI Agent Integration (Robot Mode)
+
+NTM provides machine-readable JSON output for integration with AI coding agents and automation pipelines:
+
+```bash
+ntm --robot-status    # Output all session info as JSON
+ntm --robot-plan      # Get recommended actions as JSON
+ntm --robot-version   # Version info as JSON
+ntm --robot-help      # Robot mode documentation
+```
+
+This enables AI agents to:
+- Discover existing sessions and their agent configurations
+- Plan multi-agent workflows programmatically
+- Monitor session state without parsing human-readable output
+- Integrate NTM into automated CI/CD pipelines
+
+**Example JSON output (`--robot-status`):**
+
+```json
+{
+  "sessions": [
+    {
+      "name": "myproject",
+      "attached": true,
+      "windows": 1,
+      "agents": [
+        {"type": "claude", "pane": "myproject__cc_1", "active": true},
+        {"type": "codex", "pane": "myproject__cod_1", "active": true}
+      ]
+    }
+  ],
+  "summary": {
+    "total_sessions": 1,
+    "total_agents": 2,
+    "by_type": {"claude": 1, "codex": 1}
+  }
+}
 ```
 
 ---
@@ -970,9 +1089,13 @@ Reload your shell configuration:
 source ~/.zshrc   # or ~/.bashrc
 ```
 
-### Palette numbers select wrong command
+### Updating NTM
 
-This was a bug in earlier versions. Update NTM to the latest version where visual numbering matches selection.
+Use the built-in upgrade command:
+
+```bash
+ntm upgrade
+```
 
 ---
 
@@ -1050,6 +1173,27 @@ A: Add to `~/.tmux.conf`:
 
 ```bash
 set-option -g history-limit 50000  # Default is 2000
+```
+
+### Getting Started
+
+**Q: What's the fastest way to learn NTM?**
+
+A: Run the interactive tutorial:
+
+```bash
+ntm tutorial
+```
+
+It walks you through all the core concepts with animated examples.
+
+**Q: How do I keep NTM updated?**
+
+A: Use the built-in upgrade command:
+
+```bash
+ntm upgrade           # Check for updates and install
+ntm upgrade --check   # Just check, don't install
 ```
 
 ---
@@ -1162,6 +1306,30 @@ go build -o ntm ./cmd/ntm
 go test ./...
 ```
 
+### Building with Docker
+
+```bash
+# Build the container image
+docker build -t ntm:local .
+
+# Build with version info
+docker build \
+  --build-arg VERSION=1.0.0 \
+  --build-arg COMMIT=$(git rev-parse HEAD) \
+  --build-arg DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+  -t ntm:local .
+```
+
+### CI/CD
+
+NTM uses GitHub Actions for continuous integration:
+
+- **Lint**: golangci-lint with 40+ linters
+- **Test**: Unit tests with coverage on Linux and macOS
+- **Build**: Cross-platform builds (Linux, macOS, Windows, FreeBSD)
+- **Security**: Vulnerability scanning with govulncheck and gosec
+- **Release**: Automated releases via GoReleaser with multi-arch Docker images
+
 ### Project Structure
 
 ```
@@ -1169,16 +1337,22 @@ ntm/
 ├── cmd/ntm/              # Main entry point
 ├── internal/
 │   ├── cli/              # Cobra commands and help rendering
-│   ├── config/           # TOML configuration
-│   ├── palette/          # Command palette TUI (enhanced with animations)
-│   ├── tmux/             # Tmux operations
+│   ├── config/           # TOML configuration and palette loading
+│   ├── palette/          # Command palette TUI with animations
+│   ├── robot/            # Machine-readable JSON output for AI agents
+│   ├── tmux/             # Tmux session/pane/window operations
+│   ├── tutorial/         # Interactive tutorial with animated slides
+│   ├── updater/          # Self-update from GitHub releases
+│   ├── watcher/          # File watching utilities
 │   └── tui/
-│       ├── components/   # Reusable TUI components (spinners, progress, banner)
+│       ├── components/   # Reusable components (spinners, progress, banner)
 │       ├── dashboard/    # Interactive session dashboard
 │       ├── icons/        # Nerd Font / Unicode / ASCII icon sets
 │       ├── styles/       # Gradient text, shimmer, glow effects
 │       └── theme/        # Catppuccin themes (Mocha, Macchiato, Nord)
-└── README.md
+├── .github/workflows/    # CI/CD pipelines
+├── .goreleaser.yaml      # Release configuration
+└── Dockerfile            # Container image definition
 ```
 
 ---
