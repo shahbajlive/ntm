@@ -3,6 +3,7 @@ package checkpoint
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -278,7 +279,7 @@ func countLines(s string) int {
 
 // fileExists checks if a path exists.
 func fileExists(path string) bool {
-	_, err := exec.Command("test", "-e", path).Output()
+	_, err := os.Stat(path)
 	return err == nil
 }
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"sync"
 	"time"
 )
@@ -272,16 +273,12 @@ func WriteText(w io.Writer) error {
 	}
 
 	fmt.Fprintf(w, "Top Spans by Duration:\n")
-	// Sort spans by duration (simple bubble for small lists)
+	// Sort spans by duration (descending)
 	spans := make([]*SpanReport, len(profile.Spans))
 	copy(spans, profile.Spans)
-	for i := 0; i < len(spans); i++ {
-		for j := i + 1; j < len(spans); j++ {
-			if spans[j].DurationNs > spans[i].DurationNs {
-				spans[i], spans[j] = spans[j], spans[i]
-			}
-		}
-	}
+	sort.Slice(spans, func(i, j int) bool {
+		return spans[i].DurationNs > spans[j].DurationNs
+	})
 	limit := 10
 	if len(spans) < limit {
 		limit = len(spans)

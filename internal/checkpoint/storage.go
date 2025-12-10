@@ -256,16 +256,16 @@ func (s *Storage) SaveGitPatch(sessionName, checkpointID, patch string) error {
 		return nil
 	}
 	dir := s.CheckpointDir(sessionName, checkpointID)
-	filepath := filepath.Join(dir, GitPatchFile)
-	return os.WriteFile(filepath, []byte(patch), 0644)
+	path := filepath.Join(dir, GitPatchFile)
+	return os.WriteFile(path, []byte(patch), 0644)
 }
 
 // LoadGitPatch reads the git diff patch from the checkpoint.
 func (s *Storage) LoadGitPatch(sessionName, checkpointID string) (string, error) {
 	dir := s.CheckpointDir(sessionName, checkpointID)
-	filepath := filepath.Join(dir, GitPatchFile)
+	path := filepath.Join(dir, GitPatchFile)
 
-	data, err := os.ReadFile(filepath)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil
@@ -279,8 +279,8 @@ func (s *Storage) LoadGitPatch(sessionName, checkpointID string) (string, error)
 // SaveGitStatus writes the git status output to the checkpoint.
 func (s *Storage) SaveGitStatus(sessionName, checkpointID, status string) error {
 	dir := s.CheckpointDir(sessionName, checkpointID)
-	filepath := filepath.Join(dir, GitStatusFile)
-	return os.WriteFile(filepath, []byte(status), 0644)
+	path := filepath.Join(dir, GitStatusFile)
+	return os.WriteFile(path, []byte(status), 0644)
 }
 
 // writeJSON writes data as formatted JSON to a file.

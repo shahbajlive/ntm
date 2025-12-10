@@ -215,8 +215,12 @@ func Prune(keep int) (int, error) {
 		if err != nil {
 			continue
 		}
-		writer.Write(data)
-		writer.WriteByte('\n')
+		if _, err := writer.Write(data); err != nil {
+			return 0, err
+		}
+		if err := writer.WriteByte('\n'); err != nil {
+			return 0, err
+		}
 	}
 
 	return removed, writer.Flush()
@@ -297,8 +301,12 @@ func ExportTo(path string) error {
 		if err != nil {
 			continue
 		}
-		writer.Write(data)
-		writer.WriteByte('\n')
+		if _, err := writer.Write(data); err != nil {
+			return err
+		}
+		if err := writer.WriteByte('\n'); err != nil {
+			return err
+		}
 	}
 
 	return writer.Flush()
