@@ -180,7 +180,8 @@ func execCommand(t *testing.T, args ...string) (string, error) {
 	var buf bytes.Buffer
 	rootCmd.SetOut(&buf)
 	rootCmd.SetErr(&buf)
-	return buf.String(), rootCmd.Execute()
+	err := rootCmd.Execute()
+	return buf.String(), err
 }
 
 func TestMailMarkRequiresSelector(t *testing.T) {
