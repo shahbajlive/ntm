@@ -466,6 +466,11 @@ func GetLayoutMode(width int) LayoutMode {
 // AdaptiveCardDimensions calculates optimal card dimensions for a grid layout.
 // Inspired by beads_viewer's adaptive column width algorithm.
 func AdaptiveCardDimensions(totalWidth, minCardWidth, maxCardWidth, gap int) (cardWidth, cardsPerRow int) {
+	// Guard against invalid inputs
+	if totalWidth <= 0 || minCardWidth <= 0 || maxCardWidth <= 0 {
+		return 1, 1 // Return minimal safe values
+	}
+
 	if totalWidth < minCardWidth {
 		return totalWidth, 1
 	}

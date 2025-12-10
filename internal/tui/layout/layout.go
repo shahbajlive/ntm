@@ -1,16 +1,21 @@
 package layout
 
-// Width tiers are shared across TUI surfaces so behavior is predictable on
-// laptops, wide displays, and ultra‑wide monitors.
+// Width tiers are shared across TUI surfaces so behavior stays predictable on
+// narrow laptops, wide displays, and ultra‑wide monitors. These thresholds are
+// aligned with the design tokens in internal/tui/styles/tokens.go to avoid the
+// previous drift between layout, palette, and style breakpoints.
 //
-// The values mirror patterns taken from beads_viewer:
-//   - SplitView: when to switch from stacked to split layouts
-//   - WideView: when to start surfacing secondary metadata columns
-//   - UltraWideView: when to show tertiary metadata (labels, models, etc.)
+// Tier semantics (consumer guidance):
+//   - SplitView: switch from stacked → split list/detail layouts
+//   - WideView: enable secondary metadata columns and richer badges
+//   - UltraWideView: show tertiary metadata (labels, model/variant, locks)
+//
+// Rationale: tokens.DefaultBreakpoints define LG/XL/Wide/Ultra at 120/160/200/240;
+// we place split at 120, wide at 200, ultra at 240 to line up with those tiers.
 const (
-	SplitViewThreshold     = 110
-	WideViewThreshold      = 140
-	UltraWideViewThreshold = 180
+	SplitViewThreshold     = 120
+	WideViewThreshold      = 200
+	UltraWideViewThreshold = 240
 )
 
 // Tier describes the current width bucket.
