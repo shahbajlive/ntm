@@ -323,3 +323,130 @@ func TestPending_HasPending(t *testing.T) {
 		})
 	}
 }
+
+func TestNewClient_Defaults(t *testing.T) {
+	c := NewClient()
+	if c.Timeout != DefaultTimeout {
+		t.Errorf("expected default timeout %v, got %v", DefaultTimeout, c.Timeout)
+	}
+	if c.cassPath != "" {
+		t.Errorf("expected empty cassPath, got %s", c.cassPath)
+	}
+}
+
+func TestStatusResponse_NeedsAction(t *testing.T) {
+	tests := []struct {
+		name     string
+		status   StatusResponse
+		expected bool
+	}{
+		{
+			name:     "no action needed",
+			status:   StatusResponse{RecommendedAction: ""},
+			expected: false,
+		},
+		{
+			name:     "action needed",
+			status:   StatusResponse{RecommendedAction: "run 'cass reindex'"},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.status.NeedsAction(); got != tt.expected {
+				t.Errorf("NeedsAction() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestScanResult_Methods(t *testing.T) {
+	// Test TotalIssues
+	result := &ScanResult{
+		Totals: ScanTotals{
+			Critical: 2,
+			Warning:  5,
+			Info:     10,
+		},
+	}
+
+	if got := result.TotalIssues(); got != 17 {
+		t.Errorf("TotalIssues() = %d, want 17", got)
+	}
+
+	// Test IsHealthy
+	if result.IsHealthy() {
+		t.Error("IsHealthy() should be false with critical issues")
+	}
+
+	healthyResult := &ScanResult{
+		Totals: ScanTotals{Critical: 0, Warning: 0, Info: 5},
+	}
+	if !healthyResult.IsHealthy() {
+		t.Error("IsHealthy() should be true with no critical/warning")
+	}
+
+	// Test HasCritical/HasWarning
+	if !result.HasCritical() {
+		t.Error("HasCritical() should be true")
+	}
+	if !result.HasWarning() {
+		t.Error("HasWarning() should be true")
+	}
+}
+
+func TestScanResult_FilterBySeverity(t *testing.T) {
+	result := &ScanResult{
+		Findings: []Finding{
+			{File: "a.go", Severity: SeverityCritical},
+			{File: "b.go", Severity: SeverityWarning},
+			{File: "c.go", Severity: SeverityCritical},
+			{File: "d.go", Severity: SeverityInfo},
+		},
+	}
+
+	critical := result.FilterBySeverity(SeverityCritical)
+	if len(critical) != 2 {
+		t.Errorf("FilterBySeverity(Critical) returned %d, want 2", len(critical))
+	}
+
+	warning := result.FilterBySeverity(SeverityWarning)
+	if len(warning) != 1 {
+		t.Errorf("FilterBySeverity(Warning) returned %d, want 1", len(warning))
+	}
+}
+
+func TestScanResult_FilterByFile(t *testing.T) {
+	result := &ScanResult{
+		Findings: []Finding{
+			{File: "src/main.go", Line: 10},
+			{File: "src/util.go", Line: 20},
+			{File: "src/main.go", Line: 30},
+		},
+	}
+
+	mainFindings := result.FilterByFile("src/main.go")
+	if len(mainFindings) != 2 {
+		t.Errorf("FilterByFile returned %d, want 2", len(mainFindings))
+	}
+
+	otherFindings := result.FilterByFile("nonexistent.go")
+	if len(otherFindings) != 0 {
+		t.Errorf("FilterByFile returned %d, want 0", len(otherFindings))
+	}
+}
+
+func TestDBInfo_SizeMB(t *testing.T) {
+	db := DBInfo{SizeBytes: 20 * 1024 * 1024} // 20 MB
+	if got := db.SizeMB(); got != 20.0 {
+		t.Errorf("SizeMB() = %v, want 20.0", got)
+	}
+}
+
+func TestSearchOptions_Defaults(t *testing.T) {
+	opts := DefaultOptions()
+	if opts.Timeout != 60*time.Second {
+		t.Errorf("expected default timeout 60s, got %v", opts.Timeout)
+	}
+}
