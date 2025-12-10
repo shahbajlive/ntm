@@ -24,6 +24,7 @@ type Config struct {
 	Alerts        AlertsConfig      `toml:"alerts"`
 	Checkpoints   CheckpointsConfig `toml:"checkpoints"`
 	Notifications notify.Config     `toml:"notifications"`
+	Resilience    ResilienceConfig  `toml:"resilience"`
 }
 
 // CheckpointsConfig holds configuration for automatic checkpoints
@@ -69,6 +70,28 @@ func DefaultAlertsConfig() AlertsConfig {
 		MailBacklogThreshold: 10,
 		BeadStaleHours:       24,
 		ResolvedPruneMinutes: 60,
+	}
+}
+
+// ResilienceConfig holds configuration for agent auto-restart and recovery
+type ResilienceConfig struct {
+	AutoRestart         bool `toml:"auto_restart"`           // Enable automatic agent restart on crash
+	MaxRestarts         int  `toml:"max_restarts"`           // Max restarts per agent before giving up
+	RestartDelaySeconds int  `toml:"restart_delay_seconds"`  // Seconds to wait before restarting
+	HealthCheckSeconds  int  `toml:"health_check_seconds"`   // Seconds between health checks
+	NotifyOnCrash       bool `toml:"notify_on_crash"`        // Send notification when agent crashes
+	NotifyOnMaxRestarts bool `toml:"notify_on_max_restarts"` // Notify when max restarts exceeded
+}
+
+// DefaultResilienceConfig returns sensible resilience defaults
+func DefaultResilienceConfig() ResilienceConfig {
+	return ResilienceConfig{
+		AutoRestart:         false, // Disabled by default, opt-in via --auto-restart
+		MaxRestarts:         3,     // Stop after 3 restart attempts
+		RestartDelaySeconds: 30,    // Wait 30 seconds before restarting
+		HealthCheckSeconds:  10,    // Check health every 10 seconds
+		NotifyOnCrash:       true,  // Notify on crash by default
+		NotifyOnMaxRestarts: true,  // Notify when max restarts exceeded
 	}
 }
 
@@ -345,6 +368,7 @@ func Default() *Config {
 		Alerts:        DefaultAlertsConfig(),
 		Checkpoints:   DefaultCheckpointsConfig(),
 		Notifications: notify.DefaultConfig(),
+		Resilience:    DefaultResilienceConfig(),
 	}
 
 	// Try to load palette from markdown file

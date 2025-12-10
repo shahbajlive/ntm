@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Dicklesworthstone/ntm/internal/agentmail"
+	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/hooks"
 	"github.com/Dicklesworthstone/ntm/internal/output"
 	"github.com/Dicklesworthstone/ntm/internal/recipe"
@@ -273,7 +274,7 @@ func runSpawnAgents(session string, agents []FlatAgent, ccCount, codCount, gmiCo
 		resolvedModel := ResolveModel(agent.Type, agent.Model)
 
 		// Generate command using template
-		agentCmd, err := cfg.GenerateAgentCommand(agentCmdTemplate, config.AgentTemplateVars{
+		agentCmd, err := config.GenerateAgentCommand(agentCmdTemplate, config.AgentTemplateVars{
 			Model:       resolvedModel,
 			ModelAlias:  agent.Model,
 			SessionName: session,
