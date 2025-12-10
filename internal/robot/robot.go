@@ -13,6 +13,8 @@ import (
 
 	"github.com/Dicklesworthstone/ntm/internal/alerts"
 	"github.com/Dicklesworthstone/ntm/internal/bv"
+	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/Dicklesworthstone/ntm/internal/recipe"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/internal/tracker"
 )
@@ -461,6 +463,28 @@ func PrintPlan() error {
 	}
 
 	return encodeJSON(plan)
+}
+
+// PrintRecipes outputs available session recipes for AI agents.
+// Includes builtin, user (~/.config/ntm/recipes.toml), and project (.ntm/recipes.toml) sources.
+func PrintRecipes() error {
+	loader := recipe.NewLoader()
+	recipes, err := loader.LoadAll()
+	if err != nil {
+		return err
+	}
+
+	payload := struct {
+		GeneratedAt time.Time       `json:"generated_at"`
+		Count       int             `json:"count"`
+		Recipes     []recipe.Recipe `json:"recipes"`
+	}{
+		GeneratedAt: time.Now().UTC(),
+		Count:       len(recipes),
+		Recipes:     recipes,
+	}
+
+	return encodeJSON(payload)
 }
 
 // getBeadRecommendations returns recommended bead actions from bv priority analysis
@@ -912,7 +936,10 @@ type BeadInProgress struct {
 var BeadLimit = 5
 
 // PrintSnapshot outputs complete system state for AI orchestration
-func PrintSnapshot() error {
+func PrintSnapshot(cfg *config.Config) error {
+	if cfg == nil {
+		cfg = config.Default()
+	}
 	output := SnapshotOutput{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Sessions:  []SnapshotSession{},
@@ -996,7 +1023,20 @@ func PrintSnapshot() error {
 	}
 
 	// Generate and add detailed alerts using the alerts package
-	alertCfg := alerts.DefaultConfig()
+	var alertCfg alerts.Config
+	if cfg != nil {
+		alertCfg = alerts.ToConfigAlerts(
+			cfg.Alerts.Enabled,
+			cfg.Alerts.AgentStuckMinutes,
+			cfg.Alerts.DiskLowThresholdGB,
+			cfg.Alerts.MailBacklogThreshold,
+			cfg.Alerts.BeadStaleHours,
+			cfg.Alerts.ResolvedPruneMinutes,
+			cfg.ProjectsBase,
+		)
+	} else {
+		alertCfg = alerts.DefaultConfig()
+	}
 	activeAlerts := alerts.GetActiveAlerts(alertCfg)
 
 	if len(activeAlerts) > 0 {
@@ -1294,7 +1334,7 @@ func PrintSend(opts SendOptions) error {
 			if agentType == "user" || agentType == "unknown" {
 				agentType = detectAgentType(pane.Title)
 			}
-			
+
 			if !typeFilterMap[agentType] {
 				continue
 			}

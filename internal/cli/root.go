@@ -110,7 +110,7 @@ Shell Integration:
 				}
 				err = robot.PrintSnapshotDelta(sinceTime)
 			} else {
-				err = robot.PrintSnapshot()
+				err = robot.PrintSnapshot(cfg)
 			}
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -198,6 +198,13 @@ Shell Integration:
 		}
 		if robotHealth {
 			if err := robot.PrintHealth(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+		if robotRecipes {
+			if err := robot.PrintRecipes(); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
