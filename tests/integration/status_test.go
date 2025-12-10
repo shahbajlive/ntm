@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,32 +27,56 @@ func TestStatusDetectsIdlePrompt(t *testing.T) {
 
 	_, paneID := createSessionWithTitle(t, logger, "user_1")
 
-	// Start a simple bash shell with a standard prompt to avoid fancy shells
-	// (starship, powerlevel10k, etc.) that may not match our detection patterns.
-	if err := tmux.SendKeys(paneID, "exec bash --norc --noprofile", true); err != nil {
-		t.Fatalf("failed to start bash: %v", err)
+	// First, start a clean bash shell to avoid interference from fancy prompts
+	if err := tmux.SendKeys(paneID, "exec /bin/bash --norc --noprofile", true); err != nil {
+		t.Fatalf("failed to start clean bash: %v", err)
 	}
-	time.Sleep(300 * time.Millisecond)
+	// Wait for bash to fully initialize
+	time.Sleep(800 * time.Millisecond)
 
 	// Set a simple prompt and run a command
-	if err := tmux.SendKeys(paneID, "PS1='$ '; echo done", true); err != nil {
-		t.Fatalf("failed to seed pane output: %v", err)
+	if err := tmux.SendKeys(paneID, "PS1='$ '; echo IDLE_MARKER", true); err != nil {
+		t.Fatalf("failed to set prompt and run command: %v", err)
 	}
-	// Wait for command to execute and shell to return to prompt
-	time.Sleep(500 * time.Millisecond)
+
+	// Poll for the echo output to appear on its own line
+	var output string
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(100 * time.Millisecond)
+		captured, err := tmux.CapturePaneOutput(paneID, 50)
+		if err != nil {
+			continue
+		}
+		lines := strings.Split(captured, "\n")
+		for _, line := range lines {
+			if strings.TrimSpace(line) == "IDLE_MARKER" {
+				output = captured
+				break
+			}
+		}
+		if output != "" {
+			break
+		}
+	}
+	if output == "" {
+		output, _ = tmux.CapturePaneOutput(paneID, 50)
+		t.Fatalf("timeout waiting for marker; captured=%q", output)
+	}
+
+	// Give bash time to show its prompt after the echo
+	time.Sleep(200 * time.Millisecond)
 
 	requirePaneActivity(t, paneID)
 
-	// For a user pane at a shell prompt, detection should find it idle.
-	// The shell prompt (e.g., "$ ") should be in the output.
+	// After echo completes, bash should show "$ " prompt = idle state
 	detector := status.NewDetector()
 	st, err := detector.Detect(paneID)
 	if err != nil {
 		t.Fatalf("detect failed: %v", err)
 	}
 	if st.State != status.StateIdle {
-		// Capture output for debugging
-		output, _ := tmux.CapturePaneOutput(paneID, 50)
+		output, _ = tmux.CapturePaneOutput(paneID, 50)
 		t.Fatalf("expected idle, got %s; agentType=%q, output=%q", st.State, st.AgentType, output)
 	}
 }
