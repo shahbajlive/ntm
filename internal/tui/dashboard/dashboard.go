@@ -467,9 +467,16 @@ func (m Model) View() string {
 		emptyStyle := lipgloss.NewStyle().Foreground(t.Overlay).Italic(true)
 		b.WriteString("  " + emptyStyle.Render("No panes found in session") + "\n")
 	} else {
-		// Render pane cards in a grid
-		paneGrid := m.renderPaneGrid()
-		b.WriteString(paneGrid + "\n")
+		// On wide terminals (≥110 cols), use split view: list + detail panel
+		// On narrow terminals, use the traditional card grid
+		if m.tier >= layout.TierSplit {
+			splitView := m.renderSplitView()
+			b.WriteString(splitView + "\n")
+		} else {
+			// Render pane cards in a grid
+			paneGrid := m.renderPaneGrid()
+			b.WriteString(paneGrid + "\n")
+		}
 	}
 
 	// ═══════════════════════════════════════════════════════════════
