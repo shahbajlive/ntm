@@ -143,7 +143,7 @@ func runMailSendOverseer(session string, to []string, subject, body, threadID st
 
 	// Check if Agent Mail is available
 	if !client.IsAvailable() {
-		return fmt.Errorf("Agent Mail server not available at %s\nStart the server with: mcp-agent-mail serve", agentmail.DefaultBaseURL)
+		return fmt.Errorf("agent mail server not available at %s\nstart the server with: mcp-agent-mail serve", agentmail.DefaultBaseURL)
 	}
 
 	// Ensure project exists before proceeding

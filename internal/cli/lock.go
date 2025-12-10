@@ -96,7 +96,7 @@ func runLock(session string, patterns []string, reason, ttlStr string, shared bo
 			enc.SetIndent("", "  ")
 			return enc.Encode(result)
 		}
-		return fmt.Errorf("Agent Mail server unavailable")
+		return fmt.Errorf("agent mail server unavailable")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

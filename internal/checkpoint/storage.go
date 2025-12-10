@@ -284,13 +284,33 @@ func (s *Storage) SaveGitStatus(sessionName, checkpointID, status string) error 
 	return os.WriteFile(path, []byte(status), 0644)
 }
 
-// writeJSON writes data as formatted JSON to a file.
+// writeJSON writes data as formatted JSON to a file atomically.
 func writeJSON(path string, data interface{}) error {
 	bytes, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, bytes, 0644)
+
+	dir := filepath.Dir(path)
+	tmpFile, err := os.CreateTemp(dir, "ntm-checkpoint-*.tmp")
+	if err != nil {
+		return fmt.Errorf("creating temp file: %w", err)
+	}
+	defer os.Remove(tmpFile.Name()) // Clean up on error
+
+	if _, err := tmpFile.Write(bytes); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("writing temp file: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("closing temp file: %w", err)
+	}
+
+	if err := os.Rename(tmpFile.Name(), path); err != nil {
+		return fmt.Errorf("renaming temp file: %w", err)
+	}
+
+	return nil
 }
 
 // Exists returns true if a checkpoint exists.

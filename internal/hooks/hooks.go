@@ -235,7 +235,7 @@ func generatePreCommitScript(ntmPath, repoRoot string) string {
 set -e
 
 # Run UBS scan on staged files
-"%s" hooks run pre-commit "$@"
+%s hooks run pre-commit "$@"
 UBS_EXIT=$?
 
 # Chain to backup hook if it exists
@@ -252,5 +252,15 @@ elif [ $UBS_EXIT -ne 0 ]; then
 fi
 
 exit 0
-`, repoRoot, ntmPath)
+`, repoRoot, quoteShell(ntmPath))
+}
+
+// quoteShell quotes a string for safe use in a shell script.
+func quoteShell(s string) string {
+	// If the string is empty, return an empty quoted string
+	if s == "" {
+		return "''"
+	}
+	// Use single quotes, and replace any single quote with '\''
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
