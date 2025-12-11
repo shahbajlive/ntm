@@ -95,6 +95,7 @@ linters-settings:
       - whyNoLint
       - hugeParam  # TUI models are often passed by value
       - httpNoBody  # Using nil for empty body is fine
+      - evalOrder  # Panics with Go 1.25 (golangci-lint/go-critic compatibility issue)
 
   gofmt:
     simplify: true

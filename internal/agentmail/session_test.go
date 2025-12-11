@@ -53,9 +53,11 @@ func TestLoadSaveSessionAgent(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	// Override the config dir for testing
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	// On Linux, os.UserConfigDir() uses XDG_CONFIG_HOME, not HOME
+	// On macOS, os.UserConfigDir() uses HOME/Library/Application Support
+	// t.Setenv handles cleanup automatically
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmpDir, ".config"))
 
 	sessionName := "test-session"
 

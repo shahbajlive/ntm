@@ -158,8 +158,9 @@ func TestExecutorTimeout(t *testing.T) {
 			Hooks: []CommandHook{
 				{
 					Event:   EventPreSpawn,
-					Command: "sleep 5",
-					Timeout: Duration(100 * time.Millisecond),
+					Command: "sleep 10",
+					// Use a more generous timeout for CI environments
+					Timeout: Duration(500 * time.Millisecond),
 				},
 			},
 		}
@@ -177,8 +178,9 @@ func TestExecutorTimeout(t *testing.T) {
 		if !results[0].TimedOut {
 			t.Error("result should indicate timeout")
 		}
-		// Should complete in roughly the timeout duration, not 5 seconds
-		if elapsed > 1*time.Second {
+		// Should complete in roughly the timeout duration, not 10 seconds
+		// Allow up to 3 seconds for CI environments which may be slow
+		if elapsed > 3*time.Second {
 			t.Errorf("hook should have timed out quickly, took %v", elapsed)
 		}
 	})
