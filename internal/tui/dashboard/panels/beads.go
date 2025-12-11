@@ -56,38 +56,94 @@ func (m *BeadsPanel) View() string {
 		return ""
 	}
 
-	header := lipgloss.NewStyle().
+	headerStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(t.Text).
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderBottom(true).
 		BorderForeground(t.Surface1).
 		Width(m.width).
-		Padding(0, 1).
-		Render("Beads Pipeline")
+		Padding(0, 1)
+
+	header := headerStyle.Render("Beads Pipeline")
 
 	var content strings.Builder
 	content.WriteString(header + "\n")
 
 	// Stats row
-	stats := fmt.Sprintf("Ready: %d  In Progress: %d  Blocked: %d",
-		m.summary.Ready, m.summary.InProgress, m.summary.Blocked)
+	stats := fmt.Sprintf("Ready: %d  In Progress: %d  Blocked: %d  Closed: %d",
+		m.summary.Ready, m.summary.InProgress, m.summary.Blocked, m.summary.Closed)
 	statsStyled := lipgloss.NewStyle().Foreground(t.Subtext).Padding(0, 1).Render(stats)
 	content.WriteString(statsStyled + "\n\n")
 
-	// Ready beads list
-	if len(m.ready) > 0 {
-		content.WriteString(lipgloss.NewStyle().Foreground(t.Green).Bold(true).Padding(0, 1).Render("Top Ready") + "\n")
-		for i, b := range m.ready {
-			if i >= 5 {
+	// Calculate remaining height
+	usedHeight := lipgloss.Height(header) + lipgloss.Height(statsStyled) + 2 // +2 for newlines
+	remainingHeight := m.height - usedHeight
+	if remainingHeight < 0 {
+		remainingHeight = 0
+	}
+
+	// Split remaining height between In Progress and Ready
+	halfHeight := remainingHeight / 2
+	if halfHeight < 3 {
+		halfHeight = 3 // Minimum
+	}
+
+	// In Progress Section
+	if len(m.summary.InProgressList) > 0 {
+		content.WriteString(lipgloss.NewStyle().Foreground(t.Blue).Bold(true).Padding(0, 1).Render("In Progress") + "\n")
+		
+		for i, b := range m.summary.InProgressList {
+			if i >= halfHeight-1 {
 				break
 			}
-			title := layout.TruncateRunes(b.Title, m.width-12, "...")
-			line := fmt.Sprintf("  %s %s", b.ID, title)
+			assignee := ""
+			if b.Assignee != "" {
+				assignee = fmt.Sprintf(" (@%s)", b.Assignee)
+			}
+			
+			titleWidth := m.width - 10 - len(assignee)
+			if titleWidth < 10 {
+				titleWidth = 10
+			}
+			
+			title := layout.TruncateRunes(b.Title, titleWidth, "…")
+			line := fmt.Sprintf("  %s %s%s", b.ID, title, assignee)
 			content.WriteString(lipgloss.NewStyle().Foreground(t.Text).Render(line) + "\n")
 		}
+		content.WriteString("\n")
+	}
+
+	// Ready Section
+	if len(m.ready) > 0 {
+		content.WriteString(lipgloss.NewStyle().Foreground(t.Green).Bold(true).Padding(0, 1).Render("Ready / Backlog") + "\n")
+		
+		for i, b := range m.ready {
+			if i >= halfHeight-1 {
+				break
+			}
+			
+			prio := b.Priority
+			prioStyle := lipgloss.NewStyle().Foreground(t.Overlay)
+			if prio == "P0" {
+				prioStyle = prioStyle.Foreground(t.Red).Bold(true)
+			} else if prio == "P1" {
+				prioStyle = prioStyle.Foreground(t.Yellow)
+			}
+			
+			titleWidth := m.width - 14
+			if titleWidth < 10 {
+				titleWidth = 10
+			}
+			
+			title := layout.TruncateRunes(b.Title, titleWidth, "…")
+			line := fmt.Sprintf("  %s %s %s", prioStyle.Render(fmt.Sprintf("% -3s", prio)), b.ID, title)
+			content.WriteString(lipgloss.NewStyle().Foreground(t.Text).Render(line) + "\n")
+		}
+	} else if m.summary.Available {
+		content.WriteString("  No ready items\n")
 	} else {
-		content.WriteString("  No ready beads\n")
+		content.WriteString(lipgloss.NewStyle().Foreground(t.Overlay).Italic(true).Padding(0, 1).Render("  (Pipeline unavailable)") + "\n")
 	}
 
 	return content.String()

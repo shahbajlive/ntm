@@ -68,27 +68,60 @@ func (m *AlertsPanel) View() string {
 	content.WriteString(header + "\n")
 
 	if len(m.alerts) == 0 {
-		content.WriteString("\n  " + lipgloss.NewStyle().Foreground(t.Green).Render("No active alerts") + "\n")
+		content.WriteString("\n  " + lipgloss.NewStyle().Foreground(t.Green).Render("✓ System Healthy") + "\n")
+		content.WriteString("  " + lipgloss.NewStyle().Foreground(t.Subtext).Render("No active alerts") + "\n")
 		return content.String()
 	}
 
-	for i, a := range m.alerts {
-		if i >= 10 { break } // limit display
-		
-		color := t.Blue
-		icon := "ℹ"
+	// Group by severity
+	var critical, warning, info []alerts.Alert
+	for _, a := range m.alerts {
 		switch a.Severity {
 		case alerts.SeverityCritical:
-			color = t.Red
-			icon = "✗"
+			critical = append(critical, a)
 		case alerts.SeverityWarning:
-			color = t.Yellow
-			icon = "⚠"
+			warning = append(warning, a)
+		default:
+			info = append(info, a)
 		}
-		
-		msg := layout.TruncateRunes(a.Message, m.width-6, "...")
-		line := fmt.Sprintf("  %s %s", icon, msg)
-		content.WriteString(lipgloss.NewStyle().Foreground(color).Render(line) + "\n")
+	}
+
+	// Stats row
+	stats := fmt.Sprintf("Crit: %d  Warn: %d  Info: %d", len(critical), len(warning), len(info))
+	statsStyled := lipgloss.NewStyle().Foreground(t.Subtext).Padding(0, 1).Render(stats)
+	content.WriteString(statsStyled + "\n\n")
+
+	// Calculate display limit based on height
+	// Header + Stats + 2 newlines = ~4 lines
+	// Each item = 1 line
+	availableLines := m.height - 4
+	if availableLines < 0 {
+		availableLines = 0
+	}
+
+	// Render alerts (Critical > Warning > Info)
+	count := 0
+	
+	renderList := func(list []alerts.Alert, color lipgloss.Color, icon string) {
+		for _, a := range list {
+			if count >= availableLines {
+				return
+			}
+			msg := layout.TruncateRunes(a.Message, m.width-6, "…")
+			line := fmt.Sprintf("  %s %s", icon, msg)
+			content.WriteString(lipgloss.NewStyle().Foreground(color).Render(line) + "\n")
+			count++
+		}
+	}
+
+	if len(critical) > 0 {
+		renderList(critical, t.Red, "✗")
+	}
+	if len(warning) > 0 {
+		renderList(warning, t.Yellow, "⚠")
+	}
+	if len(info) > 0 {
+		renderList(info, t.Blue, "ℹ")
 	}
 
 	return content.String()
