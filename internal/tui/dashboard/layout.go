@@ -444,7 +444,8 @@ func RenderPaneRow(row PaneTableRow, dims LayoutDimensions, t theme.Theme) strin
 		var statusIcon string
 		switch row.Status {
 		case "working":
-			statusIcon = "●"
+			// Animated spinner for working state
+			statusIcon = WorkingSpinnerFrame(row.Tick)
 			statusStyle = statusStyle.Foreground(t.Green)
 		case "idle":
 			statusIcon = "○"
@@ -660,7 +661,7 @@ func RenderPaneDetail(pane tmux.Pane, ps PaneStatus, dims LayoutDimensions, t th
 	lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(t.Lavender).Render("Status"))
 	lines = append(lines, "")
 
-	statusIcon, statusColor := getStatusIconAndColor(ps.State, t)
+	statusIcon, statusColor := getStatusIconAndColor(ps.State, t, tick)
 	statusStyle := lipgloss.NewStyle().Foreground(statusColor)
 	lines = append(lines, "  "+statusStyle.Render(statusIcon+" "+ps.State))
 
@@ -732,10 +733,11 @@ func renderDetailContextBar(percent float64, width int, t theme.Theme, tick int)
 }
 
 // getStatusIconAndColor returns icon and color for a status state
-func getStatusIconAndColor(state string, t theme.Theme) (string, lipgloss.Color) {
+// tick is used for animated spinner in working state
+func getStatusIconAndColor(state string, t theme.Theme, tick int) (string, lipgloss.Color) {
 	switch state {
 	case "working":
-		return "●", t.Green
+		return WorkingSpinnerFrame(tick), t.Green
 	case "idle":
 		return "○", t.Yellow
 	case "error":
@@ -905,4 +907,13 @@ func min(a, b int) int {
 // GetTokens returns the design tokens for the current width
 func GetTokens(width int) styles.DesignTokens {
 	return styles.TokensForWidth(width)
+}
+
+// workingSpinnerFrames defines the animation frames for working state spinner
+var workingSpinnerFrames = []string{"◐", "◓", "◑", "◒"}
+
+// WorkingSpinnerFrame returns the spinner frame for agents in working state.
+// The spinner animates through circular segments to indicate active processing.
+func WorkingSpinnerFrame(tick int) string {
+	return workingSpinnerFrames[tick%len(workingSpinnerFrames)]
 }

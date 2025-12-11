@@ -2051,7 +2051,8 @@ func (m Model) renderPaneDetail(width int) string {
 	var statusIcon string
 	switch ps.State {
 	case "working":
-		statusIcon = "●"
+		// Animated spinner for working state
+		statusIcon = WorkingSpinnerFrame(m.animTick)
 		statusColor = t.Green
 	case "idle":
 		statusIcon = "○"
