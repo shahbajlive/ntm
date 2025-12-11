@@ -272,6 +272,36 @@ func ProgressBar(percent float64, width int, filled, empty string, colors ...str
 	return filledStr + emptyStr
 }
 
+// ShimmerProgressBar creates a progress bar with animated shimmer effect on the filled portion
+func ShimmerProgressBar(percent float64, width int, filled, empty string, tick int, colors ...string) string {
+	if percent < 0 {
+		percent = 0
+	}
+	if percent > 1 {
+		percent = 1
+	}
+
+	filledWidth := int(percent * float64(width))
+	emptyWidth := width - filledWidth
+
+	if len(colors) < 2 {
+		t := theme.Current()
+		colors = []string{string(t.Blue), string(t.Green)}
+	}
+
+	// Create base gradient
+	filledStr := GradientText(strings.Repeat(filled, filledWidth), colors...)
+	
+	// Apply shimmer effect on top if tick > 0
+	if tick > 0 {
+		filledStr = Shimmer(strings.Repeat(filled, filledWidth), tick, colors...)
+	}
+
+	emptyStr := lipgloss.NewStyle().Foreground(defaultSurface1()).Render(strings.Repeat(empty, emptyWidth))
+
+	return filledStr + emptyStr
+}
+
 // Spinner frames for animated spinner
 var SpinnerFrames = []string{
 	"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",

@@ -204,17 +204,35 @@ func TestTokenVelocityBadge(t *testing.T) {
 }
 
 func TestAlertSeverityBadge(t *testing.T) {
-	severities := []string{"critical", "high", "medium", "low", "info", "other"}
+	severities := []string{"critical", "high", "medium", "low", "info", "other", "p0", "sev2"}
 	for _, sev := range severities {
 		t.Run(sev, func(t *testing.T) {
 			result := AlertSeverityBadge(sev)
 			if result == "" {
 				t.Errorf("AlertSeverityBadge(%q) returned empty string", sev)
 			}
-			if !strings.Contains(strings.ToLower(result), strings.ToLower(sev)) && sev != "other" {
-				t.Errorf("AlertSeverityBadge(%q) should include the severity label", sev)
+			label := severityLabel(sev)
+			if label != "" && !strings.Contains(strings.ToLower(result), label) && sev != "other" {
+				t.Errorf("AlertSeverityBadge(%q) should include label %q", sev, label)
 			}
 		})
+	}
+}
+
+func severityLabel(sev string) string {
+	switch strings.ToLower(sev) {
+	case "critical", "crit", "p0", "sev0":
+		return "critical"
+	case "high", "p1", "sev1":
+		return "high"
+	case "medium", "med", "p2", "sev2":
+		return "medium"
+	case "low", "p3", "sev3":
+		return "low"
+	case "info":
+		return "info"
+	default:
+		return ""
 	}
 }
 
