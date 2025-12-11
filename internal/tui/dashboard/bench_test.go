@@ -9,6 +9,82 @@ import (
 )
 
 // Benchmarks for wide rendering performance (bd ntm-34qr).
+// Additional mega layout benchmarks (bd ntm-jypl).
+
+// BenchmarkMegaLayout benchmarks renderMegaLayout with varying pane counts.
+// Target: <50ms initial, <200ms for 1000 panes.
+
+func BenchmarkMegaLayout_10(b *testing.B) {
+	m := newBenchModel(400, 60, 10) // 400 width triggers TierMega (>=320)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = m.renderMegaLayout()
+	}
+}
+
+func BenchmarkMegaLayout_50(b *testing.B) {
+	m := newBenchModel(400, 60, 50)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = m.renderMegaLayout()
+	}
+}
+
+func BenchmarkMegaLayout_100(b *testing.B) {
+	m := newBenchModel(400, 60, 100)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = m.renderMegaLayout()
+	}
+}
+
+func BenchmarkMegaLayout_1000(b *testing.B) {
+	m := newBenchModel(400, 60, 1000)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = m.renderMegaLayout()
+	}
+}
+
+// BenchmarkUltraLayout benchmarks renderUltraLayout with varying pane counts.
+
+func BenchmarkUltraLayout_10(b *testing.B) {
+	m := newBenchModel(280, 50, 10) // 280 width triggers TierUltra (240-319)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = m.renderUltraLayout()
+	}
+}
+
+func BenchmarkUltraLayout_100(b *testing.B) {
+	m := newBenchModel(280, 50, 100)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = m.renderUltraLayout()
+	}
+}
+
+func BenchmarkUltraLayout_1000(b *testing.B) {
+	m := newBenchModel(280, 50, 1000)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = m.renderUltraLayout()
+	}
+}
 
 func BenchmarkPaneList_Wide_1000(b *testing.B) {
 	m := newBenchModel(200, 50, 1000)
