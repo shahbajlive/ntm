@@ -892,4 +892,3 @@ type aggregatedMessage struct {
 	BodyMD      string    `json:"body_md,omitempty"` // truncated for display
 	Recipients  []string  `json:"recipients"`
 }
-

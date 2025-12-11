@@ -17,23 +17,23 @@ import (
 
 func newScanCmd() *cobra.Command {
 	var (
-		languages       []string
-		exclude         []string
-		ci              bool
-		failOnWarning   bool
-		verbose         bool
-		timeoutSeconds  int
-		stagedOnly      bool
-		diffOnly        bool
-		createBeads     bool
-		updateBeads     bool
-		minSeverity     string
-		dryRun          bool
-		watch           bool
-		notifyAgents    bool
-		analyzeImpact   bool
-		showHotspots    bool
-		priorityReport  bool
+		languages      []string
+		exclude        []string
+		ci             bool
+		failOnWarning  bool
+		verbose        bool
+		timeoutSeconds int
+		stagedOnly     bool
+		diffOnly       bool
+		createBeads    bool
+		updateBeads    bool
+		minSeverity    string
+		dryRun         bool
+		watch          bool
+		notifyAgents   bool
+		analyzeImpact  bool
+		showHotspots   bool
+		priorityReport bool
 	)
 
 	cmd := &cobra.Command{

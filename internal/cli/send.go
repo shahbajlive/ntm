@@ -1090,8 +1090,8 @@ func warnConflictsLater(session, workDir string) {
 		if prefix != "" && strings.HasPrefix(path, prefix) {
 			path = strings.TrimPrefix(path, prefix)
 		}
-	fmt.Printf("  %s %s — agents: %s\n", "[warn]", path, strings.Join(c.Agents, ", "))
-}
+		fmt.Printf("  %s %s — agents: %s\n", "[warn]", path, strings.Join(c.Agents, ", "))
+	}
 }
 
 // buildTargetDescription creates a human-readable description of send targets

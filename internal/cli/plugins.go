@@ -27,10 +27,10 @@ func newPluginsListCmd() *cobra.Command {
 		Short: "List installed agent and command plugins",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			configDir := filepath.Dir(config.DefaultPath())
-			
+
 			// Load Agent Plugins
-		agentsDir := filepath.Join(configDir, "agents")
-		agentPlugins, _ := plugins.LoadAgentPlugins(agentsDir)
+			agentsDir := filepath.Join(configDir, "agents")
+			agentPlugins, _ := plugins.LoadAgentPlugins(agentsDir)
 
 			// Load Command Plugins
 			cmdDir := filepath.Join(configDir, "commands")
@@ -42,7 +42,7 @@ func newPluginsListCmd() *cobra.Command {
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-			
+
 			if len(agentPlugins) > 0 {
 				fmt.Println("Agent Plugins:")
 				fmt.Fprintln(w, "NAME\tALIAS\tDESCRIPTION")

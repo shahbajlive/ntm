@@ -26,14 +26,14 @@ const (
 
 // GitHubRelease represents a GitHub release
 type GitHubRelease struct {
-	TagName     string         `json:"tag_name"`
-	Name        string         `json:"name"`
-	Draft       bool           `json:"draft"`
-	Prerelease  bool           `json:"prerelease"`
-	PublishedAt time.Time      `json:"published_at"`
-	Body        string         `json:"body"`
-	Assets      []GitHubAsset  `json:"assets"`
-	HTMLURL     string         `json:"html_url"`
+	TagName     string        `json:"tag_name"`
+	Name        string        `json:"name"`
+	Draft       bool          `json:"draft"`
+	Prerelease  bool          `json:"prerelease"`
+	PublishedAt time.Time     `json:"published_at"`
+	Body        string        `json:"body"`
+	Assets      []GitHubAsset `json:"assets"`
+	HTMLURL     string        `json:"html_url"`
 }
 
 // GitHubAsset represents a release asset

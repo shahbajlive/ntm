@@ -192,13 +192,13 @@ Displays the template's metadata, variables, and optionally the template body.`,
 
 // TemplateShowOutput is the JSON output for template show.
 type TemplateShowOutput struct {
-	Name        string                    `json:"name"`
-	Description string                    `json:"description"`
-	Source      string                    `json:"source"`
-	SourcePath  string                    `json:"source_path,omitempty"`
-	Tags        []string                  `json:"tags,omitempty"`
-	Variables   []TemplateVariableOutput  `json:"variables,omitempty"`
-	Body        string                    `json:"body,omitempty"`
+	Name        string                   `json:"name"`
+	Description string                   `json:"description"`
+	Source      string                   `json:"source"`
+	SourcePath  string                   `json:"source_path,omitempty"`
+	Tags        []string                 `json:"tags,omitempty"`
+	Variables   []TemplateVariableOutput `json:"variables,omitempty"`
+	Body        string                   `json:"body,omitempty"`
 }
 
 // TemplateVariableOutput is the JSON output for a template variable.

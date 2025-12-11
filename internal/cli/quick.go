@@ -13,10 +13,10 @@ import (
 
 func newQuickCmd() *cobra.Command {
 	var (
-		noGit     bool
-		noVSCode  bool
+		noGit          bool
+		noVSCode       bool
 		noClaudeConfig bool
-		template  string
+		template       string
 	)
 
 	cmd := &cobra.Command{

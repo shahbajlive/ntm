@@ -104,10 +104,10 @@ func renderHealthTUI(result *health.SessionHealth) error {
 		Bold(true).
 		Foreground(lipgloss.Color("99"))
 
-	okStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("42"))      // Green
-	warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))   // Orange
-	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))  // Red
-	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))  // Gray
+	okStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("42"))     // Green
+	warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))  // Orange
+	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // Red
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240")) // Gray
 
 	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).

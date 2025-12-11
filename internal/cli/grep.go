@@ -16,22 +16,22 @@ import (
 
 // GrepMatch represents a single search match in pane output
 type GrepMatch struct {
-	Session  string   `json:"session"`
-	Pane     string   `json:"pane"`
-	PaneID   string   `json:"pane_id"`
-	Line     int      `json:"line"`
-	Content  string   `json:"content"`
-	Context  []string `json:"context,omitempty"`
+	Session string   `json:"session"`
+	Pane    string   `json:"pane"`
+	PaneID  string   `json:"pane_id"`
+	Line    int      `json:"line"`
+	Content string   `json:"content"`
+	Context []string `json:"context,omitempty"`
 }
 
 // GrepResult contains all matches from a grep operation
 type GrepResult struct {
-	Pattern    string       `json:"pattern"`
-	Session    string       `json:"session"`
-	Matches    []GrepMatch  `json:"matches"`
-	TotalLines int          `json:"total_lines_searched"`
-	MatchCount int          `json:"match_count"`
-	PaneCount  int          `json:"panes_searched"`
+	Pattern    string      `json:"pattern"`
+	Session    string      `json:"session"`
+	Matches    []GrepMatch `json:"matches"`
+	TotalLines int         `json:"total_lines_searched"`
+	MatchCount int         `json:"match_count"`
+	PaneCount  int         `json:"panes_searched"`
 }
 
 // Text outputs the grep result as human-readable text

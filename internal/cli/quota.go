@@ -32,7 +32,7 @@ Examples:
 				if !tmux.InTmux() {
 					return fmt.Errorf("session name required when not in tmux")
 				}
-			session = tmux.GetCurrentSession()
+				session = tmux.GetCurrentSession()
 			}
 
 			return runQuota(session)

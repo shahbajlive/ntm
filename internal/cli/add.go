@@ -238,7 +238,7 @@ func runAdd(session string, specs AgentSpecs, pluginMap map[string]plugins.Agent
 
 	for _, agent := range flatAgents {
 		agentTypeStr := string(agent.Type)
-		
+
 		paneID, err := tmux.SplitWindow(session, dir)
 		if err != nil {
 			return outputError(fmt.Errorf("creating pane: %w", err))
@@ -247,7 +247,7 @@ func runAdd(session string, specs AgentSpecs, pluginMap map[string]plugins.Agent
 		// Increment index for this type
 		maxIndices[agentTypeStr]++
 		num := maxIndices[agentTypeStr]
-		
+
 		title := tmux.FormatPaneName(session, agentTypeStr, num, agent.Model)
 		if err := tmux.SetPaneTitle(paneID, title); err != nil {
 			return outputError(fmt.Errorf("setting pane title: %w", err))
@@ -256,7 +256,7 @@ func runAdd(session string, specs AgentSpecs, pluginMap map[string]plugins.Agent
 		// Generate command
 		var agentCmd string
 		var envVars map[string]string
-		
+
 		switch agent.Type {
 		case AgentTypeClaude:
 			agentCmd = cfg.Agents.Claude
@@ -278,7 +278,7 @@ func runAdd(session string, specs AgentSpecs, pluginMap map[string]plugins.Agent
 
 		// Resolve model alias to full model name
 		model := ResolveModel(agent.Type, agent.Model)
-		
+
 		finalCmd, err := config.GenerateAgentCommand(agentCmd, config.AgentTemplateVars{
 			Model:       model,
 			SessionName: session,
@@ -289,7 +289,7 @@ func runAdd(session string, specs AgentSpecs, pluginMap map[string]plugins.Agent
 		if err != nil {
 			return outputError(fmt.Errorf("generating command for %s agent: %w", agent.Type, err))
 		}
-		
+
 		// Apply plugin env vars
 		if len(envVars) > 0 {
 			var envPrefix string

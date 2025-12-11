@@ -311,7 +311,7 @@ func executeReauthRotation(session string, paneIdx int, paneID, provider string,
 
 	// Step 1: Send login command
 	fmt.Printf("Step 1/3: Sending %s command...\n", prov.LoginCommand())
-	
+
 	// Only Claude has specialized auth flow implementation for now
 	// For others, we might need generic flow or specific implementations
 	if prov.Name() != "Claude" {

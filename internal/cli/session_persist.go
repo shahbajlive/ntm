@@ -79,12 +79,12 @@ Examples:
 
 // SessionsSaveResult represents the result of a save operation.
 type SessionsSaveResult struct {
-	Success   bool                  `json:"success"`
-	Session   string                `json:"session"`
-	SavedAs   string                `json:"saved_as"`
-	FilePath  string                `json:"file_path"`
-	State     *session.SessionState `json:"state,omitempty"`
-	Error     string                `json:"error,omitempty"`
+	Success  bool                  `json:"success"`
+	Session  string                `json:"session"`
+	SavedAs  string                `json:"saved_as"`
+	FilePath string                `json:"file_path"`
+	State    *session.SessionState `json:"state,omitempty"`
+	Error    string                `json:"error,omitempty"`
 }
 
 func (r *SessionsSaveResult) Text(w io.Writer) error {
@@ -410,13 +410,13 @@ Examples:
 
 // SessionsRestoreResult represents the result of a restore operation.
 type SessionsRestoreResult struct {
-	Success      bool                  `json:"success"`
-	SavedName    string                `json:"saved_name"`
-	RestoredAs   string                `json:"restored_as"`
-	State        *session.SessionState `json:"state,omitempty"`
-	AgentCount   int                   `json:"agent_count"`
-	Error        string                `json:"error,omitempty"`
-	GitWarning   string                `json:"git_warning,omitempty"`
+	Success    bool                  `json:"success"`
+	SavedName  string                `json:"saved_name"`
+	RestoredAs string                `json:"restored_as"`
+	State      *session.SessionState `json:"state,omitempty"`
+	AgentCount int                   `json:"agent_count"`
+	Error      string                `json:"error,omitempty"`
+	GitWarning string                `json:"git_warning,omitempty"`
 }
 
 func (r *SessionsRestoreResult) Text(w io.Writer) error {

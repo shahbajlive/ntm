@@ -53,24 +53,24 @@ Examples:
 					}
 				}
 
-			agentSpec := strings.TrimSpace(parts[0])
-			prompt := strings.TrimSpace(parts[1])
+				agentSpec := strings.TrimSpace(parts[0])
+				prompt := strings.TrimSpace(parts[1])
 
-			agentType := agentSpec
-			model := ""
+				agentType := agentSpec
+				model := ""
 
-			// Check for model in agent spec (e.g. "cc:opus")
-			if strings.Contains(agentSpec, ":") {
-				sub := strings.SplitN(agentSpec, ":", 2)
-				agentType = sub[0]
-				model = sub[1]
-			}
+				// Check for model in agent spec (e.g. "cc:opus")
+				if strings.Contains(agentSpec, ":") {
+					sub := strings.SplitN(agentSpec, ":", 2)
+					agentType = sub[0]
+					model = sub[1]
+				}
 
-			pipeStages = append(pipeStages, pipeline.Stage{
-				AgentType: agentType,
-				Prompt:    prompt,
-				Model:     model,
-			})
+				pipeStages = append(pipeStages, pipeline.Stage{
+					AgentType: agentType,
+					Prompt:    prompt,
+					Model:     model,
+				})
 			}
 
 			if err := tmux.EnsureInstalled(); err != nil {

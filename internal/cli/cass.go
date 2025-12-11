@@ -140,8 +140,8 @@ func runCassSearch(query, agent, workspace, since string, limit, offset int) err
 	for _, hit := range resp.Hits {
 		score := fmt.Sprintf("%.2f", hit.Score)
 		fmt.Printf("  %s%s%s (%s)\n", colorize(t.Primary), hit.Title, "\033[0m", hit.Agent)
-		fmt.Printf("    %s%s%s • score: %s • %s\n", 
-			colorize(t.Subtext), hit.Workspace, "\033[0m", 
+		fmt.Printf("    %s%s%s • score: %s • %s\n",
+			colorize(t.Subtext), hit.Workspace, "\033[0m",
 			score, formatAge(hit.CreatedAtTime()))
 		if hit.Snippet != "" {
 			fmt.Printf("    %s%s%s\n", "\033[2m", strings.TrimSpace(hit.Snippet), "\033[0m")
@@ -182,7 +182,7 @@ func runCassInsights(since string) error {
 
 	t := theme.Current()
 	fmt.Printf("%sAgent Insights (Since %s)%s\n", "\033[1m", since, "\033[0m")
-	
+
 	if resp.Aggregations != nil {
 		printAggregations("Top Agents", resp.Aggregations.Agents, t)
 		printAggregations("Top Workspaces", resp.Aggregations.Workspaces, t)
@@ -202,7 +202,7 @@ func printAggregations(title string, counts map[string]int, t theme.Theme) {
 		return
 	}
 	fmt.Printf("\n  %s%s%s\n", colorize(t.Info), title, "\033[0m")
-	
+
 	var sorted []kv
 	for k, v := range counts {
 		sorted = append(sorted, kv{k, v})
@@ -212,7 +212,9 @@ func printAggregations(title string, counts map[string]int, t theme.Theme) {
 	})
 
 	for i, item := range sorted {
-		if i >= 5 { break }
+		if i >= 5 {
+			break
+		}
 		fmt.Printf("    %-20s %d\n", item.Key, item.Value)
 	}
 }
@@ -248,13 +250,13 @@ func runCassTimeline(since, groupBy string) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "Time\tType\tCount")
 	fmt.Fprintln(w, "────\t────\t─────")
-	
+
 	for _, entry := range resp.Entries {
 		ts := entry.TimestampTime().Format("15:04")
 		if groupBy == "day" {
 			ts = entry.TimestampTime().Format("Jan 02")
 		}
-		
+
 		count := 1
 		if c, ok := entry.Data.(float64); ok {
 			count = int(c)
@@ -263,7 +265,7 @@ func runCassTimeline(since, groupBy string) error {
 				count = int(c)
 			}
 		}
-		
+
 		fmt.Fprintf(w, "%s\t%s\t%d\n", ts, entry.Type, count)
 	}
 	w.Flush()

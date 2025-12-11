@@ -470,7 +470,7 @@ func spawnSessionLogic(opts SpawnOptions) error {
 		// Get agent command template based on type
 		var agentCmdTemplate string
 		var envVars map[string]string
-		
+
 		switch agent.Type {
 		case AgentTypeClaude:
 			agentCmdTemplate = cfg.Agents.Claude
@@ -527,7 +527,7 @@ func spawnSessionLogic(opts SpawnOptions) error {
 		if err != nil {
 			return outputError(fmt.Errorf("generating command for %s agent: %w", agent.Type, err))
 		}
-		
+
 		// Apply plugin env vars if any
 		if len(envVars) > 0 {
 			var envPrefix string
