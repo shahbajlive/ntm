@@ -466,6 +466,15 @@ func (c *Config) IsPersonaName(name string) bool {
 
 // DefaultPath returns the default config file path
 func DefaultPath() string {
+	if env := os.Getenv("NTM_CONFIG"); env != "" {
+		// Expand ~/ in env var path for convenience.
+		if strings.HasPrefix(env, "~/") {
+			if home, err := os.UserHomeDir(); err == nil {
+				env = filepath.Join(home, env[2:])
+			}
+		}
+		return env
+	}
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
 		return filepath.Join(xdg, "ntm", "config.toml")
 	}
