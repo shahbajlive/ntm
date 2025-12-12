@@ -686,6 +686,17 @@ func TestLoadWithTildePaletteFile(t *testing.T) {
 }
 
 func TestLoadPaletteFromTOML(t *testing.T) {
+	// Switch to temp dir to avoid picking up project's command_palette.md
+	origDir, _ := os.Getwd()
+	defer os.Chdir(origDir)
+	tmpDir := t.TempDir()
+	os.Chdir(tmpDir)
+
+	// Also override XDG_CONFIG_HOME to avoid picking up user's palette
+	origXDG := os.Getenv("XDG_CONFIG_HOME")
+	os.Setenv("XDG_CONFIG_HOME", tmpDir)
+	defer os.Setenv("XDG_CONFIG_HOME", origXDG)
+
 	configContent := `
 [[palette]]
 key = "toml_cmd"

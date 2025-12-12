@@ -3,6 +3,7 @@ package robot
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"runtime"
 	"strings"
@@ -657,12 +658,18 @@ func TestSendOptionsExclude(t *testing.T) {
 	}
 	defer tmux.KillSession(sessionName)
 
+	panes, err := tmux.GetPanes(sessionName)
+	if err != nil || len(panes) == 0 {
+		t.Fatalf("Failed to get panes: %v", err)
+	}
+	paneToExclude := fmt.Sprintf("%d", panes[0].Index)
+
 	output, err := captureStdout(t, func() error {
 		return PrintSend(SendOptions{
 			Session: sessionName,
 			Message: "test",
 			All:     true,
-			Exclude: []string{"0"}, // Exclude pane 0
+			Exclude: []string{paneToExclude}, // Exclude first pane
 		})
 	})
 
@@ -675,10 +682,10 @@ func TestSendOptionsExclude(t *testing.T) {
 		t.Fatalf("Failed to parse JSON: %v", err)
 	}
 
-	// Pane 0 should not be in targets
+	// First pane should not be in targets
 	for _, target := range result.Targets {
-		if target == "0" {
-			t.Error("Pane 0 should be excluded")
+		if target == paneToExclude {
+			t.Errorf("Pane %s should be excluded", paneToExclude)
 		}
 	}
 }
@@ -694,11 +701,17 @@ func TestSendOptionsPaneFilter(t *testing.T) {
 	}
 	defer tmux.KillSession(sessionName)
 
+	panes, err := tmux.GetPanes(sessionName)
+	if err != nil || len(panes) == 0 {
+		t.Fatalf("Failed to get panes: %v", err)
+	}
+	targetPane := fmt.Sprintf("%d", panes[0].Index)
+
 	output, err := captureStdout(t, func() error {
 		return PrintSend(SendOptions{
 			Session: sessionName,
 			Message: "test",
-			Panes:   []string{"0"}, // Only pane 0
+			Panes:   []string{targetPane}, // Only the first pane
 		})
 	})
 
@@ -711,12 +724,12 @@ func TestSendOptionsPaneFilter(t *testing.T) {
 		t.Fatalf("Failed to parse JSON: %v", err)
 	}
 
-	// Should only target pane 0
+	// Should only target the specified pane
 	if len(result.Targets) != 1 {
 		t.Errorf("Expected 1 target, got %d", len(result.Targets))
 	}
-	if len(result.Targets) > 0 && result.Targets[0] != "0" {
-		t.Errorf("Expected target '0', got %s", result.Targets[0])
+	if len(result.Targets) > 0 && result.Targets[0] != targetPane {
+		t.Errorf("Expected target '%s', got %s", targetPane, result.Targets[0])
 	}
 }
 
@@ -779,8 +792,14 @@ func TestPrintTailWithPaneFilter(t *testing.T) {
 	}
 	defer tmux.KillSession(sessionName)
 
+	panes, err := tmux.GetPanes(sessionName)
+	if err != nil || len(panes) == 0 {
+		t.Fatalf("Failed to get panes: %v", err)
+	}
+	targetPane := fmt.Sprintf("%d", panes[0].Index)
+
 	output, err := captureStdout(t, func() error {
-		return PrintTail(sessionName, 10, []string{"0"})
+		return PrintTail(sessionName, 10, []string{targetPane})
 	})
 
 	if err != nil {
@@ -792,12 +811,12 @@ func TestPrintTailWithPaneFilter(t *testing.T) {
 		t.Fatalf("Failed to parse JSON: %v", err)
 	}
 
-	// Should have exactly pane 0
+	// Should have exactly the target pane
 	if len(result.Panes) != 1 {
 		t.Errorf("Expected 1 pane, got %d", len(result.Panes))
 	}
-	if _, ok := result.Panes["0"]; !ok {
-		t.Error("Pane 0 not found in output")
+	if _, ok := result.Panes[targetPane]; !ok {
+		t.Errorf("Pane %s not found in output", targetPane)
 	}
 }
 

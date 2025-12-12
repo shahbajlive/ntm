@@ -560,8 +560,15 @@ func TestZoomPane(t *testing.T) {
 	}
 	time.Sleep(100 * time.Millisecond)
 
+	// Get the first pane index
+	panes, err := GetPanes(session)
+	if err != nil || len(panes) == 0 {
+		t.Fatalf("Failed to get panes: %v", err)
+	}
+	firstPaneIndex := panes[0].Index
+
 	// Zoom first pane
-	if err := ZoomPane(session, 0); err != nil {
+	if err := ZoomPane(session, firstPaneIndex); err != nil {
 		t.Errorf("ZoomPane failed: %v", err)
 	}
 }
