@@ -21,6 +21,11 @@ func TestParseFileSpec(t *testing.T) {
 		{"file.go:-50", "file.go", 0, 50},
 		{"file.go:25", "file.go", 25, 25},
 		{"/abs/path/file.go:1-10", "/abs/path/file.go", 1, 10},
+		{"file.go:abc-1", "file.go:abc-1", 0, 0},                 // not a line range suffix
+		{`C:\proj-1\main.go`, `C:\proj-1\main.go`, 0, 0},         // Windows drive path (no range)
+		{`C:\proj-1\main.go:12-34`, `C:\proj-1\main.go`, 12, 34}, // Windows drive path with range
+		{`C:\proj-1\main.go:12-`, `C:\proj-1\main.go`, 12, 0},    // Windows drive path with open range
+		{`C:\proj-1\main.go:-34`, `C:\proj-1\main.go`, 0, 34},    // Windows drive path with end-only range
 	}
 
 	for _, tt := range tests {

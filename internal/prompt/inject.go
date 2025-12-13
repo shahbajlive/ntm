@@ -17,6 +17,43 @@ type FileSpec struct {
 	EndLine   int // 0 = to end
 }
 
+// MaxFileSize is the maximum file size allowed for context injection (1MB)
+const MaxFileSize = 1 * 1024 * 1024
+
+func isLineRangeSuffix(s string) bool {
+	if s == "" {
+		return false
+	}
+	hyphens := 0
+	digits := 0
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
+		case c >= '0' && c <= '9':
+			digits++
+		case c == '-':
+			hyphens++
+			if hyphens > 1 {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+
+	// Must include at least one digit; a lone "-" is not a valid range.
+	if digits == 0 {
+		return false
+	}
+
+	// If a hyphen is present, at least one side must be non-empty.
+	if hyphens == 1 {
+		parts := strings.SplitN(s, "-", 2)
+		return !(parts[0] == "" && parts[1] == "")
+	}
+
+	return true
+}
+
 // ParseFileSpec parses a file spec string like "path", "path:10-50", "path:10-", "path:-50"
 func ParseFileSpec(spec string) (FileSpec, error) {
 	fs := FileSpec{}
@@ -29,10 +66,10 @@ func ParseFileSpec(spec string) (FileSpec, error) {
 		return fs, nil
 	}
 
-	// Check if what's after the colon looks like a line range
 	after := spec[colonIdx+1:]
-	if !strings.ContainsAny(after, "0123456789-") {
-		// Not a line range, treat whole thing as path
+	if !isLineRangeSuffix(after) {
+		// Not a strict line range suffix, treat whole thing as path.
+		// This avoids mis-parsing paths like Windows drives: C:\foo\bar.go
 		fs.Path = spec
 		return fs, nil
 	}
@@ -44,10 +81,8 @@ func ParseFileSpec(spec string) (FileSpec, error) {
 	if len(parts) == 1 {
 		// Single line number
 		line, err := strconv.Atoi(parts[0])
-		if err != nil {
-			// Not a number, treat as path
-			fs.Path = spec
-			return fs, nil
+		if err != nil || line < 1 {
+			return fs, fmt.Errorf("invalid line: %s", parts[0])
 		}
 		fs.StartLine = line
 		fs.EndLine = line
@@ -55,18 +90,22 @@ func ParseFileSpec(spec string) (FileSpec, error) {
 		// Range: "start-end", "start-", "-end"
 		if parts[0] != "" {
 			start, err := strconv.Atoi(parts[0])
-			if err != nil {
+			if err != nil || start < 1 {
 				return fs, fmt.Errorf("invalid start line: %s", parts[0])
 			}
 			fs.StartLine = start
 		}
 		if parts[1] != "" {
 			end, err := strconv.Atoi(parts[1])
-			if err != nil {
+			if err != nil || end < 1 {
 				return fs, fmt.Errorf("invalid end line: %s", parts[1])
 			}
 			fs.EndLine = end
 		}
+	}
+
+	if fs.StartLine > 0 && fs.EndLine > 0 && fs.StartLine > fs.EndLine {
+		return fs, fmt.Errorf("invalid line range: %d-%d", fs.StartLine, fs.EndLine)
 	}
 
 	return fs, nil
@@ -82,6 +121,15 @@ func InjectFiles(specs []FileSpec, prompt string) (string, error) {
 	var parts []string
 
 	for _, spec := range specs {
+		// Check file size first
+		info, err := os.Stat(spec.Path)
+		if err != nil {
+			return "", fmt.Errorf("stat %s: %w", spec.Path, err)
+		}
+		if info.Size() > MaxFileSize {
+			return "", fmt.Errorf("file %s is too large (%d bytes > %d limit)", spec.Path, info.Size(), MaxFileSize)
+		}
+
 		content, err := readFileRange(spec)
 		if err != nil {
 			return "", fmt.Errorf("failed to read %s: %w", spec.Path, err)
@@ -90,11 +138,6 @@ func InjectFiles(specs []FileSpec, prompt string) (string, error) {
 		// Check for binary content
 		if isBinary(content) {
 			return "", fmt.Errorf("file %s appears to be binary (use text files only)", spec.Path)
-		}
-
-		// Check file size (warn if large)
-		if len(content) > 50*1024 {
-			// Allow but could warn - for now just proceed
 		}
 
 		lang := detectLanguage(spec.Path)
@@ -125,7 +168,7 @@ func readFileRange(spec FileSpec) (string, error) {
 	}
 	defer f.Close()
 
-	// If no line range, read entire file
+	// If no line range, read entire file (size already checked in InjectFiles)
 	if spec.StartLine == 0 && spec.EndLine == 0 {
 		content, err := os.ReadFile(spec.Path)
 		if err != nil {
@@ -134,12 +177,14 @@ func readFileRange(spec FileSpec) (string, error) {
 		return strings.TrimSuffix(string(content), "\n"), nil
 	}
 
-	// Read line range
+	// Read line range using bufio.Scanner to handle long lines gracefully
 	var lines []string
 	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // Large buffer for big lines
-	lineNum := 0
+	// Set max token size to MaxFileSize (1MB) to prevent OOM on single huge line
+	buf := make([]byte, 64*1024)
+	scanner.Buffer(buf, MaxFileSize)
 
+	lineNum := 0
 	startLine := spec.StartLine
 	if startLine == 0 {
 		startLine = 1
@@ -147,17 +192,16 @@ func readFileRange(spec FileSpec) (string, error) {
 
 	for scanner.Scan() {
 		lineNum++
-		if lineNum < startLine {
-			continue
+		if lineNum >= startLine {
+			if spec.EndLine > 0 && lineNum > spec.EndLine {
+				break
+			}
+			lines = append(lines, scanner.Text())
 		}
-		if spec.EndLine > 0 && lineNum > spec.EndLine {
-			break
-		}
-		lines = append(lines, scanner.Text())
 	}
 
 	if err := scanner.Err(); err != nil {
-		return "", err
+		return "", fmt.Errorf("scanning file: %w", err)
 	}
 
 	return strings.Join(lines, "\n"), nil
