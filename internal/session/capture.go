@@ -1,6 +1,7 @@
 package session
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -123,9 +124,8 @@ func detectWorkDir(sessionName string, panes []tmux.Pane) string {
 
 	// Fallback: try to determine from session name
 	// Common pattern: ~/Developer/<session-name>
-	home, err := exec.Command("bash", "-c", "echo $HOME").Output()
+	homeDir, err := os.UserHomeDir()
 	if err == nil {
-		homeDir := strings.TrimSpace(string(home))
 		possiblePath := filepath.Join(homeDir, "Developer", sessionName)
 		return possiblePath
 	}

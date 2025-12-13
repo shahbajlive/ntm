@@ -147,13 +147,6 @@ func RestoreAgents(sessionName string, state *SessionState, cfg AgentConfig) err
 	return nil
 }
 
-// AgentCommandConfig holds agent commands from config.
-type AgentCommandConfig struct {
-	Claude string
-	Codex  string
-	Gemini string
-}
-
 // getAgentCommand returns the command for an agent type.
 func getAgentCommand(agentType string, cmds AgentConfig) string {
 	// This returns empty - actual commands should be provided by the CLI
