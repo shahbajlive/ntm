@@ -4,12 +4,21 @@ package styles
 import (
 	"fmt"
 	"math"
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
 )
+
+func reducedMotionEnabled() bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv("NTM_REDUCE_MOTION")))
+	if v == "" || v == "0" || v == "false" || v == "no" || v == "off" {
+		return false
+	}
+	return true
+}
 
 func defaultGradient() []string {
 	t := theme.Current()
@@ -171,6 +180,13 @@ func Glow(text string, baseColor, glowColor string) string {
 
 // Shimmer creates an animated shimmer effect (returns frame for given tick)
 func Shimmer(text string, tick int, colors ...string) string {
+	if reducedMotionEnabled() {
+		if len(colors) < 2 {
+			colors = defaultGradient()
+		}
+		return GradientText(text, colors...)
+	}
+
 	if len(colors) < 2 {
 		grad := defaultGradient()
 		colors = append(append([]string{}, grad...), grad[0])
@@ -228,6 +244,10 @@ func Rainbow(text string) string {
 
 // Pulse creates a pulsing brightness effect (returns style for given tick)
 func Pulse(baseColor string, tick int) lipgloss.Color {
+	if reducedMotionEnabled() {
+		return lipgloss.Color(baseColor)
+	}
+
 	base := ParseHex(baseColor)
 
 	// Sine wave for smooth pulsing

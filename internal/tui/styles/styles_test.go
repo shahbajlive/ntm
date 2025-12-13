@@ -150,6 +150,8 @@ func TestGlow(t *testing.T) {
 }
 
 func TestShimmer(t *testing.T) {
+	t.Setenv("NTM_REDUCE_MOTION", "0")
+
 	t.Run("with colors", func(t *testing.T) {
 		result := Shimmer("hello", 0, "#ff0000", "#00ff00", "#0000ff")
 		if result == "" {
@@ -179,6 +181,16 @@ func TestShimmer(t *testing.T) {
 			t.Error("Shimmer with no colors should use defaults")
 		}
 	})
+
+	t.Run("reduced motion produces stable output", func(t *testing.T) {
+		t.Setenv("NTM_REDUCE_MOTION", "1")
+
+		r1 := Shimmer("hello", 0, "#ff0000", "#0000ff")
+		r2 := Shimmer("hello", 50, "#ff0000", "#0000ff")
+		if r1 != r2 {
+			t.Error("expected Shimmer to be stable under reduced motion")
+		}
+	})
 }
 
 func TestRainbow(t *testing.T) {
@@ -189,6 +201,8 @@ func TestRainbow(t *testing.T) {
 }
 
 func TestPulse(t *testing.T) {
+	t.Setenv("NTM_REDUCE_MOTION", "0")
+
 	c := Pulse("#ff0000", 0)
 	if c == "" {
 		t.Error("Pulse should return non-empty color")
@@ -201,6 +215,17 @@ func TestPulse(t *testing.T) {
 		// They might occasionally be equal depending on sine wave position
 		// Just verify both work
 	}
+
+	t.Run("reduced motion disables pulsing", func(t *testing.T) {
+		t.Setenv("NTM_REDUCE_MOTION", "1")
+
+		want := lipgloss.Color("#ff0000")
+		c1 := Pulse("#ff0000", 0)
+		c2 := Pulse("#ff0000", 15)
+		if c1 != want || c2 != want {
+			t.Errorf("expected Pulse to return base color under reduced motion, got %q and %q", c1, c2)
+		}
+	})
 }
 
 func TestClamp(t *testing.T) {
