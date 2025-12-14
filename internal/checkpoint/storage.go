@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -84,9 +85,20 @@ func sanitizeName(name string) string {
 		" ", "_",
 	)
 	safe := replacer.Replace(strings.TrimSpace(name))
-	// Limit length
+
+	// Limit length while respecting UTF-8 boundaries
 	if len(safe) > 50 {
-		safe = safe[:50]
+		// Find the last valid rune boundary within the limit
+		for i := 50; i >= 0; i-- {
+			if utf8.RuneStart(safe[i]) {
+				// We found the start of the character that crosses or is at the boundary.
+				// If i == 50, safe[:50] is valid (cut exactly before next char).
+				// If i < 50, safe[:i] is valid (cut before the char that would exceed).
+				return safe[:i]
+			}
+		}
+		// Fallback for extremely weird cases (shouldn't happen with valid UTF-8 input)
+		return safe[:50]
 	}
 	return safe
 }

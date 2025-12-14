@@ -80,7 +80,7 @@ func (c *Capturer) Create(sessionName, name string, opts ...CheckpointOption) (*
 	// Capture pane scrollback
 	if err := c.captureScrollback(cp, options.scrollbackLines); err != nil {
 		// Non-fatal, continue
-		fmt.Printf("Warning: failed to capture some scrollback: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Warning: failed to capture some scrollback: %v\n", err)
 	}
 
 	// Capture git state if enabled and in a git repo
@@ -120,7 +120,7 @@ func (c *Capturer) captureSessionState(sessionName string) (SessionState, error)
 	// Get layout string
 	layout, err := getSessionLayout(sessionName)
 	if err != nil {
-		fmt.Printf("Warning: failed to capture session layout: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Warning: failed to capture session layout: %v\n", err)
 	}
 
 	return SessionState{
@@ -193,7 +193,7 @@ func (c *Capturer) captureGitState(workingDir, sessionName, checkpointID string)
 	if state.IsDirty {
 		// Warn about untracked files if any
 		if state.UntrackedCount > 0 {
-			fmt.Printf("Warning: %d untracked file(s) will not be captured in git patch (only staged/unstaged tracked changes)\n", state.UntrackedCount)
+			fmt.Fprintf(os.Stderr, "Warning: %d untracked file(s) will not be captured in git patch (only staged/unstaged tracked changes)\n", state.UntrackedCount)
 		}
 
 		// Get diff of tracked changes (both staged and unstaged)
