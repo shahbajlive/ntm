@@ -1,7 +1,6 @@
 package config
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -9,54 +8,11 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"text/template"
 
 	"github.com/BurntSushi/toml"
 
 	"github.com/Dicklesworthstone/ntm/internal/notify"
 )
-
-// GenerateAgentCommand generates the final agent command by replacing template variables
-func (c *Config) GenerateAgentCommand(tmplStr string, vars AgentTemplateVars) (string, error) {
-	// If template has no placeholders, return as is
-	if !strings.Contains(tmplStr, "{{") {
-		return tmplStr, nil
-	}
-
-	// Validate variables for safety
-	if err := validateSafeString(vars.Model, "Model"); err != nil {
-		return "", err
-	}
-	if err := validateSafeString(vars.ModelAlias, "ModelAlias"); err != nil {
-		return "", err
-	}
-	if err := validateSafeString(vars.PersonaName, "PersonaName"); err != nil {
-		return "", err
-	}
-
-	t, err := template.New("agent").Parse(tmplStr)
-	if err != nil {
-		return "", fmt.Errorf("parsing agent command template: %w", err)
-	}
-
-	var buf bytes.Buffer
-	if err := t.Execute(&buf, vars); err != nil {
-		return "", fmt.Errorf("executing agent command template: %w", err)
-	}
-
-	return buf.String(), nil
-}
-
-func validateSafeString(s, name string) error {
-	if s == "" {
-		return nil
-	}
-	// Reject shell metacharacters
-	if strings.ContainsAny(s, "&|;`$()<>") {
-		return fmt.Errorf("%s contains unsafe characters", name)
-	}
-	return nil
-}
 
 // Config represents the main configuration
 type Config struct {
@@ -658,11 +614,7 @@ func Default() *Config {
 
 	cfg := &Config{
 		ProjectsBase: projectsBase,
-		Agents: AgentConfig{
-			Claude: `NODE_OPTIONS="--max-old-space-size=32768" ENABLE_BACKGROUND_TASKS=1 claude --dangerously-skip-permissions`,
-			Codex:  `codex --dangerously-bypass-approvals-and-sandbox -m gpt-5.1-codex-max -c model_reasoning_effort="high" -c model_reasoning_summary_format=experimental --enable web_search_request`,
-			Gemini: `gemini --yolo`,
-		},
+		Agents:       DefaultAgentTemplates(),
 		Tmux: TmuxConfig{
 			DefaultPanes: 10,
 			PaletteKey:   "F6",
@@ -1444,6 +1396,32 @@ func Print(cfg *Config, w io.Writer) error {
 	fmt.Fprintf(w, "show_quota_bars = %t       # Show quota bars in dashboard\n", cfg.Rotation.Dashboard.ShowQuotaBars)
 	fmt.Fprintf(w, "show_account_status = %t   # Show account status\n", cfg.Rotation.Dashboard.ShowAccountStatus)
 	fmt.Fprintf(w, "show_reset_timers = %t     # Show reset countdown\n", cfg.Rotation.Dashboard.ShowResetTimers)
+	fmt.Fprintln(w)
+
+	fmt.Fprintln(w, "[scanner]")
+	fmt.Fprintln(w, "# UBS scanner configuration")
+	if cfg.Scanner.UBSPath != "" {
+		fmt.Fprintf(w, "ubs_path = %q\n", cfg.Scanner.UBSPath)
+	} else {
+		fmt.Fprintln(w, "# ubs_path = \"\"  # Auto-detect from PATH")
+	}
+	fmt.Fprintln(w)
+
+	fmt.Fprintln(w, "[scanner.defaults]")
+	fmt.Fprintf(w, "timeout = %q\n", cfg.Scanner.Defaults.Timeout)
+	fmt.Fprintf(w, "parallel = %t\n", cfg.Scanner.Defaults.Parallel)
+	fmt.Fprintf(w, "exclude = %s\n", renderTOMLStringArray(cfg.Scanner.Defaults.Exclude))
+	fmt.Fprintln(w)
+
+	fmt.Fprintln(w, "[cass]")
+	fmt.Fprintln(w, "# CASS (Coding Agent Session Search) configuration")
+	fmt.Fprintf(w, "enabled = %t\n", cfg.CASS.Enabled)
+	fmt.Fprintf(w, "timeout = %d\n", cfg.CASS.Timeout)
+	if cfg.CASS.BinaryPath != "" {
+		fmt.Fprintf(w, "binary_path = %q\n", cfg.CASS.BinaryPath)
+	} else {
+		fmt.Fprintln(w, "# binary_path = \"\"  # Auto-detect from PATH")
+	}
 	fmt.Fprintln(w)
 
 	// Write Gemini setup configuration

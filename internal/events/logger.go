@@ -1,6 +1,7 @@
 package events
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -144,35 +145,44 @@ func (l *Logger) maybeRotate() {
 
 	l.lastRotation = time.Now()
 
-	// Read existing file and filter old entries
+	// Perform rotation
 	if err := l.rotateOldEntries(); err != nil {
 		// Log rotation errors but don't fail
 		fmt.Fprintf(os.Stderr, "event log rotation error: %v\n", err)
 	}
 }
 
-// rotateOldEntries removes entries older than retention period.
+// rotateOldEntries removes entries older than retention period using streaming.
 func (l *Logger) rotateOldEntries() error {
-	// Close current file
-	if l.file != nil {
-		l.file.Close()
-		l.file = nil
-	}
-
-	// Read all entries
-	data, err := os.ReadFile(l.path)
+	// Create temp file for filtered logs
+	tmpFile, err := os.CreateTemp(filepath.Dir(l.path), "events-rotate-*.jsonl")
 	if err != nil {
+		return fmt.Errorf("creating temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath) // Cleanup on error
+
+	// Open source file for reading
+	// We need to read from the current path, but we have l.file open for writing.
+	// It's safer to open a separate read handle.
+	srcFile, err := os.Open(l.path)
+	if err != nil {
+		tmpFile.Close()
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return err
+		return fmt.Errorf("opening source file: %w", err)
 	}
+	defer srcFile.Close()
 
-	// Parse and filter entries
 	cutoff := time.Now().AddDate(0, 0, -l.retentionDays)
-	var kept []byte
+	scanner := bufio.NewScanner(srcFile)
 
-	for _, line := range splitLines(data) {
+	// Buffer for writing to temp file
+	writer := bufio.NewWriter(tmpFile)
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
 		if len(line) == 0 {
 			continue
 		}
@@ -180,26 +190,57 @@ func (l *Logger) rotateOldEntries() error {
 		var event Event
 		if err := json.Unmarshal(line, &event); err != nil {
 			// Keep malformed entries
-			kept = append(kept, line...)
-			kept = append(kept, '\n')
+			if _, err := writer.Write(line); err != nil {
+				tmpFile.Close()
+				return err
+			}
+			writer.WriteByte('\n')
 			continue
 		}
 
 		if event.Timestamp.After(cutoff) {
-			kept = append(kept, line...)
-			kept = append(kept, '\n')
+			if _, err := writer.Write(line); err != nil {
+				tmpFile.Close()
+				return err
+			}
+			writer.WriteByte('\n')
 		}
 	}
 
-	// Write filtered entries back
-	if err := os.WriteFile(l.path, kept, 0644); err != nil {
-		return err
+	if err := scanner.Err(); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("scanning log file: %w", err)
+	}
+
+	if err := writer.Flush(); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("flushing temp file: %w", err)
+	}
+
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("closing temp file: %w", err)
+	}
+
+	// Now swap the files
+	// First close our write handle
+	if l.file != nil {
+		l.file.Close()
+		l.file = nil
+	}
+
+	// Rename temp to target (atomic replace)
+	if err := os.Rename(tmpPath, l.path); err != nil {
+		// Attempt to reopen original if rename fails
+		if f, openErr := os.OpenFile(l.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644); openErr == nil {
+			l.file = f
+		}
+		return fmt.Errorf("renaming temp file: %w", err)
 	}
 
 	// Reopen file for appending
 	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
-		return err
+		return fmt.Errorf("reopening log file: %w", err)
 	}
 	l.file = f
 

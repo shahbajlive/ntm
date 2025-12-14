@@ -8,10 +8,8 @@ import (
 )
 
 func TestConfigGenerateAgentCommand(t *testing.T) {
-	cfg := &Config{}
-
 	// Test no template
-	cmd, err := cfg.GenerateAgentCommand("simple command", AgentTemplateVars{})
+	cmd, err := GenerateAgentCommand("simple command", AgentTemplateVars{})
 	if err != nil {
 		t.Fatalf("GenerateAgentCommand failed: %v", err)
 	}
@@ -22,7 +20,7 @@ func TestConfigGenerateAgentCommand(t *testing.T) {
 	// Test with template
 	tmpl := "echo {{.Model}}"
 	vars := AgentTemplateVars{Model: "gpt-4"}
-	cmd, err = cfg.GenerateAgentCommand(tmpl, vars)
+	cmd, err = GenerateAgentCommand(tmpl, vars)
 	if err != nil {
 		t.Fatalf("GenerateAgentCommand failed: %v", err)
 	}

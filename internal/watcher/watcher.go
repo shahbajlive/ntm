@@ -235,16 +235,16 @@ func (w *Watcher) Add(path string) error {
 		return err
 	}
 
-	if info.IsDir() && w.recursive {
-		return w.addRecursive(absPath)
-	}
-
 	if w.pollMode {
 		if err := w.snapshotPath(absPath, info); err != nil {
 			return err
 		}
 		w.watchedPaths[absPath] = true
 		return nil
+	}
+
+	if info.IsDir() && w.recursive {
+		return w.addRecursive(absPath)
 	}
 
 	if err := w.fsWatcher.Add(absPath); err != nil {
@@ -470,64 +470,85 @@ func (w *Watcher) pollOnce() {
 		w.mu.Unlock()
 		return
 	}
-	paths := make([]string, 0, len(w.watchedPaths))
+	// Snapshot the roots we intend to scan
+	roots := make([]string, 0, len(w.watchedPaths))
 	for p := range w.watchedPaths {
-		paths = append(paths, p)
-	}
-	snapshots := make(map[string]fileMeta, len(w.snapshots))
-	for k, v := range w.snapshots {
-		snapshots[k] = v
+		roots = append(roots, p)
 	}
 	w.mu.Unlock()
 
-	var events []Event
-
-	for _, root := range paths {
-		current, err := snapshotEntries(root, w.recursive)
+	// Scan the filesystem (slow operation, done without lock)
+	currentSnapshot := make(map[string]fileMeta)
+	for _, root := range roots {
+		entries, err := snapshotEntries(root, w.recursive)
 		if err != nil {
 			if w.errorHandler != nil {
 				w.errorHandler(err)
 			}
 			continue
 		}
+		for p, meta := range entries {
+			currentSnapshot[p] = meta
+		}
+	}
 
-		// Detect creates and updates
-		for path, meta := range current {
-			prev, ok := snapshots[path]
-			if !ok {
-				if Create&w.eventFilter != 0 {
-					events = append(events, Event{Path: path, Type: Create, IsDir: meta.IsDir})
-				}
-				snapshots[path] = meta
-				continue
-			}
+	w.mu.Lock()
+	defer w.mu.Unlock()
 
-			eventType := EventType(0)
-			if meta.ModTime != prev.ModTime || meta.Size != prev.Size {
-				eventType |= Write
-			}
-			if meta.Mode != prev.Mode {
-				eventType |= Chmod
-			}
-			if eventType != 0 {
-				if eventType&w.eventFilter != 0 {
-					events = append(events, Event{Path: path, Type: eventType, IsDir: meta.IsDir})
-				}
-				snapshots[path] = meta
-			}
+	if w.closed {
+		return
+	}
+
+	var events []Event
+
+	// 1. Detect Creates and Updates
+	for path, meta := range currentSnapshot {
+		// Verify the path is still covered by current watched paths
+		// (Avoid re-adding files if Remove() was called during scan)
+		if !w.isWatched(path) {
+			continue
 		}
 
-		// Detect removals
-		for path, prev := range snapshots {
-			if !(path == root || strings.HasPrefix(path, root+string(os.PathSeparator))) {
-				continue
+		prev, ok := w.snapshots[path]
+		if !ok {
+			if Create&w.eventFilter != 0 {
+				events = append(events, Event{Path: path, Type: Create, IsDir: meta.IsDir})
 			}
-			if _, ok := current[path]; !ok {
-				if Remove&w.eventFilter != 0 {
-					events = append(events, Event{Path: path, Type: Remove, IsDir: prev.IsDir})
-				}
-				delete(snapshots, path)
+			w.snapshots[path] = meta
+			continue
+		}
+
+		eventType := EventType(0)
+		if meta.ModTime != prev.ModTime || meta.Size != prev.Size {
+			eventType |= Write
+		}
+		if meta.Mode != prev.Mode {
+			eventType |= Chmod
+		}
+		if eventType != 0 {
+			if eventType&w.eventFilter != 0 {
+				events = append(events, Event{Path: path, Type: eventType, IsDir: meta.IsDir})
 			}
+			w.snapshots[path] = meta
+		}
+	}
+
+	// 2. Detect Removes
+	// We only consider removals for paths that fall under the roots we *actually scanned*.
+	// This prevents deleting entries for new roots added via Add() during the scan.
+	for path, prev := range w.snapshots {
+		// If it exists in current scan, it's not removed
+		if _, ok := currentSnapshot[path]; ok {
+			continue
+		}
+
+		// Check if this path belongs to one of the roots we scanned
+		// If it does, and it's missing from scan, it must have been deleted.
+		if isPathUnderRoots(path, roots) {
+			if Remove&w.eventFilter != 0 {
+				events = append(events, Event{Path: path, Type: Remove, IsDir: prev.IsDir})
+			}
+			delete(w.snapshots, path)
 		}
 	}
 
@@ -535,11 +556,7 @@ func (w *Watcher) pollOnce() {
 		return
 	}
 
-	w.mu.Lock()
-	// Persist updated snapshots
-	w.snapshots = snapshots
 	w.pendingEvents = append(w.pendingEvents, events...)
-	w.mu.Unlock()
 
 	w.debouncer.Trigger(func() {
 		w.mu.Lock()
@@ -555,6 +572,41 @@ func (w *Watcher) pollOnce() {
 			w.handler(toDeliver)
 		}
 	})
+}
+
+// isWatched checks if path is covered by any currently watched path.
+// Must be called with w.mu held.
+func (w *Watcher) isWatched(path string) bool {
+	// Exact match
+	if w.watchedPaths[path] {
+		return true
+	}
+
+	// Check if parent directory is watched (for non-recursive watching of files in a dir)
+	dir := filepath.Dir(path)
+	if w.watchedPaths[dir] {
+		return true
+	}
+
+	// Recursive check
+	if w.recursive {
+		for root := range w.watchedPaths {
+			if strings.HasPrefix(path, root+string(os.PathSeparator)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isPathUnderRoots checks if path is under any of the provided roots.
+func isPathUnderRoots(path string, roots []string) bool {
+	for _, root := range roots {
+		if path == root || strings.HasPrefix(path, root+string(os.PathSeparator)) {
+			return true
+		}
+	}
+	return false
 }
 
 // snapshotPath seeds the snapshot map for a newly added path in polling mode.
