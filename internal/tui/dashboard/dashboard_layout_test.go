@@ -7,11 +7,14 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/Dicklesworthstone/ntm/internal/cass"
+	"github.com/Dicklesworthstone/ntm/internal/history"
 	"github.com/Dicklesworthstone/ntm/internal/status"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/internal/tracker"
+	"github.com/Dicklesworthstone/ntm/internal/tui/dashboard/panels"
 	"github.com/Dicklesworthstone/ntm/internal/tui/layout"
 )
 
@@ -37,6 +40,17 @@ func newTestModel(width int) Model {
 		ContextLimit:   1000,
 	}
 	return m
+}
+
+func maxRenderedLineWidth(s string) int {
+	maxWidth := 0
+	for _, line := range strings.Split(s, "\n") {
+		width := lipgloss.Width(status.StripANSI(line))
+		if width > maxWidth {
+			maxWidth = width
+		}
+	}
+	return maxWidth
 }
 
 func TestPaneListColumnsByWidthTiers(t *testing.T) {
@@ -174,6 +188,30 @@ func TestSplitViewLayouts_ByWidthTiers(t *testing.T) {
 	}
 }
 
+func TestUltraLayout_DoesNotOverflowWidth(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(layout.UltraWideViewThreshold)
+	m.height = 30
+
+	out := m.renderUltraLayout()
+	if got := maxRenderedLineWidth(out); got > m.width {
+		t.Fatalf("renderUltraLayout max line width = %d, want <= %d", got, m.width)
+	}
+}
+
+func TestMegaLayout_DoesNotOverflowWidth(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(layout.MegaWideViewThreshold)
+	m.height = 30
+
+	out := m.renderMegaLayout()
+	if got := maxRenderedLineWidth(out); got > m.width {
+		t.Fatalf("renderMegaLayout max line width = %d, want <= %d", got, m.width)
+	}
+}
+
 func TestSplitProportionsAcrossThresholds(t *testing.T) {
 	t.Parallel()
 
@@ -261,6 +299,63 @@ func TestSidebarRendersFileChanges(t *testing.T) {
 	out := status.StripANSI(m.renderSidebar(60, 25))
 	if !strings.Contains(out, "main.go") {
 		t.Fatalf("expected sidebar to include file change; got:\n%s", out)
+	}
+}
+
+func TestRenderSidebar_FillsExactHeight(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(layout.UltraWideViewThreshold)
+
+	out := m.renderSidebar(60, 25)
+	if got := lipgloss.Height(out); got != 25 {
+		t.Fatalf("renderSidebar height = %d, want %d", got, 25)
+	}
+}
+
+func TestSidebarRendersMetricsAndHistoryPanelsWhenSpaceAllows(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(layout.UltraWideViewThreshold)
+
+	updated, _ := m.Update(MetricsUpdateMsg{
+		Data: panels.MetricsData{
+			TotalTokens: 1234,
+			TotalCost:   0.42,
+			Agents: []panels.AgentMetric{
+				{
+					Name:       "cc_1",
+					Type:       "cc",
+					Tokens:     1000,
+					Cost:       0.21,
+					ContextPct: 0.42,
+				},
+			},
+		},
+	})
+	m = updated.(Model)
+
+	updated, _ = m.Update(HistoryUpdateMsg{
+		Entries: []history.HistoryEntry{
+			{
+				ID:        "1",
+				Timestamp: time.Now().UTC(),
+				Session:   "test",
+				Targets:   []string{"1"},
+				Prompt:    "Hello from test",
+				Source:    history.SourceCLI,
+				Success:   true,
+			},
+		},
+	})
+	m = updated.(Model)
+
+	out := status.StripANSI(m.renderSidebar(60, 30))
+	if !strings.Contains(out, "Metrics & Usage") {
+		t.Fatalf("expected sidebar to include metrics panel title; got:\n%s", out)
+	}
+	if !strings.Contains(out, "Command History") {
+		t.Fatalf("expected sidebar to include history panel title; got:\n%s", out)
 	}
 }
 
@@ -418,5 +513,548 @@ func TestQuickActionsBarContainsExpectedActions(t *testing.T) {
 	// Verify the "Actions" label is present
 	if !strings.Contains(plain, "Actions") {
 		t.Error("quick actions bar should contain 'Actions' label")
+	}
+}
+
+func TestLayoutModeString(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		mode LayoutMode
+		want string
+	}{
+		{LayoutMobile, "mobile"},
+		{LayoutCompact, "compact"},
+		{LayoutSplit, "split"},
+		{LayoutWide, "wide"},
+		{LayoutUltraWide, "ultrawide"},
+		{LayoutMode(99), "unknown"},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.want, func(t *testing.T) {
+			t.Parallel()
+			if got := tc.mode.String(); got != tc.want {
+				t.Errorf("LayoutMode(%d).String() = %q, want %q", tc.mode, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRenderSparkline(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		value float64
+		width int
+		name  string
+	}{
+		{0.0, 10, "zero"},
+		{0.5, 10, "half"},
+		{1.0, 10, "full"},
+		{-0.5, 10, "negative_clamped"},
+		{1.5, 10, "over_one_clamped"},
+		{0.33, 5, "partial"},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			result := RenderSparkline(tc.value, tc.width)
+			// Basic check: result should not be empty and roughly match width
+			if result == "" {
+				t.Error("RenderSparkline should not return empty string")
+			}
+			// Length should be close to width (Unicode characters may vary)
+			if len([]rune(result)) > tc.width+1 {
+				t.Errorf("RenderSparkline result length %d exceeds expected width %d", len([]rune(result)), tc.width)
+			}
+		})
+	}
+}
+
+func TestRenderMiniBar(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(120)
+	tests := []struct {
+		value float64
+		width int
+		name  string
+	}{
+		{0.0, 10, "zero"},
+		{0.5, 10, "half"},
+		{1.0, 10, "full"},
+		{0.25, 5, "quarter"},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			result := RenderMiniBar(tc.value, tc.width, m.theme)
+			// Should render something
+			if result == "" {
+				t.Error("RenderMiniBar should not return empty string")
+			}
+		})
+	}
+}
+
+func TestRenderLayoutIndicator(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(120)
+	mode := LayoutForWidth(m.width)
+	indicator := RenderLayoutIndicator(mode, m.theme)
+
+	// Should produce some output
+	if indicator == "" {
+		t.Error("RenderLayoutIndicator should return non-empty string")
+	}
+}
+
+func TestScrollIndicator(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(120)
+	tests := []struct {
+		offset   int
+		total    int
+		visible  int
+		selected int
+		name     string
+	}{
+		{0, 10, 5, 0, "at_top"},
+		{5, 10, 5, 5, "at_bottom"},
+		{2, 10, 5, 3, "middle"},
+		{0, 3, 5, 0, "all_visible"},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			vp := &ViewportPosition{
+				Offset:   tc.offset,
+				Total:    tc.total,
+				Visible:  tc.visible,
+				Selected: tc.selected,
+			}
+			// Just verify it doesn't panic
+			result := vp.ScrollIndicator(m.theme)
+			_ = result // Result varies based on position
+		})
+	}
+}
+
+func TestEnsureVisible(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		selected int
+		offset   int
+		visible  int
+		total    int
+		wantOff  int
+		name     string
+	}{
+		{0, 0, 10, 20, 0, "at_top"},
+		{5, 0, 10, 20, 0, "within_visible"},
+		{15, 0, 10, 20, 6, "below_visible"},
+		{3, 10, 10, 20, 3, "above_visible"},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			vp := &ViewportPosition{
+				Offset:   tc.offset,
+				Visible:  tc.visible,
+				Total:    tc.total,
+				Selected: tc.selected,
+			}
+			vp.EnsureVisible()
+			if vp.Offset != tc.wantOff {
+				t.Errorf("EnsureVisible() offset = %d, want %d", vp.Offset, tc.wantOff)
+			}
+		})
+	}
+}
+
+func TestMinFunc(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		a, b, want int
+	}{
+		{1, 2, 1},
+		{2, 1, 1},
+		{5, 5, 5},
+		{-1, 1, -1},
+		{0, 0, 0},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(fmt.Sprintf("%d_%d", tc.a, tc.b), func(t *testing.T) {
+			t.Parallel()
+			if got := min(tc.a, tc.b); got != tc.want {
+				t.Errorf("min(%d, %d) = %d, want %d", tc.a, tc.b, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestTruncate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input  string
+		maxLen int
+		want   string
+	}{
+		{"hello", 10, "hello"},
+		{"hello world", 5, "he..."},
+		{"hi", 10, "hi"},
+		{"", 5, ""},
+		{"abcdef", 3, "abc"}, // maxLen <= 3 returns first maxLen chars without ellipsis
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.input, func(t *testing.T) {
+			t.Parallel()
+			got := truncate(tc.input, tc.maxLen)
+			if got != tc.want {
+				t.Errorf("truncate(%q, %d) = %q, want %q", tc.input, tc.maxLen, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestGetStatusIconAndColor(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(120)
+
+	tests := []struct {
+		state string
+		tick  int
+		name  string
+	}{
+		{"working", 0, "working_tick0"},
+		{"working", 5, "working_tick5"},
+		{"idle", 0, "idle"},
+		{"error", 0, "error"},
+		{"compacted", 0, "compacted"},
+		{"unknown", 0, "unknown"},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			icon, color := getStatusIconAndColor(tc.state, m.theme, tc.tick)
+			if icon == "" {
+				t.Errorf("getStatusIconAndColor(%q, tick=%d) returned empty icon", tc.state, tc.tick)
+			}
+			if color == "" {
+				t.Errorf("getStatusIconAndColor(%q, tick=%d) returned empty color", tc.state, tc.tick)
+			}
+		})
+	}
+}
+
+func TestFormatRelativeTime(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		duration time.Duration
+		contains string
+		name     string
+	}{
+		{30 * time.Second, "s", "seconds"},
+		{5 * time.Minute, "m", "minutes"},
+		{2 * time.Hour, "h", "hours"},
+		{48 * time.Hour, "d", "days"},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			result := formatRelativeTime(tc.duration)
+			if !strings.Contains(result, tc.contains) {
+				t.Errorf("formatRelativeTime(%v) = %q, expected to contain %q", tc.duration, result, tc.contains)
+			}
+		})
+	}
+}
+
+func TestSpinnerDot(t *testing.T) {
+	t.Parallel()
+
+	// Test multiple animation ticks
+	for i := 0; i < 10; i++ {
+		result := spinnerDot(i)
+		if result == "" {
+			t.Errorf("spinnerDot(%d) returned empty string", i)
+		}
+	}
+}
+
+func TestComputeContextRanks(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(200)
+	// Populate panes matching the status map
+	m.panes = []tmux.Pane{
+		{Index: 1, ID: "1"},
+		{Index: 2, ID: "2"},
+		{Index: 3, ID: "3"},
+	}
+	m.paneStatus = map[int]PaneStatus{
+		1: {ContextPercent: 80},
+		2: {ContextPercent: 50},
+		3: {ContextPercent: 90},
+	}
+
+	ranks := m.computeContextRanks()
+
+	if len(ranks) != 3 {
+		t.Fatalf("computeContextRanks returned %d entries, want 3", len(ranks))
+	}
+
+	// Pane 3 should have rank 1 (highest context)
+	if ranks[3] != 1 {
+		t.Errorf("pane 3 rank = %d, want 1 (highest context)", ranks[3])
+	}
+	// Pane 1 should have rank 2
+	if ranks[1] != 2 {
+		t.Errorf("pane 1 rank = %d, want 2", ranks[1])
+	}
+	// Pane 2 should have rank 3
+	if ranks[2] != 3 {
+		t.Errorf("pane 2 rank = %d, want 3 (lowest context)", ranks[2])
+	}
+}
+
+func TestRenderDiagnosticsBar(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(200)
+	m.showDiagnostics = true
+	m.err = fmt.Errorf("test error")
+
+	bar := m.renderDiagnosticsBar(100)
+	plain := status.StripANSI(bar)
+
+	if bar == "" {
+		t.Error("renderDiagnosticsBar should not return empty string with error")
+	}
+
+	// Should contain some indication of diagnostics
+	_ = plain // Content varies based on error state
+}
+
+func TestRenderMetricsPanel(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(200)
+	m.metricsPanel.SetData(panels.MetricsData{
+		TotalTokens: 1000,
+		TotalCost:   0.50,
+	}, nil)
+
+	result := m.renderMetricsPanel(50, 10)
+	if result == "" {
+		t.Error("renderMetricsPanel should not return empty string")
+	}
+}
+
+func TestRenderHistoryPanel(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(200)
+	m.historyPanel.SetEntries([]history.HistoryEntry{
+		{
+			ID:        "1",
+			Timestamp: time.Now().UTC(),
+			Session:   "test",
+			Prompt:    "Hello",
+			Source:    history.SourceCLI,
+			Success:   true,
+		},
+	}, nil)
+
+	result := m.renderHistoryPanel(50, 10)
+	if result == "" {
+		t.Error("renderHistoryPanel should not return empty string")
+	}
+}
+
+func TestAgentBorderColor(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(120)
+
+	types := []string{
+		string(tmux.AgentClaude),
+		string(tmux.AgentCodex),
+		string(tmux.AgentGemini),
+		string(tmux.AgentUser),
+		"unknown",
+	}
+
+	for _, agentType := range types {
+		result := AgentBorderColor(agentType, m.theme)
+		if result == "" {
+			t.Errorf("AgentBorderColor(%s) returned empty string", agentType)
+		}
+	}
+}
+
+func TestPanelStyles(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(120)
+	// Test with FocusList
+	listStyle, detailStyle := PanelStyles(FocusList, m.theme)
+
+	// Both should be valid styles (not zero values)
+	testText := "test"
+	if listStyle.Render(testText) == "" {
+		t.Error("list panel style should render")
+	}
+	if detailStyle.Render(testText) == "" {
+		t.Error("detail panel style should render")
+	}
+
+	// Test with FocusDetail
+	listStyle2, detailStyle2 := PanelStyles(FocusDetail, m.theme)
+	if listStyle2.Render(testText) == "" {
+		t.Error("list panel style (detail focus) should render")
+	}
+	if detailStyle2.Render(testText) == "" {
+		t.Error("detail panel style (detail focus) should render")
+	}
+}
+
+func TestAgentBorderStyle(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(120)
+
+	types := []string{
+		string(tmux.AgentClaude),
+		string(tmux.AgentCodex),
+		string(tmux.AgentGemini),
+		string(tmux.AgentUser),
+	}
+
+	for _, agentType := range types {
+		// Test inactive
+		style := AgentBorderStyle(agentType, false, 0, m.theme)
+		result := style.Render("test")
+		if result == "" {
+			t.Errorf("AgentBorderStyle(%s, inactive) returned style that renders empty", agentType)
+		}
+
+		// Test active with tick
+		styleActive := AgentBorderStyle(agentType, true, 5, m.theme)
+		resultActive := styleActive.Render("test")
+		if resultActive == "" {
+			t.Errorf("AgentBorderStyle(%s, active) returned style that renders empty", agentType)
+		}
+	}
+}
+
+func TestAgentPanelStyles(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(120)
+
+	types := []string{
+		string(tmux.AgentClaude),
+		string(tmux.AgentCodex),
+		string(tmux.AgentGemini),
+		string(tmux.AgentUser),
+	}
+
+	for _, agentType := range types {
+		// Test with FocusList, inactive
+		listStyle, detailStyle := AgentPanelStyles(agentType, FocusList, false, 0, m.theme)
+		if listStyle.Render("test") == "" {
+			t.Errorf("AgentPanelStyles(%s) list style renders empty", agentType)
+		}
+		if detailStyle.Render("test") == "" {
+			t.Errorf("AgentPanelStyles(%s) detail style renders empty", agentType)
+		}
+
+		// Test with FocusDetail, active with tick
+		listStyle2, detailStyle2 := AgentPanelStyles(agentType, FocusDetail, true, 5, m.theme)
+		if listStyle2.Render("test") == "" {
+			t.Errorf("AgentPanelStyles(%s, active) list style renders empty", agentType)
+		}
+		if detailStyle2.Render("test") == "" {
+			t.Errorf("AgentPanelStyles(%s, active) detail style renders empty", agentType)
+		}
+	}
+}
+
+func TestMaxInt(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		a, b, want int
+	}{
+		{1, 2, 2},
+		{2, 1, 2},
+		{5, 5, 5},
+		{-1, 1, 1},
+		{0, 0, 0},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(fmt.Sprintf("%d_%d", tc.a, tc.b), func(t *testing.T) {
+			t.Parallel()
+			if got := maxInt(tc.a, tc.b); got != tc.want {
+				t.Errorf("maxInt(%d, %d) = %d, want %d", tc.a, tc.b, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestTruncateRunes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input  string
+		maxLen int
+		want   string
+	}{
+		{"hello", 10, "hello"},
+		{"hello world", 5, "hell…"},  // Uses Unicode ellipsis, keeps maxLen-1 chars
+		{"hi", 10, "hi"},
+		{"", 5, ""},
+		{"日本語テスト", 4, "日本語…"}, // Keeps 3 runes + ellipsis
+		{"ab", 1, "…"},              // maxLen==1 and string is longer returns just ellipsis
+		{"a", 1, "a"},               // string fits, returns unchanged
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.input, func(t *testing.T) {
+			t.Parallel()
+			got := truncateRunes(tc.input, tc.maxLen)
+			if got != tc.want {
+				t.Errorf("truncateRunes(%q, %d) = %q, want %q", tc.input, tc.maxLen, got, tc.want)
+			}
+		})
 	}
 }
