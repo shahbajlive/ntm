@@ -296,3 +296,39 @@ func TestPlainThemeHasEmptyColors(t *testing.T) {
 		t.Errorf("Plain.Error should be empty, got %s", Plain.Error)
 	}
 }
+
+func TestAutoThemeFallsBackToDarkOnPanic(t *testing.T) {
+	t.Setenv("NTM_THEME", "")
+	// Set up a detector that panics
+	withDetector(t, func() bool {
+		panic("simulated terminal detection failure")
+	})
+
+	// Should not panic and should return the dark theme (Mocha) as fallback
+	got := Current()
+	if got.Base != CatppuccinMocha.Base {
+		t.Fatalf("expected Mocha fallback on panic, got base %s", got.Base)
+	}
+}
+
+func TestNewStylesPlainTheme(t *testing.T) {
+	// Test that Plain theme produces styles with proper guard rails
+	s := NewStyles(Plain)
+
+	// ListSelected should use Reverse for accessibility
+	text := "test"
+	rendered := s.ListSelected.Render(text)
+	if rendered == "" {
+		t.Error("Plain theme ListSelected should render")
+	}
+
+	// Warning and Error should be underlined in plain theme
+	warningRendered := s.Warning.Render(text)
+	if warningRendered == "" {
+		t.Error("Plain theme Warning should render")
+	}
+	errorRendered := s.Error.Render(text)
+	if errorRendered == "" {
+		t.Error("Plain theme Error should render")
+	}
+}

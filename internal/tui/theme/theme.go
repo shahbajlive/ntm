@@ -330,20 +330,23 @@ var detectDarkBackground = func() bool {
 	return output.HasDarkBackground()
 }
 
-func autoTheme() Theme {
-	isDark := true
+func autoTheme() (result Theme) {
+	// Default to dark theme (Mocha) - safer for most terminals
+	result = CatppuccinMocha
 
 	defer func() {
 		if recover() != nil {
-			isDark = true
+			// If detection panics, fall back to dark theme
+			result = CatppuccinMocha
 		}
 	}()
 
-	isDark = detectDarkBackground()
-	if isDark {
-		return CatppuccinMocha
+	if detectDarkBackground() {
+		result = CatppuccinMocha
+	} else {
+		result = CatppuccinLatte
 	}
-	return CatppuccinLatte
+	return
 }
 
 // Styles contains pre-built lipgloss styles for the theme
