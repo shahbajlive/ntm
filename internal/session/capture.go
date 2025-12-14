@@ -3,7 +3,6 @@ package session
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -113,21 +112,24 @@ func detectWorkDir(sessionName string, panes []tmux.Pane) string {
 	// Try to get the pane's current path via tmux
 	if len(panes) > 0 {
 		// Use tmux display-message to get the pane path
-		output, err := exec.Command("tmux", "display-message", "-t", panes[0].ID, "-p", "#{pane_current_path}").Output()
+		output, err := tmux.DefaultClient.Run("display-message", "-t", panes[0].ID, "-p", "#{pane_current_path}")
 		if err == nil && len(output) > 0 {
-			path := strings.TrimSpace(string(output))
+			path := strings.TrimSpace(output)
 			if path != "" {
 				return path
 			}
 		}
 	}
 
-	// Fallback: try to determine from session name
-	// Common pattern: ~/Developer/<session-name>
-	homeDir, err := os.UserHomeDir()
-	if err == nil {
-		possiblePath := filepath.Join(homeDir, "Developer", sessionName)
-		return possiblePath
+	// Fallback: try to determine from current process working directory
+	// This is often correct if ntm is run from the project root
+	if cwd, err := os.Getwd(); err == nil {
+		return cwd
+	}
+
+	// Final fallback: user home directory
+	if homeDir, err := os.UserHomeDir(); err == nil {
+		return homeDir
 	}
 
 	return ""
@@ -162,12 +164,12 @@ func getGitInfo(dir string) (branch, remote, commit string) {
 
 // getLayout gets the current tmux layout for the session.
 func getLayout(sessionName string) string {
-	output, err := exec.Command("tmux", "display-message", "-t", sessionName, "-p", "#{window_layout}").Output()
+	output, err := tmux.DefaultClient.Run("display-message", "-t", sessionName, "-p", "#{window_layout}")
 	if err != nil {
 		return "tiled" // Default
 	}
 	// tmux layouts can be complex strings, but we'll use simplified versions
-	layout := strings.TrimSpace(string(output))
+	layout := strings.TrimSpace(output)
 
 	// Map to simple layout names if possible
 	switch {

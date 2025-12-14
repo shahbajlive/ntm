@@ -70,6 +70,13 @@ type ConfigSnapshot struct {
 	GeminiCmd string `json:"gemini_cmd,omitempty"`
 }
 
+// AgentCommands defines the launch commands for agents.
+type AgentCommands struct {
+	Claude string
+	Codex  string
+	Gemini string
+}
+
 // SaveOptions configures how a session is saved.
 type SaveOptions struct {
 	Name        string // Custom name (defaults to session name)

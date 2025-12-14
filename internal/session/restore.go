@@ -104,7 +104,7 @@ func Restore(state *SessionState, opts RestoreOptions) error {
 
 // RestoreAgents launches the agents in the restored session.
 // This is separated from Restore to allow for customization.
-func RestoreAgents(sessionName string, state *SessionState, cfg AgentConfig) error {
+func RestoreAgents(sessionName string, state *SessionState, cmds AgentCommands) error {
 	panes, err := tmux.GetPanes(sessionName)
 	if err != nil {
 		return fmt.Errorf("getting panes: %w", err)
@@ -121,8 +121,7 @@ func RestoreAgents(sessionName string, state *SessionState, cfg AgentConfig) err
 		}
 
 		// Get agent command based on type
-		// Note: We use current config commands, not saved ones
-		agentCmd := getAgentCommand(paneState.AgentType, cfg)
+		agentCmd := getAgentCommand(paneState.AgentType, cmds)
 		if agentCmd == "" {
 			continue
 		}
@@ -148,10 +147,17 @@ func RestoreAgents(sessionName string, state *SessionState, cfg AgentConfig) err
 }
 
 // getAgentCommand returns the command for an agent type.
-func getAgentCommand(agentType string, cmds AgentConfig) string {
-	// This returns empty - actual commands should be provided by the CLI
-	// which has access to the full config
-	return ""
+func getAgentCommand(agentType string, cmds AgentCommands) string {
+	switch agentType {
+	case "cc", "claude":
+		return cmds.Claude
+	case "cod", "codex":
+		return cmds.Codex
+	case "gmi", "gemini":
+		return cmds.Gemini
+	default:
+		return ""
+	}
 }
 
 // applyLayout applies a tmux layout to the session.
@@ -161,18 +167,18 @@ func applyLayout(session, layout string) error {
 	}
 
 	// Get first window
-	output, err := exec.Command("tmux", "list-windows", "-t", session, "-F", "#{window_index}").Output()
+	output, err := tmux.DefaultClient.Run("list-windows", "-t", session, "-F", "#{window_index}")
 	if err != nil {
 		return err
 	}
 
-	windows := strings.Split(strings.TrimSpace(string(output)), "\n")
+	windows := strings.Split(strings.TrimSpace(output), "\n")
 	for _, win := range windows {
 		if win == "" {
 			continue
 		}
 		target := fmt.Sprintf("%s:%s", session, win)
-		_ = exec.Command("tmux", "select-layout", "-t", target, layout).Run()
+		_ = tmux.DefaultClient.RunSilent("select-layout", "-t", target, layout)
 	}
 
 	return nil
