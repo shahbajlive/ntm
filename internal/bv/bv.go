@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -19,6 +20,8 @@ var ErrNotInstalled = errors.New("bv is not installed")
 
 // ErrNoBaseline indicates no baseline exists for drift checking
 var ErrNoBaseline = errors.New("no baseline found")
+
+var bdForceNoDB atomic.Bool
 
 // IsInstalled checks if bv is available in PATH
 func IsInstalled() bool {
@@ -494,7 +497,7 @@ func GetDependencyContext(dir string, n int) (*DependencyContext, error) {
 	ctx := &DependencyContext{}
 
 	// Get stats
-	statsOutput, err := runBd(dir, "stats", "--json")
+	statsOutput, err := RunBd(dir, "stats", "--json")
 	if err == nil {
 		var stats struct {
 			BlockedIssues int `json:"blocked_issues"`
@@ -507,7 +510,7 @@ func GetDependencyContext(dir string, n int) (*DependencyContext, error) {
 	}
 
 	// Get in-progress tasks
-	inProgressOutput, err := runBd(dir, "list", "--status=in_progress", "--json")
+	inProgressOutput, err := RunBd(dir, "list", "--status=in_progress", "--json")
 	if err == nil {
 		var inProgress []struct {
 			ID              string `json:"id"`
@@ -529,7 +532,7 @@ func GetDependencyContext(dir string, n int) (*DependencyContext, error) {
 	}
 
 	// Get blocked tasks (what is blocking progress)
-	blockedOutput, err := runBd(dir, "blocked", "--json")
+	blockedOutput, err := RunBd(dir, "blocked", "--json")
 	if err == nil {
 		var blocked []struct {
 			ID             string   `json:"id"`
@@ -554,8 +557,14 @@ func GetDependencyContext(dir string, n int) (*DependencyContext, error) {
 	return ctx, nil
 }
 
-// runBd executes bd with given args and returns stdout
-func runBd(dir string, args ...string) (string, error) {
+// RunBd executes bd with given args and returns stdout.
+// If bd reports a missing database and suggests `--no-db`, it retries once with `--no-db`
+// and caches that preference for the remainder of the process.
+func RunBd(dir string, args ...string) (string, error) {
+	if bdForceNoDB.Load() && !containsString(args, "--no-db") {
+		args = append([]string{"--no-db"}, args...)
+	}
+
 	cmd := exec.Command("bd", args...)
 	if dir != "" {
 		cmd.Dir = dir
@@ -566,10 +575,29 @@ func runBd(dir string, args ...string) (string, error) {
 
 	err := cmd.Run()
 	if err != nil {
-		return "", fmt.Errorf("bd %s: %w: %s", strings.Join(args, " "), err, stderr.String())
+		stderrStr := stderr.String()
+		if !bdForceNoDB.Load() && !containsString(args, "--no-db") && isNoBeadsDBError(stderrStr) {
+			bdForceNoDB.Store(true)
+			return RunBd(dir, append([]string{"--no-db"}, args...)...)
+		}
+		return "", fmt.Errorf("bd %s: %w: %s", strings.Join(args, " "), err, stderrStr)
 	}
 
 	return strings.TrimSpace(stdout.String()), nil
+}
+
+func isNoBeadsDBError(stderr string) bool {
+	s := strings.ToLower(stderr)
+	return strings.Contains(s, "no beads database found") || strings.Contains(s, "use 'bd --no-db'")
+}
+
+func containsString(list []string, value string) bool {
+	for _, v := range list {
+		if v == value {
+			return true
+		}
+	}
+	return false
 }
 
 // IsBdInstalled checks if bd is available in PATH
@@ -601,7 +629,7 @@ func GetBeadsSummary(dir string, limit int) *BeadsSummary {
 	}
 
 	// Try to run bd stats --json to get summary
-	statsOutput, err := runBd(dir, "stats", "--json")
+	statsOutput, err := RunBd(dir, "stats", "--json")
 	if err != nil {
 		result.Available = false
 		result.Reason = fmt.Sprintf("bd stats failed: %v", err)
@@ -644,7 +672,7 @@ func GetBeadsSummary(dir string, limit int) *BeadsSummary {
 func GetReadyPreview(dir string, limit int) []BeadPreview {
 	var previews []BeadPreview
 
-	output, err := runBd(dir, "ready", "--json")
+	output, err := RunBd(dir, "ready", "--json")
 	if err != nil {
 		return previews
 	}
@@ -677,7 +705,7 @@ func GetReadyPreview(dir string, limit int) []BeadPreview {
 func GetInProgressList(dir string, limit int) []BeadInProgress {
 	var items []BeadInProgress
 
-	output, err := runBd(dir, "list", "--status=in_progress", "--json")
+	output, err := RunBd(dir, "list", "--status=in_progress", "--json")
 	if err != nil {
 		return items
 	}

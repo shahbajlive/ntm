@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -607,7 +609,7 @@ func appendConflicts(output *StatusOutput) {
 }
 
 // PrintMail outputs detailed Agent Mail state for AI orchestrators.
-func PrintMail(projectKey string) error {
+func PrintMail(sessionName, projectKey string) error {
 	if projectKey == "" {
 		wd, err := os.Getwd()
 		if err == nil {
@@ -622,15 +624,21 @@ func PrintMail(projectKey string) error {
 	serverURL := client.BaseURL()
 
 	output := struct {
-		GeneratedAt time.Time                   `json:"generated_at"`
-		ProjectKey  string                      `json:"project_key"`
-		Available   bool                        `json:"available"`
-		ServerURL   string                      `json:"server_url,omitempty"`
-		Agents      []AgentMailAgent            `json:"agents,omitempty"`
-		Locks       []agentmail.FileReservation `json:"locks,omitempty"`
-		Error       string                      `json:"error,omitempty"`
+		GeneratedAt      time.Time                   `json:"generated_at"`
+		Session          string                      `json:"session,omitempty"`
+		ProjectKey       string                      `json:"project_key"`
+		Available        bool                        `json:"available"`
+		ServerURL        string                      `json:"server_url,omitempty"`
+		SessionAgent     *agentmail.SessionAgentInfo `json:"session_agent,omitempty"`
+		Agents           []AgentMailAgent            `json:"agents,omitempty"`
+		UnmappedAgents   []AgentMailAgent            `json:"unmapped_agents,omitempty"`
+		Messages         AgentMailMessageCounts      `json:"messages,omitempty"`
+		FileReservations []AgentMailReservation      `json:"file_reservations,omitempty"`
+		Conflicts        []AgentMailConflict         `json:"conflicts,omitempty"`
+		Error            string                      `json:"error,omitempty"`
 	}{
 		GeneratedAt: time.Now().UTC(),
+		Session:     sessionName,
 		ProjectKey:  projectKey,
 		Available:   false,
 		ServerURL:   serverURL,
@@ -647,29 +655,96 @@ func PrintMail(projectKey string) error {
 		return encodeJSON(output)
 	}
 
+	// Session coordinator agent info (best-effort, when a session name is provided).
+	if sessionName != "" {
+		if info, err := agentmail.LoadSessionAgent(sessionName, projectKey); err == nil && info != nil {
+			output.SessionAgent = info
+		}
+	}
+
 	agents, err := client.ListProjectAgents(ctx, projectKey)
 	if err != nil {
 		output.Error = fmt.Sprintf("list_agents: %v", err)
 		return encodeJSON(output)
 	}
 
-	// Gather per-agent mail counts
+	agentByName := make(map[string]agentmail.Agent, len(agents))
+	inboxByName := make(map[string]inboxTally, len(agents))
+
+	// Gather per-agent mail counts (best-effort).
 	for _, a := range agents {
-		unread := countInbox(ctx, client, projectKey, a.Name, false)
-		urgent := countInbox(ctx, client, projectKey, a.Name, true)
-		output.Agents = append(output.Agents, AgentMailAgent{
-			Name:         a.Name,
-			Program:      a.Program,
-			Model:        a.Model,
-			UnreadCount:  unread,
-			UrgentCount:  urgent,
-			LastActiveTs: a.LastActiveTS,
-		})
+		agentByName[a.Name] = a
+		tally := getInboxTally(ctx, client, projectKey, a.Name, 50)
+		inboxByName[a.Name] = tally
+
+		output.Messages.Total += tally.Total
+		output.Messages.Unread += tally.Total
+		output.Messages.Urgent += tally.Urgent
+		output.Messages.PendingAck += tally.PendingAck
 	}
 
-	locks, err := client.ListReservations(ctx, projectKey, "", true)
+	// Best-effort pane mapping when a session is provided and tmux is available.
+	assigned := make(map[string]bool)
+	if sessionName != "" && tmux.IsInstalled() && tmux.SessionExists(sessionName) {
+		if panes, err := tmux.GetPanes(sessionName); err == nil {
+			paneInfos := parseNTMPanes(panes)
+			agentsByType := groupAgentsByType(agents)
+			for _, paneType := range []string{"cc", "cod", "gmi"} {
+				mapping := assignAgentsToPanes(paneInfos[paneType], agentsByType[paneType])
+				for _, pane := range paneInfos[paneType] {
+					entry := AgentMailAgent{Pane: pane.Label}
+					if agentName := mapping[pane.Label]; agentName != "" {
+						assigned[agentName] = true
+						a := agentByName[agentName]
+						tally := inboxByName[agentName]
+						entry.AgentName = agentName
+						entry.Program = a.Program
+						entry.Model = a.Model
+						entry.UnreadCount = tally.Total
+						entry.UrgentCount = tally.Urgent
+						entry.LastActiveTs = a.LastActiveTS
+					}
+					output.Agents = append(output.Agents, entry)
+				}
+			}
+		}
+	}
+
+	// If no panes were added (no session context), fall back to listing agents as-is.
+	if len(output.Agents) == 0 {
+		for _, a := range agents {
+			tally := inboxByName[a.Name]
+			output.Agents = append(output.Agents, AgentMailAgent{
+				AgentName:    a.Name,
+				Program:      a.Program,
+				Model:        a.Model,
+				UnreadCount:  tally.Total,
+				UrgentCount:  tally.Urgent,
+				LastActiveTs: a.LastActiveTS,
+			})
+		}
+	} else {
+		// Include any registered agents that we couldn't map to panes.
+		for _, a := range agents {
+			if a.Program == "ntm" || assigned[a.Name] {
+				continue
+			}
+			tally := inboxByName[a.Name]
+			output.UnmappedAgents = append(output.UnmappedAgents, AgentMailAgent{
+				AgentName:    a.Name,
+				Program:      a.Program,
+				Model:        a.Model,
+				UnreadCount:  tally.Total,
+				UrgentCount:  tally.Urgent,
+				LastActiveTs: a.LastActiveTS,
+			})
+		}
+	}
+
+	reservations, err := client.ListReservations(ctx, projectKey, "", true)
 	if err == nil {
-		output.Locks = locks
+		output.FileReservations = summarizeReservations(reservations)
+		output.Conflicts = detectReservationConflicts(reservations)
 	}
 
 	return encodeJSON(output)
@@ -677,12 +752,260 @@ func PrintMail(projectKey string) error {
 
 // AgentMailAgent is a per-agent view for --robot-mail.
 type AgentMailAgent struct {
-	Name         string    `json:"name"`
+	Pane         string    `json:"pane,omitempty"`
+	AgentName    string    `json:"agent_name,omitempty"`
 	Program      string    `json:"program,omitempty"`
 	Model        string    `json:"model,omitempty"`
 	UnreadCount  int       `json:"unread_count,omitempty"`
 	UrgentCount  int       `json:"urgent_count,omitempty"`
 	LastActiveTs time.Time `json:"last_active_ts,omitempty"`
+}
+
+type AgentMailMessageCounts struct {
+	Total      int `json:"total"`
+	Unread     int `json:"unread"`
+	Urgent     int `json:"urgent"`
+	PendingAck int `json:"pending_ack"`
+}
+
+type AgentMailReservation struct {
+	ID               int    `json:"id"`
+	Pattern          string `json:"pattern"`
+	Agent            string `json:"agent"`
+	Exclusive        bool   `json:"exclusive"`
+	ExpiresInSeconds int    `json:"expires_in_seconds"`
+	Reason           string `json:"reason,omitempty"`
+}
+
+type AgentMailConflict struct {
+	Pattern string   `json:"pattern"`
+	Holders []string `json:"holders"`
+}
+
+type inboxTally struct {
+	Total      int
+	Urgent     int
+	PendingAck int
+}
+
+func getInboxTally(ctx context.Context, client *agentmail.Client, projectKey, agentName string, limit int) inboxTally {
+	opts := agentmail.FetchInboxOptions{
+		ProjectKey:    projectKey,
+		AgentName:     agentName,
+		UrgentOnly:    false,
+		Limit:         limit,
+		IncludeBodies: false,
+	}
+	msgs, err := client.FetchInbox(ctx, opts)
+	if err != nil {
+		return inboxTally{}
+	}
+
+	tally := inboxTally{Total: len(msgs)}
+	for _, m := range msgs {
+		if strings.EqualFold(m.Importance, "urgent") {
+			tally.Urgent++
+		}
+		if m.AckRequired {
+			tally.PendingAck++
+		}
+	}
+	return tally
+}
+
+type ntmPaneInfo struct {
+	Label     string
+	Type      string
+	Index     int
+	TmuxIndex int
+	Variant   string
+}
+
+var ntmPaneTitleRE = regexp.MustCompile(`^.+__(cc|cod|gmi)_(\d+)(?:_([A-Za-z0-9._/@:+-]+))?(?:\[[^\]]*\])?$`)
+
+func parseNTMPanes(panes []tmux.Pane) map[string][]ntmPaneInfo {
+	out := map[string][]ntmPaneInfo{
+		"cc":  {},
+		"cod": {},
+		"gmi": {},
+	}
+
+	for _, p := range panes {
+		matches := ntmPaneTitleRE.FindStringSubmatch(strings.TrimSpace(p.Title))
+		if matches == nil {
+			continue
+		}
+		idx, err := strconv.Atoi(matches[2])
+		if err != nil {
+			continue
+		}
+
+		typ := matches[1]
+		variant := matches[3]
+		out[typ] = append(out[typ], ntmPaneInfo{
+			Label:     fmt.Sprintf("%s_%d", typ, idx),
+			Type:      typ,
+			Index:     idx,
+			TmuxIndex: p.Index,
+			Variant:   variant,
+		})
+	}
+
+	for typ := range out {
+		sort.SliceStable(out[typ], func(i, j int) bool { return out[typ][i].Index < out[typ][j].Index })
+	}
+	return out
+}
+
+func groupAgentsByType(agents []agentmail.Agent) map[string][]agentmail.Agent {
+	out := map[string][]agentmail.Agent{
+		"cc":  {},
+		"cod": {},
+		"gmi": {},
+	}
+	for _, a := range agents {
+		if a.Program == "" || a.Program == "ntm" {
+			continue
+		}
+		typ := agentTypeFromProgram(a.Program)
+		if typ == "" {
+			continue
+		}
+		out[typ] = append(out[typ], a)
+	}
+
+	for typ := range out {
+		sort.SliceStable(out[typ], func(i, j int) bool { return out[typ][i].InceptionTS.Before(out[typ][j].InceptionTS) })
+	}
+	return out
+}
+
+func agentTypeFromProgram(program string) string {
+	p := strings.ToLower(program)
+	switch {
+	case strings.Contains(p, "claude"):
+		return "cc"
+	case strings.Contains(p, "codex"):
+		return "cod"
+	case strings.Contains(p, "gemini"):
+		return "gmi"
+	default:
+		return ""
+	}
+}
+
+func normalizedProgramType(program string) string {
+	p := strings.ToLower(program)
+	switch {
+	case strings.Contains(p, "claude"):
+		return "claude"
+	case strings.Contains(p, "codex"):
+		return "codex"
+	case strings.Contains(p, "gemini"):
+		return "gemini"
+	default:
+		return "unknown"
+	}
+}
+
+func assignAgentsToPanes(panes []ntmPaneInfo, agents []agentmail.Agent) map[string]string {
+	assigned := make(map[string]bool)
+	mapping := make(map[string]string)
+
+	for _, pane := range panes {
+		bestIdx := -1
+		bestScore := -1
+
+		for i, a := range agents {
+			if assigned[a.Name] {
+				continue
+			}
+			score := 0
+			if pane.Variant != "" {
+				v := strings.ToLower(pane.Variant)
+				if strings.Contains(strings.ToLower(a.Model), v) {
+					score = 2
+				} else if strings.Contains(strings.ToLower(a.TaskDescription), v) {
+					score = 1
+				}
+			}
+			if bestIdx == -1 || score > bestScore {
+				bestIdx = i
+				bestScore = score
+			}
+		}
+
+		if bestIdx == -1 {
+			continue
+		}
+
+		chosen := agents[bestIdx]
+		mapping[pane.Label] = chosen.Name
+		assigned[chosen.Name] = true
+	}
+
+	return mapping
+}
+
+func summarizeReservations(reservations []agentmail.FileReservation) []AgentMailReservation {
+	now := time.Now()
+	out := make([]AgentMailReservation, 0, len(reservations))
+	for _, r := range reservations {
+		expiresIn := int(r.ExpiresTS.Sub(now).Seconds())
+		if expiresIn < 0 {
+			expiresIn = 0
+		}
+		out = append(out, AgentMailReservation{
+			ID:               r.ID,
+			Pattern:          r.PathPattern,
+			Agent:            r.AgentName,
+			Exclusive:        r.Exclusive,
+			ExpiresInSeconds: expiresIn,
+			Reason:           r.Reason,
+		})
+	}
+
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Agent != out[j].Agent {
+			return out[i].Agent < out[j].Agent
+		}
+		return out[i].Pattern < out[j].Pattern
+	})
+	return out
+}
+
+func detectReservationConflicts(reservations []agentmail.FileReservation) []AgentMailConflict {
+	type patternState struct {
+		agents    map[string]bool
+		exclusive bool
+	}
+	byPattern := make(map[string]*patternState)
+	for _, r := range reservations {
+		state := byPattern[r.PathPattern]
+		if state == nil {
+			state = &patternState{agents: make(map[string]bool)}
+			byPattern[r.PathPattern] = state
+		}
+		state.agents[r.AgentName] = true
+		if r.Exclusive {
+			state.exclusive = true
+		}
+	}
+
+	var conflicts []AgentMailConflict
+	for pattern, state := range byPattern {
+		if !state.exclusive || len(state.agents) <= 1 {
+			continue
+		}
+		var holders []string
+		for name := range state.agents {
+			holders = append(holders, name)
+		}
+		sort.Strings(holders)
+		conflicts = append(conflicts, AgentMailConflict{Pattern: pattern, Holders: holders})
+	}
+	sort.SliceStable(conflicts, func(i, j int) bool { return conflicts[i].Pattern < conflicts[j].Pattern })
+	return conflicts
 }
 
 // getGraphMetrics returns bv graph analysis metrics
@@ -932,8 +1255,7 @@ func getReadyIssueIDs() map[string]bool {
 	ready := make(map[string]bool)
 
 	// Try to run bd ready --json to get ready issues
-	cmd := exec.Command("bd", "ready", "--json")
-	output, err := cmd.Output()
+	output, err := bv.RunBd("", "ready", "--json")
 	if err != nil {
 		return ready
 	}
@@ -942,7 +1264,7 @@ func getReadyIssueIDs() map[string]bool {
 	var issues []struct {
 		ID string `json:"id"`
 	}
-	if err := json.Unmarshal(output, &issues); err != nil {
+	if err := json.Unmarshal([]byte(output), &issues); err != nil {
 		return ready
 	}
 
@@ -958,8 +1280,7 @@ func getBlockersForIssue(issueID string) []string {
 	var blockers []string
 
 	// Try to run bd show <id> --json to get dependencies
-	cmd := exec.Command("bd", "show", issueID, "--json")
-	output, err := cmd.Output()
+	output, err := bv.RunBd("", "show", issueID, "--json")
 	if err != nil {
 		return blockers
 	}
@@ -971,7 +1292,7 @@ func getBlockersForIssue(issueID string) []string {
 			Status string `json:"status"`
 		} `json:"dependencies"`
 	}
-	if err := json.Unmarshal(output, &issues); err != nil {
+	if err := json.Unmarshal([]byte(output), &issues); err != nil {
 		return blockers
 	}
 
@@ -1813,22 +2134,24 @@ type GraphOutput struct {
 
 // GraphCorrelation provides a best-effort cross-tool view of agents, beads, and mail threads.
 type GraphCorrelation struct {
-	GeneratedAt   time.Time                  `json:"generated_at"`
-	Agents        []GraphAgentAssignment     `json:"agents,omitempty"`
-	BeadGraph     map[string]GraphBeadNode   `json:"bead_graph,omitempty"`
-	MailThreads   map[string]GraphMailThread `json:"mail_threads,omitempty"`
-	OrphanBeads   []string                   `json:"orphan_beads,omitempty"`
-	OrphanThreads []string                   `json:"orphan_threads,omitempty"`
-	Errors        []string                   `json:"errors,omitempty"`
+	GeneratedAt   time.Time                   `json:"generated_at"`
+	Assignments   []GraphAgentAssignment      `json:"assignments"`
+	BeadGraph     map[string]GraphBeadNode    `json:"bead_graph"`
+	MailSummary   map[string]GraphMailSummary `json:"mail_summary"`
+	OrphanBeads   []string                    `json:"orphan_beads"`
+	OrphanThreads []string                    `json:"orphan_threads"`
+	Errors        []string                    `json:"errors,omitempty"`
 }
 
 // GraphAgentAssignment captures bead/thread membership for an agent.
 type GraphAgentAssignment struct {
 	Agent        string   `json:"agent"`
+	AgentName    string   `json:"agent_name,omitempty"`
+	AgentType    string   `json:"agent_type"`
 	Program      string   `json:"program,omitempty"`
 	Model        string   `json:"model,omitempty"`
-	Beads        []string `json:"beads,omitempty"`
-	Threads      []string `json:"threads,omitempty"`
+	Beads        []string `json:"beads"`
+	MailThreads  []string `json:"mail_threads"`
 	Pane         string   `json:"pane,omitempty"`
 	Session      string   `json:"session,omitempty"`
 	Detected     string   `json:"detected_type,omitempty"`
@@ -1838,19 +2161,18 @@ type GraphAgentAssignment struct {
 // GraphBeadNode summarizes bead status and relationships.
 type GraphBeadNode struct {
 	Status     string   `json:"status"`
-	AssignedTo *string  `json:"assigned_to,omitempty"`
-	BlockedBy  []string `json:"blocked_by,omitempty"`
-	Blocking   []string `json:"blocking,omitempty"`
+	AssignedTo *string  `json:"assigned_to"`
+	BlockedBy  []string `json:"blocked_by"`
+	Blocking   []string `json:"blocking"`
 	Title      string   `json:"title,omitempty"`
 }
 
-// GraphMailThread summarizes a mail thread for correlation.
-type GraphMailThread struct {
-	ThreadID     string    `json:"thread_id"`
+// GraphMailSummary summarizes a mail thread for correlation.
+type GraphMailSummary struct {
 	Subject      string    `json:"subject"`
 	Participants []string  `json:"participants,omitempty"`
 	LastActivity time.Time `json:"last_activity"`
-	UnreadHint   int       `json:"unread_hint,omitempty"`
+	Unread       int       `json:"unread,omitempty"`
 }
 
 // PrintGraph outputs bv graph insights for AI consumption
@@ -1905,9 +2227,12 @@ func PrintGraph() error {
 func buildCorrelationGraph() *GraphCorrelation {
 	now := time.Now().UTC()
 	corr := &GraphCorrelation{
-		GeneratedAt: now,
-		BeadGraph:   make(map[string]GraphBeadNode),
-		MailThreads: make(map[string]GraphMailThread),
+		GeneratedAt:   now,
+		Assignments:   make([]GraphAgentAssignment, 0),
+		BeadGraph:     make(map[string]GraphBeadNode),
+		MailSummary:   make(map[string]GraphMailSummary),
+		OrphanBeads:   make([]string, 0),
+		OrphanThreads: make([]string, 0),
 	}
 
 	wd, err := os.Getwd()
@@ -1934,33 +2259,45 @@ func buildCorrelationGraph() *GraphCorrelation {
 		corr.Errors = append(corr.Errors, "agent mail not available")
 	}
 
-	agentIndex := make(map[string]int)
+	assignmentByAgent := make(map[string]*GraphAgentAssignment)
 	for _, a := range agents {
-		corr.Agents = append(corr.Agents, GraphAgentAssignment{
-			Agent:   a.Name,
-			Program: a.Program,
-			Model:   a.Model,
-		})
-		agentIndex[a.Name] = len(corr.Agents) - 1
+		assignmentByAgent[a.Name] = &GraphAgentAssignment{
+			Agent:       a.Name,
+			AgentName:   a.Name,
+			AgentType:   normalizedProgramType(a.Program),
+			Program:     a.Program,
+			Model:       a.Model,
+			Beads:       make([]string, 0),
+			MailThreads: make([]string, 0),
+		}
 	}
 
 	// Add bead assignments from bv summary (if present)
 	if beads := bv.GetBeadsSummary(wd, BeadLimit); beads != nil && beads.Available {
 		for _, inProg := range beads.InProgressList {
 			node := GraphBeadNode{
-				Status: "in_progress",
-				Title:  inProg.Title,
+				Status:    "in_progress",
+				BlockedBy: make([]string, 0),
+				Blocking:  make([]string, 0),
+				Title:     inProg.Title,
 			}
 			if inProg.Assignee != "" {
 				assign := inProg.Assignee
 				node.AssignedTo = &assign
-				if idx, ok := agentIndex[assign]; ok {
-					corr.Agents[idx].Beads = append(corr.Agents[idx].Beads, inProg.ID)
-				} else {
-					corr.OrphanBeads = append(corr.OrphanBeads, inProg.ID)
+				a := assignmentByAgent[assign]
+				if a == nil {
+					a = &GraphAgentAssignment{
+						Agent:       assign,
+						AgentName:   assign,
+						AgentType:   "unknown",
+						Beads:       make([]string, 0),
+						MailThreads: make([]string, 0),
+					}
+					assignmentByAgent[assign] = a
 				}
+				a.Beads = appendUnique(a.Beads, inProg.ID)
 			} else {
-				corr.OrphanBeads = append(corr.OrphanBeads, inProg.ID)
+				corr.OrphanBeads = appendUnique(corr.OrphanBeads, inProg.ID)
 			}
 			corr.BeadGraph[inProg.ID] = node
 		}
@@ -1968,8 +2305,10 @@ func buildCorrelationGraph() *GraphCorrelation {
 		for _, ready := range beads.ReadyPreview {
 			status := "ready"
 			node := GraphBeadNode{
-				Status: status,
-				Title:  ready.Title,
+				Status:    status,
+				BlockedBy: make([]string, 0),
+				Blocking:  make([]string, 0),
+				Title:     ready.Title,
 			}
 			corr.BeadGraph[ready.ID] = node
 		}
@@ -1977,93 +2316,196 @@ func buildCorrelationGraph() *GraphCorrelation {
 		corr.Errors = append(corr.Errors, fmt.Sprintf("beads unavailable: %s", beads.Reason))
 	}
 
-	// Attempt to gather mail threads (limited for performance)
+	// Gather mail threads from per-agent inboxes (best-effort, bounded).
 	if len(agents) > 0 && agentMailClient.IsAvailable() {
-		msgs, err := agentMailClient.SearchMessages(ctx, agentmail.SearchOptions{
-			ProjectKey: wd,
-			Query:      "*",
-			Limit:      25,
-		})
-		if err != nil {
-			corr.Errors = append(corr.Errors, fmt.Sprintf("agent mail search_messages: %v", err))
-		} else {
-			threadOrder := make([]string, 0)
-			for _, msg := range msgs {
-				if msg.ThreadID == nil {
-					continue
-				}
-				tid := *msg.ThreadID
-				if _, ok := corr.MailThreads[tid]; !ok {
-					threadOrder = append(threadOrder, tid)
-					corr.MailThreads[tid] = GraphMailThread{
-						ThreadID:     tid,
-						Subject:      msg.Subject,
-						LastActivity: msg.CreatedTS,
-					}
-				}
-			}
-
-			// Summarize a limited number of threads for participants
-			maxSummaries := 10
-			for i, tid := range threadOrder {
-				if i >= maxSummaries {
-					break
-				}
-				summary, err := agentMailClient.SummarizeThread(ctx, wd, tid, false)
-				if err != nil {
-					corr.Errors = append(corr.Errors, fmt.Sprintf("summarize_thread %s: %v", tid, err))
-					continue
-				}
-				thread := corr.MailThreads[tid]
-				thread.Participants = summary.Participants
-				corr.MailThreads[tid] = thread
-
-				// Map thread participation to agents
-				for _, participant := range summary.Participants {
-					if idx, ok := agentIndex[participant]; ok {
-						corr.Agents[idx].Threads = appendUnique(corr.Agents[idx].Threads, tid)
-					}
-				}
-			}
-
-			// Identify orphan threads (participants not known)
-			for tid, thread := range corr.MailThreads {
-				if len(thread.Participants) == 0 {
-					corr.OrphanThreads = append(corr.OrphanThreads, tid)
-				} else {
-					known := false
-					for _, p := range thread.Participants {
-						if _, ok := agentIndex[p]; ok {
-							known = true
-							break
-						}
-					}
-					if !known {
-						corr.OrphanThreads = append(corr.OrphanThreads, tid)
-					}
-				}
-			}
-		}
-	}
-
-	// Append basic tmux pane hints for agent assignments (best-effort)
-	if sessions, err := tmux.ListSessions(); err == nil {
-		for _, sess := range sessions {
-			panes, err := tmux.GetPanes(sess.Name)
+		const inboxLimit = 50
+		for _, a := range agents {
+			msgs, err := agentMailClient.FetchInbox(ctx, agentmail.FetchInboxOptions{
+				ProjectKey:    wd,
+				AgentName:     a.Name,
+				Limit:         inboxLimit,
+				IncludeBodies: false,
+			})
 			if err != nil {
+				corr.Errors = append(corr.Errors, fmt.Sprintf("agent mail fetch_inbox %s: %v", a.Name, err))
 				continue
 			}
-			for _, pane := range panes {
-				// Try to match by pane title == agent name (common pattern)
-				if idx, ok := agentIndex[pane.Title]; ok {
-					corr.Agents[idx].Pane = fmt.Sprintf("%d.%d", 0, pane.Index)
-					corr.Agents[idx].Session = sess.Name
-					corr.Agents[idx].Detected = string(pane.Type)
-					corr.Agents[idx].DetectedFrom = "pane_title"
+			for _, msg := range msgs {
+				if msg.ThreadID == nil || strings.TrimSpace(*msg.ThreadID) == "" {
+					continue
+				}
+				tid := strings.TrimSpace(*msg.ThreadID)
+				thread := corr.MailSummary[tid]
+				if thread.Subject == "" {
+					thread.Subject = msg.Subject
+				}
+				if msg.CreatedTS.After(thread.LastActivity) {
+					thread.LastActivity = msg.CreatedTS
+				}
+				thread.Unread++
+				corr.MailSummary[tid] = thread
+
+				assign := assignmentByAgent[a.Name]
+				if assign == nil {
+					assign = &GraphAgentAssignment{
+						Agent:       a.Name,
+						AgentName:   a.Name,
+						AgentType:   normalizedProgramType(a.Program),
+						Program:     a.Program,
+						Model:       a.Model,
+						Beads:       make([]string, 0),
+						MailThreads: make([]string, 0),
+					}
+					assignmentByAgent[a.Name] = assign
+				}
+				assign.MailThreads = appendUnique(assign.MailThreads, tid)
+			}
+		}
+
+		// Add participants (best-effort) for a few most-recent threads.
+		var threadIDs []string
+		for tid := range corr.MailSummary {
+			threadIDs = append(threadIDs, tid)
+		}
+		sort.SliceStable(threadIDs, func(i, j int) bool {
+			return corr.MailSummary[threadIDs[i]].LastActivity.After(corr.MailSummary[threadIDs[j]].LastActivity)
+		})
+
+		const maxSummaries = 10
+		for i, tid := range threadIDs {
+			if i >= maxSummaries {
+				break
+			}
+			summary, err := agentMailClient.SummarizeThread(ctx, wd, tid, false)
+			if err != nil {
+				corr.Errors = append(corr.Errors, fmt.Sprintf("summarize_thread %s: %v", tid, err))
+				continue
+			}
+			thread := corr.MailSummary[tid]
+			thread.Participants = summary.Participants
+			corr.MailSummary[tid] = thread
+
+			for _, participant := range summary.Participants {
+				a := assignmentByAgent[participant]
+				if a == nil {
+					a = &GraphAgentAssignment{
+						Agent:       participant,
+						AgentName:   participant,
+						AgentType:   "unknown",
+						Beads:       make([]string, 0),
+						MailThreads: make([]string, 0),
+					}
+					assignmentByAgent[participant] = a
+				}
+				a.MailThreads = appendUnique(a.MailThreads, tid)
+			}
+		}
+	}
+
+	// Best-effort tmux pane mapping for Agent Mail agents (NTM sessions).
+	if tmux.IsInstalled() {
+		sessions, err := tmux.ListSessions()
+		if err != nil {
+			corr.Errors = append(corr.Errors, fmt.Sprintf("tmux list_sessions: %v", err))
+		} else {
+			agentsByType := groupAgentsByType(agents)
+			for _, sess := range sessions {
+				panes, err := tmux.GetPanes(sess.Name)
+				if err != nil {
+					continue
+				}
+				paneInfos := parseNTMPanes(panes)
+				for _, paneType := range []string{"cc", "cod", "gmi"} {
+					mapping := assignAgentsToPanes(paneInfos[paneType], agentsByType[paneType])
+					for _, pane := range paneInfos[paneType] {
+						agentName := mapping[pane.Label]
+						if agentName == "" {
+							continue
+						}
+						a := assignmentByAgent[agentName]
+						if a == nil {
+							a = &GraphAgentAssignment{
+								Agent:       agentName,
+								AgentName:   agentName,
+								AgentType:   normalizedProgramType(""),
+								Beads:       make([]string, 0),
+								MailThreads: make([]string, 0),
+							}
+							assignmentByAgent[agentName] = a
+						}
+						a.Session = sess.Name
+						a.Pane = fmt.Sprintf("%d.%d", 0, pane.TmuxIndex)
+						a.Agent = fmt.Sprintf("%s:%s", sess.Name, a.Pane)
+						a.Detected = paneType
+						a.DetectedFrom = "ntm_pane_title"
+					}
 				}
 			}
 		}
 	}
+
+	// Fill dependency edges for in-progress beads (best-effort, bounded).
+	if _, err := exec.LookPath("bd"); err == nil {
+		for beadID, node := range corr.BeadGraph {
+			if node.Status != "in_progress" {
+				continue
+			}
+			blockedBy, deps, err := getBeadNeighbors(wd, beadID, "down")
+			if err != nil {
+				corr.Errors = append(corr.Errors, fmt.Sprintf("bd dep tree down %s: %v", beadID, err))
+			} else {
+				node.BlockedBy = blockedBy
+				for _, dep := range deps {
+					if _, ok := corr.BeadGraph[dep.ID]; ok {
+						continue
+					}
+					corr.BeadGraph[dep.ID] = GraphBeadNode{
+						Status:     dep.Status,
+						AssignedTo: nil,
+						BlockedBy:  make([]string, 0),
+						Blocking:   make([]string, 0),
+						Title:      dep.Title,
+					}
+				}
+			}
+
+			blocking, deps, err := getBeadNeighbors(wd, beadID, "up")
+			if err != nil {
+				corr.Errors = append(corr.Errors, fmt.Sprintf("bd dep tree up %s: %v", beadID, err))
+			} else {
+				node.Blocking = blocking
+				for _, dep := range deps {
+					if _, ok := corr.BeadGraph[dep.ID]; ok {
+						continue
+					}
+					corr.BeadGraph[dep.ID] = GraphBeadNode{
+						Status:     dep.Status,
+						AssignedTo: nil,
+						BlockedBy:  make([]string, 0),
+						Blocking:   make([]string, 0),
+						Title:      dep.Title,
+					}
+				}
+			}
+
+			corr.BeadGraph[beadID] = node
+		}
+	}
+
+	// Orphan threads: threads not linked to any bead ID.
+	for tid := range corr.MailSummary {
+		if _, ok := corr.BeadGraph[tid]; !ok {
+			corr.OrphanThreads = appendUnique(corr.OrphanThreads, tid)
+		}
+	}
+
+	// Materialize assignment list (stable order).
+	for _, a := range assignmentByAgent {
+		corr.Assignments = append(corr.Assignments, *a)
+	}
+	sort.SliceStable(corr.Assignments, func(i, j int) bool {
+		return corr.Assignments[i].AgentName < corr.Assignments[j].AgentName
+	})
 
 	return corr
 }
@@ -2076,6 +2518,52 @@ func appendUnique(list []string, value string) []string {
 		}
 	}
 	return append(list, value)
+}
+
+type bdDepTreeNode struct {
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Status string `json:"status"`
+	Depth  int    `json:"depth"`
+}
+
+func getBeadNeighbors(dir, issueID, direction string) ([]string, []bdDepTreeNode, error) {
+	if issueID == "" {
+		return nil, nil, fmt.Errorf("issue id is empty")
+	}
+	if direction != "down" && direction != "up" {
+		return nil, nil, fmt.Errorf("invalid direction %q", direction)
+	}
+
+	out, err := bv.RunBd(dir, "dep", "tree", issueID, "--direction="+direction, "--max-depth=1", "--json")
+	if err != nil {
+		return nil, nil, fmt.Errorf("bd dep tree: %w", err)
+	}
+
+	var nodes []bdDepTreeNode
+	if err := json.Unmarshal([]byte(out), &nodes); err != nil {
+		return nil, nil, fmt.Errorf("parse bd dep tree json: %w", err)
+	}
+
+	seen := make(map[string]bool)
+	ids := make([]string, 0)
+	cleaned := make([]bdDepTreeNode, 0)
+	for _, n := range nodes {
+		n.ID = strings.TrimSpace(n.ID)
+		if n.ID == "" || seen[n.ID] {
+			continue
+		}
+		seen[n.ID] = true
+		if strings.TrimSpace(n.Status) == "" {
+			n.Status = "unknown"
+		}
+		ids = append(ids, n.ID)
+		cleaned = append(cleaned, n)
+	}
+
+	sort.Strings(ids)
+	sort.SliceStable(cleaned, func(i, j int) bool { return cleaned[i].ID < cleaned[j].ID })
+	return ids, cleaned, nil
 }
 
 // AlertsOutput provides machine-readable alert information
