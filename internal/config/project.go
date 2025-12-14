@@ -70,8 +70,9 @@ func LoadProjectConfig(path string) (*ProjectConfig, error) {
 	return &cfg, nil
 }
 
-// InitProjectConfig initializes .ntm configuration for the current directory
-func InitProjectConfig() error {
+// InitProjectConfig initializes .ntm configuration for the current directory.
+// If force is true, it overwrites .ntm/config.toml if it already exists.
+func InitProjectConfig(force bool) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return err
@@ -85,7 +86,9 @@ func InitProjectConfig() error {
 	// Create config.toml
 	configPath := filepath.Join(ntmDir, "config.toml")
 	if _, err := os.Stat(configPath); err == nil {
-		return fmt.Errorf("project config already exists at %s", configPath)
+		if !force {
+			return fmt.Errorf("project config already exists at %s", configPath)
+		}
 	}
 
 	content := `# Project-specific NTM configuration

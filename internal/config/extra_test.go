@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -163,5 +164,61 @@ scanner:
 	}
 	if cfg.Defaults.Timeout != "30s" {
 		t.Errorf("Expected timeout 30s from yaml, got %s", cfg.Defaults.Timeout)
+	}
+}
+
+func TestInitProjectConfigForce(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd failed: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(wd) })
+
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Chdir failed: %v", err)
+	}
+
+	if err := InitProjectConfig(false); err != nil {
+		t.Fatalf("InitProjectConfig failed: %v", err)
+	}
+
+	configPath := filepath.Join(tmpDir, ".ntm", "config.toml")
+	if _, err := os.Stat(configPath); err != nil {
+		t.Fatalf("expected config to exist at %s: %v", configPath, err)
+	}
+
+	palettePath := filepath.Join(tmpDir, ".ntm", "palette.md")
+	if err := os.WriteFile(palettePath, []byte("custom palette\n"), 0644); err != nil {
+		t.Fatalf("writing palette: %v", err)
+	}
+
+	if err := os.WriteFile(configPath, []byte("custom config\n"), 0644); err != nil {
+		t.Fatalf("writing config: %v", err)
+	}
+
+	if err := InitProjectConfig(false); err == nil {
+		t.Fatalf("expected InitProjectConfig to fail without force when config exists")
+	}
+
+	if err := InitProjectConfig(true); err != nil {
+		t.Fatalf("InitProjectConfig(force) failed: %v", err)
+	}
+
+	configContent, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("reading config: %v", err)
+	}
+	if strings.TrimSpace(string(configContent)) == "custom config" {
+		t.Fatalf("expected config.toml to be overwritten when force=true")
+	}
+
+	paletteContent, err := os.ReadFile(palettePath)
+	if err != nil {
+		t.Fatalf("reading palette: %v", err)
+	}
+	if strings.TrimSpace(string(paletteContent)) != "custom palette" {
+		t.Fatalf("expected palette.md to be preserved when force=true")
 	}
 }

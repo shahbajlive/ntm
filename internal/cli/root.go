@@ -877,13 +877,16 @@ func newConfigCmd() *cobra.Command {
 		Short: "Manage project-specific configuration",
 	}
 
-	projectCmd.AddCommand(&cobra.Command{
+	var projectInitForce bool
+	projectInitCmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize .ntm configuration for current project",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return config.InitProjectConfig()
+			return config.InitProjectConfig(projectInitForce)
 		},
-	})
+	}
+	projectInitCmd.Flags().BoolVar(&projectInitForce, "force", false, "overwrite .ntm/config.toml if it already exists")
+	projectCmd.AddCommand(projectInitCmd)
 
 	cmd.AddCommand(projectCmd)
 

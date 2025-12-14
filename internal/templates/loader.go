@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/Dicklesworthstone/ntm/internal/config"
 )
 
 // Loader finds and loads templates from various sources.
@@ -15,18 +17,64 @@ type Loader struct {
 
 // NewLoader creates a template loader with default paths.
 func NewLoader() *Loader {
+	projectDir := ".ntm/templates"
+	if cwd, err := os.Getwd(); err == nil {
+		projectDir = resolveProjectTemplateDir(cwd, "")
+	}
 	return &Loader{
-		projectDir: ".ntm/templates",
+		projectDir: projectDir,
 		userDir:    getDefaultUserTemplateDir(),
 	}
 }
 
 // NewLoaderWithProject creates a template loader for a specific project.
 func NewLoaderWithProject(projectPath string) *Loader {
+	projectDir := resolveProjectTemplateDir(projectPath, projectPath)
 	return &Loader{
-		projectDir: filepath.Join(projectPath, ".ntm", "templates"),
+		projectDir: projectDir,
 		userDir:    getDefaultUserTemplateDir(),
 	}
+}
+
+func resolveProjectTemplateDir(startDir, fallbackProjectRoot string) string {
+	projectDir, projectCfg, err := config.FindProjectConfig(startDir)
+	if err == nil && projectCfg != nil && projectDir != "" {
+		return projectTemplateDirFromConfig(projectDir, projectCfg)
+	}
+	if fallbackProjectRoot != "" {
+		return filepath.Join(fallbackProjectRoot, ".ntm", "templates")
+	}
+	return ".ntm/templates"
+}
+
+func projectTemplateDirFromConfig(projectDir string, cfg *config.ProjectConfig) string {
+	baseDir := filepath.Join(projectDir, ".ntm")
+	templatesDir := strings.TrimSpace(cfg.Templates.Dir)
+	if templatesDir == "" {
+		templatesDir = "templates"
+	}
+	if filepath.IsAbs(templatesDir) {
+		templatesDir = "templates"
+	}
+
+	candidate := filepath.Join(baseDir, templatesDir)
+
+	absBase, err := filepath.Abs(baseDir)
+	if err != nil {
+		return filepath.Join(projectDir, ".ntm", "templates")
+	}
+	absCandidate, err := filepath.Abs(candidate)
+	if err != nil {
+		return filepath.Join(projectDir, ".ntm", "templates")
+	}
+	rel, err := filepath.Rel(absBase, absCandidate)
+	if err != nil {
+		return filepath.Join(projectDir, ".ntm", "templates")
+	}
+	if strings.HasPrefix(rel, "..") || strings.HasPrefix(rel, string(filepath.Separator)) {
+		return filepath.Join(projectDir, ".ntm", "templates")
+	}
+	return candidate
 }
 
 // getDefaultUserTemplateDir returns the default user templates directory.
