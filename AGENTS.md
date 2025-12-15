@@ -219,6 +219,37 @@ Use `bv` instead of rolling your own dependency graph logic.
 
 ---
 
+### Robot Command Exit Codes
+
+All `--robot-*` commands follow a consistent exit code convention:
+
+| Exit Code | Meaning | JSON Response | Agent Action |
+|-----------|---------|---------------|--------------|
+| 0 | Success | `{"success": true, ...}` | Proceed with response data |
+| 1 | Error | `{"success": false, "error_code": "...", ...}` | Handle error, maybe retry |
+| 2 | Unavailable | `{"success": false, "error_code": "NOT_IMPLEMENTED", ...}` | Skip gracefully, log for awareness |
+
+Example handling:
+
+```python
+result = subprocess.run(["ntm", "--robot-tail=myproj"], capture_output=True)
+data = json.loads(result.stdout)
+
+if result.returncode == 0:
+    # Success - process response
+    process_agents(data["panes"])
+elif result.returncode == 2:
+    # Unavailable - feature not implemented yet
+    logging.info(f"Feature {data.get('feature')} not available")
+else:  # returncode == 1
+    # Error - handle or propagate
+    raise RuntimeError(f"{data['error_code']}: {data['error']}")
+```
+
+Common error codes: `SESSION_NOT_FOUND`, `PANE_NOT_FOUND`, `INVALID_FLAG`, `TIMEOUT`, `INTERNAL_ERROR`, `NOT_IMPLEMENTED`.
+
+---
+
 ### Morph Warp Grep — AI-Powered Code Search
 
 Use `mcp__morph-mcp__warp_grep` for “how does X work?” discovery across the codebase.

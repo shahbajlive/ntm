@@ -165,16 +165,39 @@ func PrintRobotError(err error, code, hint string) {
 	os.Exit(1)
 }
 
+// NotImplementedResponse is the structured output for unavailable features.
+type NotImplementedResponse struct {
+	RobotResponse
+	Feature        string `json:"feature"`                   // The unavailable feature name
+	PlannedVersion string `json:"planned_version,omitempty"` // Version where feature is planned
+}
+
 // PrintRobotUnavailable outputs a response for unavailable/unimplemented features
 // and exits with code 2. Use this when a feature doesn't exist yet or a
 // dependency is missing - it's not an error, just unavailable.
 //
 // Exit code 2 signals "unavailable" to agents, distinct from error (1) or success (0).
-func PrintRobotUnavailable(feature, message, hint string) {
-	resp := NewRobotResponse(false)
-	resp.Error = message
-	resp.ErrorCode = ErrCodeNotImplemented
-	resp.Hint = hint
+//
+// Example usage:
+//
+//	robot.PrintRobotUnavailable(
+//	    "robot-assign",
+//	    "Work assignment is planned for a future release",
+//	    "v1.3",
+//	    "Use manual work distribution in the meantime",
+//	)
+func PrintRobotUnavailable(feature, message, plannedVersion, hint string) {
+	resp := NotImplementedResponse{
+		RobotResponse: RobotResponse{
+			Success:   false,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Error:     message,
+			ErrorCode: ErrCodeNotImplemented,
+			Hint:      hint,
+		},
+		Feature:        feature,
+		PlannedVersion: plannedVersion,
+	}
 	outputJSON(resp)
 	os.Exit(2)
 }

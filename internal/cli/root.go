@@ -312,8 +312,13 @@ Shell Integration:
 		}
 		// TODO(ntm-20n): --robot-assign is in development
 		if robotAssign != "" {
-			fmt.Fprintf(os.Stderr, "Error: --robot-assign is not yet implemented\n")
-			os.Exit(1)
+			robot.PrintRobotUnavailable(
+				"robot-assign",
+				"Work assignment is planned for a future release",
+				"v1.3",
+				"Use 'ntm --robot-plan' with 'bd ready' to manually assign work",
+			)
+			return
 		}
 		if robotSpawn != "" {
 			opts := robot.SpawnOptions{

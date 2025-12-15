@@ -257,6 +257,72 @@ func TestRobotError(t *testing.T) {
 	}
 }
 
+func TestNotImplementedResponse(t *testing.T) {
+	t.Run("response structure", func(t *testing.T) {
+		resp := NotImplementedResponse{
+			RobotResponse: RobotResponse{
+				Success:   false,
+				Timestamp: "2025-12-15T10:30:00Z",
+				Error:     "Feature not available",
+				ErrorCode: ErrCodeNotImplemented,
+				Hint:      "Try later",
+			},
+			Feature:        "robot-assign",
+			PlannedVersion: "v1.3",
+		}
+
+		data, err := json.Marshal(resp)
+		if err != nil {
+			t.Fatalf("failed to marshal: %v", err)
+		}
+
+		var parsed map[string]interface{}
+		if err := json.Unmarshal(data, &parsed); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+
+		// Verify required fields
+		if parsed["success"] != false {
+			t.Error("expected success to be false")
+		}
+		if parsed["error_code"] != ErrCodeNotImplemented {
+			t.Errorf("expected error_code %q, got %v", ErrCodeNotImplemented, parsed["error_code"])
+		}
+		if parsed["feature"] != "robot-assign" {
+			t.Errorf("expected feature 'robot-assign', got %v", parsed["feature"])
+		}
+		if parsed["planned_version"] != "v1.3" {
+			t.Errorf("expected planned_version 'v1.3', got %v", parsed["planned_version"])
+		}
+	})
+
+	t.Run("omits empty planned_version", func(t *testing.T) {
+		resp := NotImplementedResponse{
+			RobotResponse: NewErrorResponse(
+				errors.New("not available"),
+				ErrCodeNotImplemented,
+				"",
+			),
+			Feature: "some-feature",
+			// PlannedVersion intentionally empty
+		}
+
+		data, err := json.Marshal(resp)
+		if err != nil {
+			t.Fatalf("failed to marshal: %v", err)
+		}
+
+		var parsed map[string]interface{}
+		if err := json.Unmarshal(data, &parsed); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+
+		if _, ok := parsed["planned_version"]; ok {
+			t.Error("planned_version should be omitted when empty")
+		}
+	})
+}
+
 func TestTailAgentHints(t *testing.T) {
 	t.Run("all idle agents", func(t *testing.T) {
 		panes := map[string]PaneOutput{
