@@ -193,6 +193,9 @@ func runMailInbox(cmd *cobra.Command, client mailInboxClient, session string, se
 		}
 	}
 
+	// Aggregated messages by ID (to dedupe across multiple agents)
+	agg := make(map[int]*aggregatedMessage)
+
 	// Filter to session agents if requested
 	if sessionAgents {
 		if session == "" {
@@ -231,16 +234,6 @@ func runMailInbox(cmd *cobra.Command, client mailInboxClient, session string, se
 		}
 	}
 
-	type aggregatedMessage struct {
-		ID         int
-		Subject    string
-		From       string
-		Recipients []string
-		Importance string
-	}
-
-	agg := make(map[int]*aggregatedMessage)
-
 	for _, name := range targetAgents {
 		msgs, err := client.FetchInbox(ctx, agentmail.FetchInboxOptions{
 			ProjectKey: projectKey,
@@ -255,10 +248,14 @@ func runMailInbox(cmd *cobra.Command, client mailInboxClient, session string, se
 			entry, ok := agg[msg.ID]
 			if !ok {
 				entry = &aggregatedMessage{
-					ID:         msg.ID,
-					Subject:    msg.Subject,
-					From:       msg.From,
-					Importance: msg.Importance,
+					ID:          msg.ID,
+					Subject:     msg.Subject,
+					From:        msg.From,
+					CreatedTS:   msg.CreatedTS,
+					Importance:  msg.Importance,
+					AckRequired: msg.AckRequired,
+					Kind:        msg.Kind,
+					BodyMD:      msg.BodyMD,
 				}
 				agg[msg.ID] = entry
 			}
@@ -596,107 +593,6 @@ func runMailSendOverseer(cmd *cobra.Command, session string, to []string, subjec
 	return nil
 }
 
-// resolveRecipients resolves recipient specifiers to agent names.
-func resolveRecipients(session string, to []string, all, targetCC, targetCod, targetGmi bool) ([]string, error) {
-	var recipients []string
-
-	// Get panes for resolution
-	panes, err := tmux.GetPanes(session)
-	if err != nil {
-		return nil, fmt.Errorf("getting panes: %w", err)
-	}
-
-	// Build pane map for resolution
-	paneMap := make(map[string]tmux.Pane) // e.g., "cc_1" -> pane
-	for _, p := range panes {
-		// Generate pane identifier based on type
-		var prefix string
-		switch p.Type {
-		case tmux.AgentClaude:
-			prefix = "cc"
-		case tmux.AgentCodex:
-			prefix = "cod"
-		case tmux.AgentGemini:
-			prefix = "gmi"
-		default:
-			prefix = "user"
-		}
-		id := fmt.Sprintf("%s_%d", prefix, p.Index)
-		paneMap[id] = p
-	}
-
-	// Process --all flag
-	if all {
-		for _, p := range panes {
-			if p.Type != tmux.AgentUser {
-				name := resolveAgentName(p)
-				if name != "" {
-					recipients = append(recipients, name)
-				}
-			}
-		}
-	}
-
-	// Process type filters
-	if targetCC {
-		for _, p := range panes {
-			if p.Type == tmux.AgentClaude {
-				name := resolveAgentName(p)
-				if name != "" {
-					recipients = append(recipients, name)
-				}
-			}
-		}
-	}
-	if targetCod {
-		for _, p := range panes {
-			if p.Type == tmux.AgentCodex {
-				name := resolveAgentName(p)
-				if name != "" {
-					recipients = append(recipients, name)
-				}
-			}
-		}
-	}
-	if targetGmi {
-		for _, p := range panes {
-			if p.Type == tmux.AgentGemini {
-				name := resolveAgentName(p)
-				if name != "" {
-					recipients = append(recipients, name)
-				}
-			}
-		}
-	}
-
-	// Process --to recipients
-	for _, recipient := range to {
-		// Check if it's a pane identifier
-		if p, ok := paneMap[recipient]; ok {
-			name := resolveAgentName(p)
-			if name != "" {
-				recipients = append(recipients, name)
-			}
-		} else {
-			// Assume it's an agent name
-			recipients = append(recipients, recipient)
-		}
-	}
-
-	// Deduplicate
-	seen := make(map[string]bool)
-	unique := make([]string, 0, len(recipients))
-	for _, r := range recipients {
-		if !seen[r] {
-			seen[r] = true
-
-			unique = append(unique, r)
-		}
-	}
-
-	return unique, nil
-}
-
 // resolveAgentName tries to get the agent name from a pane.
 func resolveAgentName(p tmux.Pane) string {
 	// Try pane title first (may contain agent name)
@@ -754,7 +650,7 @@ func truncateSubject(body string, maxLen int) string {
 }
 
 func mailJSONWriter(cmd *cobra.Command) io.Writer {
-	return io.MultiWriter(cmd.Root().OutOrStdout(), cmd.Root().ErrOrStderr())
+	return cmd.Root().OutOrStdout()
 }
 
 // encodeJSONResult is a helper to output JSON.
@@ -849,43 +745,6 @@ func openEditorForMessage(existingSubject string) (body string, subject string, 
 
 	body = strings.TrimSpace(strings.Join(bodyLines, "\n"))
 	return body, subject, nil
-}
-func newMailInboxCmd() *cobra.Command {
-	var (
-		agent         string
-		urgent        bool
-		sessionAgents bool
-		jsonFormat    bool
-		limit         int
-	)
-
-	cmd := &cobra.Command{
-		Use:   "inbox [session]",
-		Short: "Show aggregate project inbox",
-		Long: `Display an aggregate inbox view showing messages across ALL agents in the project.
-
-		This gives visibility into all agent-to-agent communication.
-
-		Examples:
-		  ntm mail inbox myproject
-		  ntm mail inbox myproject --urgent
-		  ntm mail inbox myproject --agent cc_1`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			var session string
-			if len(args) > 0 {
-				session = args[0]
-			}
-			return runMailInbox(cmd, nil, session, sessionAgents, agent, urgent, limit, jsonFormat)
-		},
-	}
-
-	cmd.Flags().StringVar(&agent, "agent", "", "Filter by specific agent name")
-	cmd.Flags().BoolVar(&urgent, "urgent", false, "Show only urgent messages")
-	cmd.Flags().BoolVar(&sessionAgents, "session-agents", false, "Filter to agents currently in session")
-	cmd.Flags().IntVar(&limit, "limit", 50, "Max messages to show")
-	cmd.Flags().BoolVar(&jsonFormat, "json", false, "Output in JSON format")
-
-	return cmd
 }
 
 type aggregatedMessage struct {
