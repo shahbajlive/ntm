@@ -100,7 +100,7 @@ func TestTrackerBasic(t *testing.T) {
 		},
 	}
 
-	tracker.Update(alerts)
+	tracker.Update(alerts, nil)
 
 	active = tracker.GetActive()
 	if len(active) != 2 {
@@ -130,10 +130,10 @@ func TestTrackerResolution(t *testing.T) {
 		{ID: "remove", Type: AlertDiskLow, Severity: SeverityError, Message: "Remove"},
 	}
 
-	tracker.Update(alerts)
+	tracker.Update(alerts, nil)
 
 	// Update with only one alert - the other should be resolved
-	tracker.Update([]Alert{{ID: "keep", Type: AlertAgentError, Severity: SeverityWarning, Message: "Keep"}})
+	tracker.Update([]Alert{{ID: "keep", Type: AlertAgentError, Severity: SeverityWarning, Message: "Keep"}}, nil)
 
 	active := tracker.GetActive()
 	if len(active) != 1 {
@@ -158,7 +158,7 @@ func TestTrackerRefresh(t *testing.T) {
 
 	// Add alert
 	alert := Alert{ID: "refresh", Type: AlertAgentError, Severity: SeverityWarning, Message: "Refresh test"}
-	tracker.Update([]Alert{alert})
+	tracker.Update([]Alert{alert}, nil)
 
 	// Get initial count
 	active := tracker.GetActive()
@@ -168,7 +168,7 @@ func TestTrackerRefresh(t *testing.T) {
 	initialCount := active[0].Count
 
 	// Refresh same alert
-	tracker.Update([]Alert{alert})
+	tracker.Update([]Alert{alert}, nil)
 
 	active = tracker.GetActive()
 	if len(active) != 1 {
@@ -185,11 +185,11 @@ func TestTrackerSeverityEscalation(t *testing.T) {
 
 	// Add warning alert
 	alert := Alert{ID: "escalate", Type: AlertAgentError, Severity: SeverityWarning, Message: "Escalate test"}
-	tracker.Update([]Alert{alert})
+	tracker.Update([]Alert{alert}, nil)
 
 	// Escalate to error
 	alert.Severity = SeverityError
-	tracker.Update([]Alert{alert})
+	tracker.Update([]Alert{alert}, nil)
 
 	active := tracker.GetActive()
 	if len(active) != 1 {
@@ -205,7 +205,7 @@ func TestTrackerManualResolve(t *testing.T) {
 	tracker := NewTracker(cfg)
 
 	alert := Alert{ID: "manual", Type: AlertAgentError, Severity: SeverityWarning, Message: "Manual resolve"}
-	tracker.Update([]Alert{alert})
+	tracker.Update([]Alert{alert}, nil)
 
 	// Manual resolve
 	ok := tracker.ManualResolve("manual")
@@ -235,7 +235,7 @@ func TestTrackerGetByID(t *testing.T) {
 	tracker := NewTracker(cfg)
 
 	alert := Alert{ID: "findme", Type: AlertAgentError, Severity: SeverityWarning, Message: "Find me"}
-	tracker.Update([]Alert{alert})
+	tracker.Update([]Alert{alert}, nil)
 
 	// Find active alert
 	found, ok := tracker.GetByID("findme")
@@ -271,7 +271,7 @@ func TestTrackerClear(t *testing.T) {
 		{ID: "a", Type: AlertAgentError, Severity: SeverityWarning, Message: "A"},
 		{ID: "b", Type: AlertDiskLow, Severity: SeverityError, Message: "B"},
 	}
-	tracker.Update(alerts)
+	tracker.Update(alerts, nil)
 	tracker.ManualResolve("a")
 
 	// Verify state before clear
@@ -298,7 +298,7 @@ func TestTrackerFilterByType(t *testing.T) {
 		{ID: "err2", Type: AlertAgentError, Severity: SeverityError, Message: "Error 2"},
 		{ID: "disk", Type: AlertDiskLow, Severity: SeverityWarning, Message: "Disk"},
 	}
-	tracker.Update(alerts)
+	tracker.Update(alerts, nil)
 
 	// Filter by type
 	agentErrorType := AlertAgentError
@@ -324,7 +324,7 @@ func TestTrackerFilterBySeverity(t *testing.T) {
 		{ID: "err", Type: AlertAgentError, Severity: SeverityError, Message: "Error"},
 		{ID: "crit", Type: AlertAgentError, Severity: SeverityCritical, Message: "Critical"},
 	}
-	tracker.Update(alerts)
+	tracker.Update(alerts, nil)
 
 	// Filter by minimum severity
 	warnSeverity := SeverityWarning
