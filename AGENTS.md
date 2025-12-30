@@ -421,6 +421,7 @@ if not data["success"]:
 | Flag | Description | Example |
 |------|-------------|---------|
 | `--robot-status` | Get sessions, panes, agent states | `ntm --robot-status` |
+| `--robot-context` | Context window usage estimates per agent | `ntm --robot-context=proj` |
 | `--robot-snapshot` | Unified state: sessions + beads + alerts + mail | `ntm --robot-snapshot --since=2025-01-01T00:00:00Z` |
 | `--robot-tail=SESSION` | Capture recent pane output | `ntm --robot-tail=proj --lines=50 --panes=1,2` |
 | `--robot-plan` | Get bv execution plan with parallelizable tracks | `ntm --robot-plan` |

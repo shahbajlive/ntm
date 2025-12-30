@@ -480,6 +480,7 @@ NTM provides machine-readable output for integration with AI coding agents and a
 ```bash
 ntm --robot-status    # Output all session info as JSON
 ntm --robot-plan      # Get recommended actions as JSON
+ntm --robot-context   # Context window usage estimates as JSON
 ntm --robot-version   # Version info as JSON
 ntm --robot-dashboard # Dashboard summary as markdown tables (use --json for JSON)
 ntm --robot-help      # Robot mode documentation
@@ -488,6 +489,7 @@ ntm --robot-help      # Robot mode documentation
 This enables AI agents to:
 - Discover existing sessions and their agent configurations
 - Plan multi-agent workflows programmatically
+- Monitor context window usage across agents
 - Monitor session state without parsing human-readable output
 - Integrate NTM into automated CI/CD pipelines
 
@@ -510,6 +512,49 @@ This enables AI agents to:
     "total_sessions": 1,
     "total_agents": 2,
     "by_type": {"claude": 1, "codex": 1}
+  }
+}
+```
+
+**Example JSON output (`--robot-context`):**
+
+```json
+{
+  "session": "myproject",
+  "captured_at": "2025-01-15T10:30:00Z",
+  "agents": [
+    {
+      "pane": "myproject__cc_1",
+      "agent_type": "claude",
+      "model": "sonnet",
+      "estimated_tokens": 45000,
+      "with_overhead": 54000,
+      "context_limit": 200000,
+      "usage_percent": 27.0,
+      "usage_level": "Low",
+      "confidence": "estimated"
+    },
+    {
+      "pane": "myproject__cod_1",
+      "agent_type": "codex",
+      "model": "gpt4",
+      "estimated_tokens": 85000,
+      "with_overhead": 102000,
+      "context_limit": 128000,
+      "usage_percent": 79.7,
+      "usage_level": "High",
+      "confidence": "estimated"
+    }
+  ],
+  "summary": {
+    "total_agents": 2,
+    "high_usage_count": 1,
+    "avg_usage": 53.35
+  },
+  "_agent_hints": {
+    "low_usage_agents": ["myproject__cc_1"],
+    "high_usage_agents": ["myproject__cod_1"],
+    "suggestions": ["1 agent(s) have high context usage", "1 agent(s) have room for additional work"]
   }
 }
 ```
