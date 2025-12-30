@@ -3316,7 +3316,7 @@ func getContextLimit(model string) int {
 		return 200000
 	case "haiku":
 		return 200000
-	case "gpt4", "gpt-4", "o4-mini":
+	case "gpt4", "o4-mini":
 		return 128000
 	case "o1", "o3":
 		return 200000
@@ -3340,7 +3340,14 @@ func generateContextHints(lowUsage, highUsage []string, highCount, total int) *C
 	}
 
 	if highCount == 0 {
-		hints.Suggestions = append(hints.Suggestions, "All agents healthy - context usage is low across the board")
+		// No high usage agents
+		if len(lowUsage) == total {
+			hints.Suggestions = append(hints.Suggestions, "All agents healthy - context usage is low across the board")
+		} else if len(lowUsage) > 0 {
+			hints.Suggestions = append(hints.Suggestions, fmt.Sprintf("%d agent(s) have low usage, others are moderate", len(lowUsage)))
+		} else {
+			hints.Suggestions = append(hints.Suggestions, "All agents at moderate context usage - no immediate concerns")
+		}
 	} else if highCount == total {
 		hints.Suggestions = append(hints.Suggestions, "All agents have high context usage - consider spawning new sessions")
 	} else {
@@ -3410,7 +3417,8 @@ func PrintContext(session string, lines int) error {
 		paneKey := fmt.Sprintf("%d", pane.Index)
 		usageLevel := getUsageLevel(usagePct)
 
-		if usagePct < 50 {
+		// Align thresholds with getUsageLevel: <40% is Low, >=70% is High/Critical
+		if usagePct < 40 {
 			lowUsage = append(lowUsage, paneKey)
 		} else if usagePct >= 70 {
 			highUsage = append(highUsage, paneKey)
