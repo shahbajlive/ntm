@@ -108,7 +108,15 @@ func runPersonasList(filterAgent, filterTag string) error {
 	}
 
 	if jsonOutput {
-		return json.NewEncoder(os.Stdout).Encode(filtered)
+		// Include both personas and profile sets in JSON output
+		output := struct {
+			Personas    []*persona.Persona    `json:"personas"`
+			ProfileSets []*persona.PersonaSet `json:"profile_sets"`
+		}{
+			Personas:    filtered,
+			ProfileSets: registry.ListSets(),
+		}
+		return json.NewEncoder(os.Stdout).Encode(output)
 	}
 
 	// Count sources
@@ -154,6 +162,27 @@ func runPersonasList(filterAgent, filterTag string) error {
 
 	fmt.Println(strings.Repeat("─", 70))
 	fmt.Printf("Total: %d personas (%d built-in)\n", len(filtered), builtinCount)
+
+	// Show profile sets
+	sets := registry.ListSets()
+	if len(sets) > 0 {
+		fmt.Println()
+		fmt.Printf("%sPROFILE SETS:%s\n", colorize(t.Primary), "\033[0m")
+		sort.Slice(sets, func(i, j int) bool {
+			return sets[i].Name < sets[j].Name
+		})
+		for _, s := range sets {
+			members := strings.Join(s.Personas, ", ")
+			if len(members) > 40 {
+				members = members[:37] + "..."
+			}
+			desc := s.Description
+			if desc == "" {
+				desc = members
+			}
+			fmt.Printf("  %-16s %s\n", s.Name, desc)
+		}
+	}
 
 	// Show source hint if user/project files exist
 	if _, err := os.Stat(persona.DefaultUserPath()); err == nil {
@@ -327,6 +356,38 @@ func valueOrDefault(s, def string) string {
 	return s
 }
 
+// newProfilesCmd creates an alias for 'personas' command as 'profiles'
+// This provides user-friendly naming that aligns with the spawn --profiles flag
+func newProfilesCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "profiles",
+		Short: "Manage agent profiles (alias for 'personas')",
+		Long: `List and inspect available agent profiles.
+
+This is an alias for 'ntm personas'. Profiles define agent characteristics
+including agent type, model, system prompts, and behavioral settings.
+
+Profile sources (later overrides earlier):
+  1. Built-in: Compiled into ntm
+  2. User: ~/.config/ntm/personas.toml
+  3. Project: .ntm/personas.toml
+
+Examples:
+  ntm profiles list              # List all profiles
+  ntm profiles list --json       # JSON output
+  ntm profiles show architect    # Show profile details
+  ntm profiles show architect --json`,
+	}
+
+	cmd.AddCommand(
+		newPersonasListCmd(),
+		newPersonasShowCmd(),
+	)
+
+	return cmd
+}
+
 func init() {
 	rootCmd.AddCommand(newPersonasCmd())
+	rootCmd.AddCommand(newProfilesCmd())
 }
