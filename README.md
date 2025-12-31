@@ -476,28 +476,79 @@ ntm upgrade         # Check for and install updates
 
 ### AI Agent Integration (Robot Mode)
 
-NTM provides machine-readable output for integration with AI coding agents and automation pipelines:
+NTM provides machine-readable output for integration with AI coding agents and automation pipelines. All robot commands output JSON by default and follow consistent exit codes (0=success, 1=error, 2=unavailable).
+
+**State Inspection:**
 
 ```bash
-ntm --robot-status    # Output all session info as JSON
-ntm --robot-plan      # Get recommended actions as JSON
-ntm --robot-context   # Context window usage estimates as JSON
-ntm --robot-version   # Version info as JSON
-ntm --robot-dashboard # Dashboard summary as markdown tables (use --json for JSON)
-ntm --robot-help      # Robot mode documentation
+ntm --robot-status              # Sessions, panes, agent states
+ntm --robot-context=SESSION     # Context window usage per agent
+ntm --robot-snapshot            # Unified state: sessions + beads + alerts + mail
+ntm --robot-tail=SESSION        # Recent pane output (--lines=50 --panes=1,2)
+ntm --robot-plan                # bv execution plan with parallelizable tracks
+ntm --robot-graph               # Dependency graph insights
+ntm --robot-dashboard           # Dashboard summary (markdown or --json)
+ntm --robot-terse               # Single-line encoded state (minimal tokens)
+ntm --robot-markdown            # System state as markdown tables
+ntm --robot-health              # Project health summary
+ntm --robot-version             # Version info
+ntm --robot-help                # Full robot mode documentation
 ```
+
+**Agent Control:**
+
+```bash
+ntm --robot-send=SESSION --msg="Fix auth" --type=claude  # Send to agents
+ntm --robot-ack=SESSION --ack-timeout=30s                # Watch for responses
+ntm --robot-spawn=SESSION --spawn-cc=2 --spawn-wait      # Create session
+ntm --robot-interrupt=SESSION --interrupt-msg="Stop"     # Send Ctrl+C
+ntm --robot-assign=SESSION --assign-beads=bd-1,bd-2      # Assign work to agents
+```
+
+**CASS Integration (Cross-Agent Search):**
+
+```bash
+ntm --robot-cass-search="auth error" --cass-since=7d     # Search past conversations
+ntm --robot-cass-status                                  # CASS health/stats
+ntm --robot-cass-context="how to implement auth"         # Get relevant context
+```
+
+**Session State Management:**
+
+```bash
+ntm --robot-save=SESSION --save-output=/path/state.json  # Save session state
+ntm --robot-restore=mystate --restore-dry                # Restore (dry-run)
+ntm --robot-history=SESSION --history-stats              # Session history
+ntm --robot-tokens --tokens-group-by=model               # Token usage analytics
+```
+
+**Supporting Flags:**
+
+| Flag | Use With | Description |
+|------|----------|-------------|
+| `--panes=1,2,3` | tail, send, ack, interrupt | Filter to specific pane indices |
+| `--type=claude` | send, ack, interrupt | Filter by agent type (claude/cc, codex/cod, gemini/gmi) |
+| `--all` | send, interrupt | Include user pane |
+| `--lines=N` | tail | Lines per pane (default 20) |
+| `--since=TIMESTAMP` | snapshot | RFC3339 timestamp for delta |
+| `--track` | send | Combined send+ack mode |
+| `--json` | dashboard, markdown | Force JSON output |
 
 This enables AI agents to:
 - Discover existing sessions and their agent configurations
 - Plan multi-agent workflows programmatically
 - Monitor context window usage across agents
-- Monitor session state without parsing human-readable output
-- Integrate NTM into automated CI/CD pipelines
+- Search past agent conversations via CASS
+- Assign beads/tasks to specific agents
+- Save and restore session state
+- Track token usage and history
 
 **Example JSON output (`--robot-status`):**
 
 ```json
 {
+  "success": true,
+  "timestamp": "2025-01-15T10:30:00Z",
   "sessions": [
     {
       "name": "myproject",
@@ -521,6 +572,7 @@ This enables AI agents to:
 
 ```json
 {
+  "success": true,
   "session": "myproject",
   "captured_at": "2025-01-15T10:30:00Z",
   "agents": [
@@ -559,6 +611,14 @@ This enables AI agents to:
   }
 }
 ```
+
+**Exit Codes:**
+
+| Code | Meaning | JSON Field |
+|------|---------|------------|
+| 0 | Success | `"success": true` |
+| 1 | Error | `"success": false, "error_code": "..."` |
+| 2 | Unavailable | `"success": false, "error_code": "NOT_IMPLEMENTED"` |
 
 ---
 
@@ -937,6 +997,81 @@ continue_on_error = true
 - Hooks run in a shell (`sh -c "command"`)
 - Working directory defaults to project directory
 - Standard output and errors are captured and displayed
+
+---
+
+## CASS Integration
+
+CASS (Cross-Agent Search System) indexes past agent conversations across multiple tools (Claude Code, Codex, Cursor, Gemini, ChatGPT) so you can reuse solved problems and learn from prior sessions.
+
+### Querying Past Sessions
+
+```bash
+# Search for relevant past work
+ntm --robot-cass-search="authentication error" --cass-since=7d
+
+# Get context relevant to current task
+ntm --robot-cass-context="how to implement rate limiting"
+
+# Check CASS health and stats
+ntm --robot-cass-status
+```
+
+### Dashboard Integration
+
+The NTM dashboard displays CASS context in a dedicated panel, showing:
+- Relevant past sessions matching current project context
+- Similarity scores for each match
+- Quick access to session details
+
+### Configuration
+
+CASS works automatically when installed. Configure search behavior in your config:
+
+```toml
+[cass]
+# Default search parameters
+default_limit = 10
+include_agents = ["claude", "codex", "gemini"]
+```
+
+---
+
+## Agent Mail Integration
+
+NTM integrates with Agent Mail for multi-agent coordination across sessions and projects.
+
+### Features
+
+- **Message routing**: Send messages between agents in different sessions
+- **File reservations**: Claim files to prevent conflicting edits
+- **Thread tracking**: Organize discussions by topic or feature
+- **Human Overseer mode**: Send high-priority instructions from the CLI
+
+### CLI Commands
+
+```bash
+ntm mail send myproject --to GreenCastle "Review the API changes"
+ntm mail send myproject --all "Checkpoint: sync and report status"
+ntm mail inbox myproject                    # View agent inboxes
+ntm mail read myproject --agent BlueLake    # Read specific agent's mail
+ntm mail ack myproject 42                   # Acknowledge message
+```
+
+### Robot Mode
+
+```bash
+ntm --robot-mail                            # Get mail state as JSON
+```
+
+### Pre-commit Guard
+
+Install the Agent Mail pre-commit guard to prevent commits that conflict with other agents' file reservations:
+
+```bash
+ntm hooks guard install
+ntm hooks guard uninstall  # Remove later
+```
 
 ---
 
