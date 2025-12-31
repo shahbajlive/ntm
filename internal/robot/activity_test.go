@@ -1791,10 +1791,12 @@ func TestClassifyStateIdleAtBoundary(t *testing.T) {
 	// Idle prompt pattern with velocity exactly at idle threshold
 	matches := []PatternMatch{{Pattern: "claude_prompt", Category: CategoryIdle}}
 
-	// At boundary, should not be waiting (uses < not <=)
-	state, _, _ := sc.classifyState(VelocityIdleThreshold, nil)
+	// At exact boundary WITH idle prompt, should NOT be waiting
+	// The condition is `velocity < VelocityIdleThreshold` (strictly less than)
+	// So at exactly 1.0, with 1.0 < 1.0 being false, we should not get WAITING
+	state, _, _ := sc.classifyState(VelocityIdleThreshold, matches)
 	if state == StateWaiting {
-		t.Errorf("at exact idle threshold without prompt, should not be WAITING (uses < not <=), got %s", state)
+		t.Errorf("at exact idle threshold with prompt, should not be WAITING (uses < not <=), got %s", state)
 	}
 
 	// With idle prompt and below threshold
