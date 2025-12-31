@@ -19,19 +19,30 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/history"
 	"github.com/Dicklesworthstone/ntm/internal/hooks"
 	"github.com/Dicklesworthstone/ntm/internal/prompt"
+	"github.com/Dicklesworthstone/ntm/internal/robot"
 	"github.com/Dicklesworthstone/ntm/internal/templates"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
 // SendResult is the JSON output for the send command.
 type SendResult struct {
-	Success       bool   `json:"success"`
-	Session       string `json:"session"`
-	PromptPreview string `json:"prompt_preview,omitempty"`
-	Targets       []int  `json:"targets"`
-	Delivered     int    `json:"delivered"`
-	Failed        int    `json:"failed"`
-	Error         string `json:"error,omitempty"`
+	Success       bool               `json:"success"`
+	Session       string             `json:"session"`
+	PromptPreview string             `json:"prompt_preview,omitempty"`
+	Targets       []int              `json:"targets"`
+	Delivered     int                `json:"delivered"`
+	Failed        int                `json:"failed"`
+	RoutedTo      *SendRoutingResult `json:"routed_to,omitempty"`
+	Error         string             `json:"error,omitempty"`
+}
+
+// SendRoutingResult contains routing decision info for smart routing.
+type SendRoutingResult struct {
+	PaneIndex int     `json:"pane_index"`
+	AgentType string  `json:"agent_type"`
+	Strategy  string  `json:"strategy"`
+	Reason    string  `json:"reason"`
+	Score     float64 `json:"score"`
 }
 
 // SendOptions configures the send operation
@@ -45,6 +56,10 @@ type SendOptions struct {
 	TemplateName string
 	Tags         []string
 
+	// Smart routing options
+	SmartRoute    bool   // Use smart routing to select best agent
+	RouteStrategy string // Routing strategy (least-loaded, round-robin, etc.)
+
 	// CASS check options
 	CassCheck      bool
 	CassSimilarity float64
@@ -52,6 +67,9 @@ type SendOptions struct {
 
 	// Hooks
 	NoHooks bool
+
+	// Runtime: filled by smart routing
+	routingResult *SendRoutingResult
 }
 
 // SendTarget represents a send target with optional variant filter.
@@ -197,6 +215,8 @@ func newSendCmd() *cobra.Command {
 	var cassSimilarity float64
 	var cassCheckDays int
 	var noHooks bool
+	var smartRoute bool
+	var routeStrategy string
 
 	cmd := &cobra.Command{
 		Use:   "send <session> [prompt]",
@@ -228,6 +248,11 @@ func newSendCmd() *cobra.Command {
 		By default, checks CASS for similar past sessions to avoid duplicate work.
 		Use --no-cass-check to skip.
 
+		Smart Routing:
+		Use --smart to automatically select the best agent based on routing strategies.
+		Use --route to specify the strategy (default: least-loaded).
+		Strategies: least-loaded, round-robin, affinity, sticky, random.
+
 		Examples:
 		  ntm send myproject "fix the linting errors"           # All agents
 		  ntm send myproject --cc "review the changes"          # All Claude agents
@@ -245,7 +270,9 @@ func newSendCmd() *cobra.Command {
 		  ntm send myproject -c src/api.go:10-50 "Review lines" # With line range
 		  ntm send myproject -c a.go -c b.go "Compare these"    # Multiple files
 		  ntm send myproject -t code_review --file src/main.go  # Template with file
-		  ntm send myproject -t fix --var issue="null pointer" --file src/app.go  # Template with vars`,
+		  ntm send myproject -t fix --var issue="null pointer" --file src/app.go  # Template with vars
+		  ntm send myproject --smart "fix auth bug"             # Auto-select best agent
+		  ntm send myproject --smart --route=affinity "auth"    # Use affinity strategy`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			session := args[0]
@@ -257,6 +284,8 @@ func newSendCmd() *cobra.Command {
 				SkipFirst:      skipFirst,
 				PaneIndex:      paneIndex,
 				Tags:           tags,
+				SmartRoute:     smartRoute,
+				RouteStrategy:  routeStrategy,
 				CassCheck:      cassCheck && !noCassCheck,
 				CassSimilarity: cassSimilarity,
 				CassCheckDays:  cassCheckDays,
@@ -310,6 +339,10 @@ func newSendCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&templateName, "template", "t", "", "use a named prompt template (see 'ntm template list')")
 	cmd.Flags().StringArrayVar(&templateVars, "var", nil, "template variable in key=value format (repeatable)")
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "filter by tag (OR logic)")
+
+	// Smart routing flags
+	cmd.Flags().BoolVar(&smartRoute, "smart", false, "Use smart routing to select best agent")
+	cmd.Flags().StringVar(&routeStrategy, "route", "", "Routing strategy: least-loaded, round-robin, affinity, sticky, random")
 
 	// CASS check flags
 	cmd.Flags().BoolVar(&cassCheck, "cass-check", true, "Check for duplicate work in CASS")
@@ -515,6 +548,61 @@ func runSendInternal(opts SendOptions) error {
 			return err
 		}
 		return err
+	}
+
+	// Smart routing: select best agent automatically
+	if opts.SmartRoute {
+		strategy := robot.StrategyLeastLoaded
+		if opts.RouteStrategy != "" {
+			strategy = robot.StrategyName(opts.RouteStrategy)
+			if !robot.IsValidStrategy(strategy) {
+				validNames := robot.GetStrategyNames()
+				validStrs := make([]string, len(validNames))
+				for i, n := range validNames {
+					validStrs[i] = string(n)
+				}
+				return outputError(fmt.Errorf("invalid routing strategy: %s (valid: %s)",
+					opts.RouteStrategy, strings.Join(validStrs, ", ")))
+			}
+		}
+
+		routeOpts := robot.RouteOptions{
+			Session:  session,
+			Strategy: strategy,
+			Prompt:   prompt,
+		}
+
+		// Filter by agent type if specified
+		if targetCC && !targetCod && !targetGmi {
+			routeOpts.AgentType = "claude"
+		} else if targetCod && !targetCC && !targetGmi {
+			routeOpts.AgentType = "codex"
+		} else if targetGmi && !targetCC && !targetCod {
+			routeOpts.AgentType = "gemini"
+		}
+
+		recommendation, err := robot.GetRouteRecommendation(routeOpts)
+		if err != nil {
+			return outputError(fmt.Errorf("smart routing failed: %w", err))
+		}
+		if recommendation == nil {
+			return outputError(fmt.Errorf("smart routing: no available agent found"))
+		}
+
+		// Set target to the recommended pane
+		paneIndex = recommendation.PaneIndex
+		opts.routingResult = &SendRoutingResult{
+			PaneIndex: recommendation.PaneIndex,
+			AgentType: recommendation.AgentType,
+			Strategy:  string(strategy),
+			Reason:    recommendation.Reason,
+			Score:     recommendation.Score,
+		}
+
+		if !jsonOutput {
+			fmt.Printf("Smart routing: selected %s (pane %d) - %s\n",
+				recommendation.AgentType, recommendation.PaneIndex, recommendation.Reason)
+		}
 	}
 
 	// CASS Duplicate Detection
@@ -788,6 +876,7 @@ func runSendInternal(opts SendOptions) error {
 			Targets:       targetPanes,
 			Delivered:     delivered,
 			Failed:        failed,
+			RoutedTo:      opts.routingResult,
 		}
 		if failed > 0 {
 			result.Error = fmt.Sprintf("%d pane(s) failed", failed)

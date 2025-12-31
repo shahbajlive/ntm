@@ -311,3 +311,113 @@ func ParseExcludePanes(s string) ([]int, error) {
 	}
 	return result, nil
 }
+
+// GetRouteRecommendation returns the routing recommendation without JSON output.
+// This is used by the send command for smart routing integration.
+func GetRouteRecommendation(opts RouteOptions) (*RouteRecommendation, error) {
+	// Validate session
+	if opts.Session == "" {
+		return nil, fmt.Errorf("session name is required")
+	}
+
+	// Validate strategy
+	if opts.Strategy == "" {
+		opts.Strategy = StrategyLeastLoaded
+	}
+	if !IsValidStrategy(opts.Strategy) {
+		return nil, fmt.Errorf("invalid strategy: %s", opts.Strategy)
+	}
+
+	// Check session exists
+	if !tmux.SessionExists(opts.Session) {
+		return nil, fmt.Errorf("session '%s' not found", opts.Session)
+	}
+
+	// Get all panes
+	panes, err := tmux.GetPanes(opts.Session)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get panes: %w", err)
+	}
+
+	// Create scorer and score agents
+	scorer := NewAgentScorer(DefaultRoutingConfig())
+	var agents []ScoredAgent
+
+	for _, pane := range panes {
+		// Skip user pane
+		agentType := detectAgentTypeFromTitle(pane.Title)
+		if agentType == "" {
+			continue
+		}
+
+		// Filter by agent type if specified
+		if opts.AgentType != "" && !strings.EqualFold(agentType, normalizeAgentType(opts.AgentType)) {
+			continue
+		}
+
+		// Get activity state
+		classifier := scorer.monitor.GetOrCreate(pane.ID)
+		classifier.SetAgentType(agentType)
+		activity, err := classifier.Classify()
+		if err != nil {
+			continue // Skip agents that can't be classified
+		}
+
+		// Build scored agent
+		agent := ScoredAgent{
+			PaneID:       pane.ID,
+			AgentType:    agentType,
+			PaneIndex:    pane.Index,
+			State:        activity.State,
+			Confidence:   activity.Confidence,
+			Velocity:     activity.Velocity,
+			LastActivity: activity.LastOutput,
+			HealthState:  deriveHealthState(activity.State),
+			RateLimited:  false,
+		}
+
+		// Calculate score components
+		agent.ScoreDetail = scorer.calculateScoreComponents(&agent, opts.Prompt)
+
+		// Check exclusion rules
+		excluded, reason := scorer.checkExclusion(&agent)
+		if excluded {
+			agent.Excluded = true
+			agent.ExcludeReason = reason
+			agent.Score = 0
+		} else {
+			agent.Score = scorer.calculateFinalScore(&agent)
+		}
+
+		agents = append(agents, agent)
+	}
+
+	// Apply pane exclusions from options
+	if len(opts.ExcludePanes) > 0 {
+		agents = ExcludePanes(agents, opts.ExcludePanes)
+	}
+
+	// Create router and get recommendation
+	router := NewRouter()
+	ctx := RoutingContext{
+		Prompt:       opts.Prompt,
+		LastAgent:    opts.LastAgent,
+		ExcludePanes: opts.ExcludePanes,
+		ExplicitPane: -1,
+	}
+
+	result := router.Route(agents, opts.Strategy, ctx)
+	if result.Selected == nil {
+		return nil, nil // No agent available
+	}
+
+	return &RouteRecommendation{
+		PaneID:       result.Selected.PaneID,
+		PaneIndex:    result.Selected.PaneIndex,
+		AgentType:    result.Selected.AgentType,
+		Score:        result.Selected.Score,
+		Reason:       result.Reason,
+		ContextUsage: result.Selected.ContextUsage,
+		State:        string(result.Selected.State),
+	}, nil
+}
