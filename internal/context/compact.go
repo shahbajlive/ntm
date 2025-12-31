@@ -326,8 +326,9 @@ func (c *Compactor) PreRotationCheck(
 	// Check if we're still above the rotation threshold
 	if estimate.UsagePercent >= thresholdPercent {
 		if lastCompactionResult != nil && lastCompactionResult.Success {
+			// UsageBefore/UsageAfter are already 0-100 percentages, no need to multiply
 			return true, fmt.Sprintf("compaction helped (%.1f%% freed) but still at %.1f%% >= %.1f%%",
-				(lastCompactionResult.UsageBefore-lastCompactionResult.UsageAfter)*100,
+				lastCompactionResult.UsageBefore-lastCompactionResult.UsageAfter,
 				estimate.UsagePercent, thresholdPercent)
 		}
 		return true, fmt.Sprintf("context usage %.1f%% >= rotation threshold %.1f%%",
