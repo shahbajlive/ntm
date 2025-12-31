@@ -184,6 +184,7 @@ ntm dashboard myproject       # Or use alias: ntm dash myproject
 The dashboard provides:
 - **Visual pane grid** with color-coded agent cards
 - **Live agent counts** showing Claude, Codex, Gemini, and user panes
+- **Token velocity badges** showing real-time tokens-per-minute (tpm) for each agent
 - **Animated status indicators** with pulsing selection highlights
 - **Quick navigation**: Use 1-9 to select panes, z/Enter to zoom
 - **Real-time refresh**: Press r to update pane status
@@ -378,7 +379,7 @@ int myproject                                  # Stop all agents
 |---------|-------|-----------|-------------|
 | `ntm attach` | `rnt` | `<session>` | Attach (offers to create if missing) |
 | `ntm list` | `lnt` | | List all tmux sessions |
-| `ntm status` | `snt` | `<session>` | Show pane details and agent counts |
+| `ntm status` | `snt` | `<session>` | Show pane details with type indicators (C/X/G) and agent counts |
 | `ntm view` | `vnt` | `<session>` | Unzoom, tile layout, and attach |
 | `ntm zoom` | `znt` | `<session> [pane-index]` | Zoom to specific pane |
 | `ntm dashboard` | `d`, `dash` | `[session]` | Interactive visual dashboard |
@@ -575,6 +576,12 @@ Examples:
 
 This naming enables targeted commands via filters (`--cc`, `--cod`, `--gmi`).
 
+In status output and tables, agent types are shown with compact indicators:
+- **C** = Claude
+- **X** = Codex
+- **G** = Gemini
+- **U** = User pane
+
 ### Session Layout
 
 ```
@@ -625,13 +632,15 @@ myproject/
 
 ## Configuration
 
-Configuration lives in `~/.config/ntm/config.toml`:
+NTM works out of the box with sensible defaults—no configuration file is required. When no config file exists, NTM uses built-in defaults appropriate for your platform.
+
+Optional configuration lives in `~/.config/ntm/config.toml`:
 
 ```bash
-# Create default config
+# Create default config (optional - NTM works without it)
 ntm config init
 
-# Show current config
+# Show current config (shows effective config, including defaults)
 ntm config show
 
 # Edit config
