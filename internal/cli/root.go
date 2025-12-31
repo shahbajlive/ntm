@@ -248,6 +248,28 @@ Shell Integration:
 			}
 			return
 		}
+		if robotActivity != "" {
+			// Parse pane filter (reuse --panes flag)
+			var paneFilter []string
+			if robotPanes != "" {
+				paneFilter = strings.Split(robotPanes, ",")
+			}
+			// Parse agent types
+			var agentTypes []string
+			if robotActivityType != "" {
+				agentTypes = strings.Split(robotActivityType, ",")
+			}
+			opts := robot.ActivityOptions{
+				Session:    robotActivity,
+				Panes:      paneFilter,
+				AgentTypes: agentTypes,
+			}
+			if err := robot.PrintActivity(opts); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
 		if robotTail != "" {
 			// Parse pane filter
 			var paneFilter []string
@@ -636,6 +658,10 @@ var (
 	robotHistoryLast  int    // last N entries
 	robotHistorySince string // time-based filter
 	robotHistoryStats bool   // show statistics instead of entries
+
+	// Robot-activity flags for agent activity detection
+	robotActivity     string // session name for activity query
+	robotActivityType string // filter by agent type (claude, codex, gemini)
 )
 
 func init() {
@@ -758,6 +784,10 @@ func init() {
 	rootCmd.Flags().IntVar(&robotHistoryLast, "history-last", 0, "Show last N entries. Optional with --robot-history. Example: --history-last=10")
 	rootCmd.Flags().StringVar(&robotHistorySince, "history-since", "", "Show entries since time (1h, 30m, 2d, or ISO8601). Optional with --robot-history")
 	rootCmd.Flags().BoolVar(&robotHistoryStats, "history-stats", false, "Show statistics instead of entries. Optional with --robot-history")
+
+	// Robot-activity flags for agent activity detection
+	rootCmd.Flags().StringVar(&robotActivity, "robot-activity", "", "Get agent activity state (idle/busy/error). Required: SESSION. Example: ntm --robot-activity=myproject")
+	rootCmd.Flags().StringVar(&robotActivityType, "activity-type", "", "Filter by agent type: claude, codex, gemini. Optional with --robot-activity. Example: --activity-type=claude")
 
 	// Sync version info with robot package
 	robot.Version = Version

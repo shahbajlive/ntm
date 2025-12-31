@@ -3451,3 +3451,242 @@ func PrintContext(session string, lines int) error {
 
 	return encodeJSON(output)
 }
+
+// =============================================================================
+// Activity Detection API
+// =============================================================================
+
+// ActivityOptions holds options for the activity API.
+type ActivityOptions struct {
+	Session    string   // Required: session name
+	Panes      []string // Optional: filter to specific pane indices
+	AgentTypes []string // Optional: filter to specific agent types (claude, codex, gemini)
+}
+
+// ActivityOutput represents the output for --robot-activity
+type ActivityOutput struct {
+	RobotResponse
+	Session    string                  `json:"session"`
+	CapturedAt time.Time               `json:"captured_at"`
+	Agents     []AgentActivityInfo     `json:"agents"`
+	Summary    ActivitySummary         `json:"summary"`
+	AgentHints *ActivityAgentHints     `json:"_agent_hints,omitempty"`
+}
+
+// AgentActivityInfo contains activity state for a single agent pane.
+type AgentActivityInfo struct {
+	Pane             string   `json:"pane"`                        // pane index as string
+	PaneIdx          int      `json:"pane_idx"`                    // pane index as int
+	AgentType        string   `json:"agent_type"`                  // claude, codex, gemini
+	State            string   `json:"state"`                       // GENERATING, WAITING, THINKING, ERROR, STALLED, UNKNOWN
+	Confidence       float64  `json:"confidence"`                  // 0.0-1.0
+	Velocity         float64  `json:"velocity"`                    // chars/sec
+	StateSince       string   `json:"state_since,omitempty"`       // RFC3339 timestamp
+	DetectedPatterns []string `json:"detected_patterns,omitempty"` // pattern names that matched
+	LastOutput       string   `json:"last_output,omitempty"`       // RFC3339 timestamp of last output
+}
+
+// ActivitySummary provides aggregate state counts.
+type ActivitySummary struct {
+	TotalAgents int            `json:"total_agents"`
+	ByState     map[string]int `json:"by_state"` // state -> count
+}
+
+// ActivityAgentHints provides actionable hints for AI agents.
+type ActivityAgentHints struct {
+	Summary          string   `json:"summary"`
+	AvailableAgents  []string `json:"available_agents,omitempty"`   // panes in WAITING state
+	BusyAgents       []string `json:"busy_agents,omitempty"`        // panes in GENERATING/THINKING state
+	ProblemAgents    []string `json:"problem_agents,omitempty"`     // panes in ERROR/STALLED state
+	SuggestedActions []string `json:"suggested_actions,omitempty"`
+}
+
+// PrintActivity outputs agent activity state for a session.
+// This is the handler for --robot-activity flag.
+func PrintActivity(opts ActivityOptions) error {
+	if !tmux.SessionExists(opts.Session) {
+		return RobotError(
+			fmt.Errorf("session '%s' not found", opts.Session),
+			ErrCodeSessionNotFound,
+			"Use 'ntm list' to see available sessions",
+		)
+	}
+
+	panes, err := tmux.GetPanes(opts.Session)
+	if err != nil {
+		return RobotError(
+			fmt.Errorf("failed to get panes: %w", err),
+			ErrCodeInternalError,
+			"Check tmux is running and session is accessible",
+		)
+	}
+
+	output := ActivityOutput{
+		RobotResponse: NewRobotResponse(true),
+		Session:       opts.Session,
+		CapturedAt:    time.Now().UTC(),
+		Agents:        make([]AgentActivityInfo, 0, len(panes)),
+		Summary: ActivitySummary{
+			ByState: make(map[string]int),
+		},
+	}
+
+	// Build filter maps
+	paneFilterMap := make(map[string]bool)
+	for _, p := range opts.Panes {
+		paneFilterMap[p] = true
+	}
+	hasPaneFilter := len(paneFilterMap) > 0
+
+	typeFilterMap := make(map[string]bool)
+	for _, t := range opts.AgentTypes {
+		typeFilterMap[normalizeAgentType(t)] = true
+	}
+	hasTypeFilter := len(typeFilterMap) > 0
+
+	// Collect activity data
+	var availableAgents, busyAgents, problemAgents []string
+
+	for _, pane := range panes {
+		paneKey := fmt.Sprintf("%d", pane.Index)
+
+		// Apply pane filter
+		if hasPaneFilter && !paneFilterMap[paneKey] && !paneFilterMap[pane.ID] {
+			continue
+		}
+
+		agentType := detectAgentType(pane.Title)
+
+		// Skip non-agent panes (user, unknown)
+		if agentType == "unknown" || agentType == "user" {
+			continue
+		}
+
+		// Apply type filter
+		if hasTypeFilter && !typeFilterMap[agentType] {
+			continue
+		}
+
+		// Create classifier for this pane
+		classifier := NewStateClassifier(pane.ID, &ClassifierConfig{
+			AgentType: agentType,
+		})
+
+		// Classify current state
+		activity, err := classifier.Classify()
+		if err != nil {
+			// Include with unknown state on error
+			output.Agents = append(output.Agents, AgentActivityInfo{
+				Pane:      paneKey,
+				PaneIdx:   pane.Index,
+				AgentType: agentType,
+				State:     string(StateUnknown),
+				Confidence: 0.0,
+			})
+			output.Summary.ByState[string(StateUnknown)]++
+			continue
+		}
+
+		// Build agent info
+		info := AgentActivityInfo{
+			Pane:             paneKey,
+			PaneIdx:          pane.Index,
+			AgentType:        activity.AgentType,
+			State:            string(activity.State),
+			Confidence:       activity.Confidence,
+			Velocity:         activity.Velocity,
+			DetectedPatterns: activity.DetectedPatterns,
+		}
+
+		if !activity.StateSince.IsZero() {
+			info.StateSince = FormatTimestamp(activity.StateSince)
+		}
+		if !activity.LastOutput.IsZero() {
+			info.LastOutput = FormatTimestamp(activity.LastOutput)
+		}
+
+		output.Agents = append(output.Agents, info)
+
+		// Update summary
+		stateStr := string(activity.State)
+		output.Summary.ByState[stateStr]++
+
+		// Categorize for hints
+		switch activity.State {
+		case StateWaiting:
+			availableAgents = append(availableAgents, paneKey)
+		case StateGenerating, StateThinking:
+			busyAgents = append(busyAgents, paneKey)
+		case StateError, StateStalled:
+			problemAgents = append(problemAgents, paneKey)
+		}
+	}
+
+	output.Summary.TotalAgents = len(output.Agents)
+
+	// Generate agent hints
+	output.AgentHints = generateActivityHints(availableAgents, busyAgents, problemAgents, output.Summary)
+
+	return encodeJSON(output)
+}
+
+// generateActivityHints creates actionable hints based on agent states.
+func generateActivityHints(available, busy, problem []string, summary ActivitySummary) *ActivityAgentHints {
+	hints := &ActivityAgentHints{
+		AvailableAgents: available,
+		BusyAgents:      busy,
+		ProblemAgents:   problem,
+	}
+
+	// Build summary
+	total := summary.TotalAgents
+	availCount := len(available)
+	busyCount := len(busy)
+	problemCount := len(problem)
+
+	if total == 0 {
+		hints.Summary = "No agents found in session"
+		hints.SuggestedActions = []string{"Use --robot-spawn to create agents"}
+		return hints
+	}
+
+	hints.Summary = fmt.Sprintf("%d agents: %d available, %d busy, %d problems",
+		total, availCount, busyCount, problemCount)
+
+	// Generate suggestions
+	if problemCount > 0 {
+		hints.SuggestedActions = append(hints.SuggestedActions,
+			fmt.Sprintf("Check error/stalled agents in panes: %s", strings.Join(problem, ", ")))
+	}
+
+	if availCount > 0 && busyCount == 0 {
+		hints.SuggestedActions = append(hints.SuggestedActions,
+			"All agents idle - ready for new prompts")
+	}
+
+	if availCount == 0 && busyCount > 0 {
+		hints.SuggestedActions = append(hints.SuggestedActions,
+			"All agents busy - wait or use --robot-ack to monitor completion")
+	}
+
+	if availCount > 0 {
+		hints.SuggestedActions = append(hints.SuggestedActions,
+			fmt.Sprintf("Send work to available panes: %s", strings.Join(available, ", ")))
+	}
+
+	return hints
+}
+
+// normalizeAgentType normalizes agent type aliases.
+func normalizeAgentType(t string) string {
+	switch strings.ToLower(t) {
+	case "cc", "claude-code", "claude":
+		return "claude"
+	case "cod", "codex-cli", "codex":
+		return "codex"
+	case "gmi", "gemini-cli", "gemini":
+		return "gemini"
+	default:
+		return strings.ToLower(t)
+	}
+}
