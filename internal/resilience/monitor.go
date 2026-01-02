@@ -15,7 +15,9 @@ import (
 )
 
 // Overridable hooks for tests.
+// Protected by hooksMu for concurrent access from spawned goroutines.
 var (
+	hooksMu          sync.RWMutex
 	sendKeysFn       = tmux.SendKeys
 	buildPaneCmdFn   = tmux.BuildPaneCommand
 	sleepFn          = time.Sleep
@@ -341,8 +343,13 @@ func (m *Monitor) triggerRotationAssistance(session string, paneIndex int, agent
 
 // displayTmuxMessage shows a message in the tmux session
 func displayTmuxMessage(session, msg string) {
+	// Snapshot the function under lock for thread-safe access from spawned goroutines
+	hooksMu.RLock()
+	fn := displayMessageFn
+	hooksMu.RUnlock()
+
 	// tmux display-message shows a message in the status line for 10 seconds
-	if err := displayMessageFn(session, msg, 10000); err != nil {
+	if err := fn(session, msg, 10000); err != nil {
 		log.Printf("[resilience] tmux display-message failed: %v", err)
 	}
 }

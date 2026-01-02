@@ -11,21 +11,34 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/health"
 )
 
-// saveHooks saves all original hooks and returns a restore function
+// saveHooks saves all original hooks and returns a restore function.
+// Uses hooksMu to synchronize with spawned goroutines that read hooks.
 func saveHooks() func() {
+	hooksMu.Lock()
 	origSend := sendKeysFn
 	origBuild := buildPaneCmdFn
 	origSleep := sleepFn
 	origCheckSession := checkSessionFn
 	origDisplayMessage := displayMessageFn
+	hooksMu.Unlock()
 
 	return func() {
+		hooksMu.Lock()
 		sendKeysFn = origSend
 		buildPaneCmdFn = origBuild
 		sleepFn = origSleep
 		checkSessionFn = origCheckSession
 		displayMessageFn = origDisplayMessage
+		hooksMu.Unlock()
 	}
+}
+
+// setHooksLocked executes the provided function under hooksMu write lock.
+// Use this to safely set hook functions in tests.
+func setHooksLocked(fn func()) {
+	hooksMu.Lock()
+	defer hooksMu.Unlock()
+	fn()
 }
 
 func TestRestartAgentUsesBuiltPaneCommandAndSendKeys(t *testing.T) {
@@ -347,24 +360,26 @@ func TestCheckHealthDetectsRateLimit(t *testing.T) {
 	restore := saveHooks()
 	defer restore()
 
-	checkSessionFn = func(session string) (*health.SessionHealth, error) {
-		return &health.SessionHealth{
-			Session: session,
-			Agents: []health.AgentHealth{
-				{
-					PaneID:        "pane-1",
-					Status:        health.StatusWarning,
-					ProcessStatus: health.ProcessRunning,
-					RateLimited:   true,
-					WaitSeconds:   60,
+	setHooksLocked(func() {
+		checkSessionFn = func(session string) (*health.SessionHealth, error) {
+			return &health.SessionHealth{
+				Session: session,
+				Agents: []health.AgentHealth{
+					{
+						PaneID:        "pane-1",
+						Status:        health.StatusWarning,
+						ProcessStatus: health.ProcessRunning,
+						RateLimited:   true,
+						WaitSeconds:   60,
+					},
 				},
-			},
-		}, nil
-	}
+			}, nil
+		}
 
-	displayMessageFn = func(session, msg string, durationMs int) error {
-		return nil
-	}
+		displayMessageFn = func(session, msg string, durationMs int) error {
+			return nil
+		}
+	})
 
 	cfg := config.Default()
 	cfg.Resilience.RateLimit.Detect = true
@@ -679,12 +694,14 @@ func TestDisplayTmuxMessage(t *testing.T) {
 
 	var capturedSession, capturedMsg string
 	var capturedDuration int
-	displayMessageFn = func(session, msg string, durationMs int) error {
-		capturedSession = session
-		capturedMsg = msg
-		capturedDuration = durationMs
-		return nil
-	}
+	setHooksLocked(func() {
+		displayMessageFn = func(session, msg string, durationMs int) error {
+			capturedSession = session
+			capturedMsg = msg
+			capturedDuration = durationMs
+			return nil
+		}
+	})
 
 	displayTmuxMessage("test-session", "Hello World")
 
@@ -703,9 +720,11 @@ func TestDisplayTmuxMessageError(t *testing.T) {
 	restore := saveHooks()
 	defer restore()
 
-	displayMessageFn = func(session, msg string, durationMs int) error {
-		return fmt.Errorf("tmux error")
-	}
+	setHooksLocked(func() {
+		displayMessageFn = func(session, msg string, durationMs int) error {
+			return fmt.Errorf("tmux error")
+		}
+	})
 
 	// Should not panic
 	displayTmuxMessage("test-session", "Hello")
@@ -715,11 +734,16 @@ func TestHandleRateLimitTriggersRotationAssistance(t *testing.T) {
 	restore := saveHooks()
 	defer restore()
 
+	var mu sync.Mutex
 	var displayCalled bool
-	displayMessageFn = func(session, msg string, durationMs int) error {
-		displayCalled = true
-		return nil
-	}
+	setHooksLocked(func() {
+		displayMessageFn = func(session, msg string, durationMs int) error {
+			mu.Lock()
+			displayCalled = true
+			mu.Unlock()
+			return nil
+		}
+	})
 
 	cfg := config.Default()
 	cfg.Resilience.RateLimit.Detect = true
@@ -736,7 +760,10 @@ func TestHandleRateLimitTriggersRotationAssistance(t *testing.T) {
 	// Give async goroutine time to run
 	time.Sleep(100 * time.Millisecond)
 
-	if !displayCalled {
+	mu.Lock()
+	called := displayCalled
+	mu.Unlock()
+	if !called {
 		t.Error("expected tmux message to be displayed for rotation assistance")
 	}
 }
@@ -746,10 +773,12 @@ func TestTriggerRotationAssistanceWithNotifier(t *testing.T) {
 	defer restore()
 
 	var displayCalled bool
-	displayMessageFn = func(session, msg string, durationMs int) error {
-		displayCalled = true
-		return nil
-	}
+	setHooksLocked(func() {
+		displayMessageFn = func(session, msg string, durationMs int) error {
+			displayCalled = true
+			return nil
+		}
+	})
 
 	cfg := config.Default()
 	cfg.Notifications.Enabled = true
@@ -769,10 +798,12 @@ func TestTriggerRotationAssistanceEmptySession(t *testing.T) {
 	defer restore()
 
 	var displayCalled bool
-	displayMessageFn = func(session, msg string, durationMs int) error {
-		displayCalled = true
-		return nil
-	}
+	setHooksLocked(func() {
+		displayMessageFn = func(session, msg string, durationMs int) error {
+			displayCalled = true
+			return nil
+		}
+	})
 
 	cfg := config.Default()
 	m := NewMonitor("", "/tmp/project", cfg)
