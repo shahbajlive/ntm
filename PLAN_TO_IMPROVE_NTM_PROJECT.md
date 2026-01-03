@@ -22,6 +22,37 @@ This plan outlines strategic improvements to elevate **NTM** from a capable powe
 
 ---
 
+## Design Invariants, Non-Goals, and Risks
+
+### Design Invariants (must always hold)
+
+1. **No silent data loss**: NTM must never cause untracked destructive actions without explicit, recorded approval.
+2. **Graceful degradation**: If any external tool is missing/unhealthy, NTM continues with reduced capability and clear warnings.
+3. **Idempotent orchestration**: Spawning, reserving, assigning, and messaging should be safe to retry without duplicating work.
+4. **Recoverable state**: NTM must be able to re-attach to an existing session after crash/restart.
+5. **Auditable actions**: Critical actions (reservations, releases, force-releases, blocked commands, approvals) are logged with correlation IDs.
+6. **Safe-by-default**: Risky automation (auto-push, force-release, destructive commands) is opt-in and policy-gated.
+
+### Non-Goals (explicitly out of scope for v1.x)
+
+- Replacing IDEs/editors or becoming a full CI/CD system
+- Multi-user remote orchestration over the internet (local-first only)
+- A custom agent runtime (NTM orchestrates existing agent CLIs)
+
+### Risk Register (what can break the system)
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|------------|--------|------------|
+| External tool version drift (macros change, JSON schema shifts) | High | High | Tool Adapter layer with capability detection + schema guards |
+| Daemon lifecycle flakiness (ports, orphaned processes) | Medium | High | Supervisor with PID files, health checks, restart policies |
+| Partial failures in multi-step workflows | Medium | High | Transaction-like patterns with rollback, correlation IDs |
+| Over-aggressive automation (auto-push, force-release) | Medium | Critical | Policy-gated, disabled by default, requires approval |
+| Policy bypass (agents ignoring hooks, PATH issues) | Low | Critical | Provider-agnostic PATH wrappers, not just Claude hooks |
+| State loss on crash | Medium | Medium | Durable state store (SQLite) + event log |
+| Race conditions in file reservations | Low | Medium | Database-backed reservations with proper locking |
+
+---
+
 ## Table of Contents
 
 ### Part I: Foundation
@@ -96,33 +127,33 @@ This plan outlines strategic improvements to elevate **NTM** from a capable powe
 ### Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        NTM Core                                   │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │  CLI Layer   │  │  TUI Layer   │  │ Robot Layer  │          │
-│  │  (commands)  │  │  (bubbletea) │  │  (JSON API)  │          │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘          │
-│         │                 │                 │                   │
-│         └─────────────────┼─────────────────┘                   │
-│                           │                                     │
-│  ┌────────────────────────▼─────────────────────────────────┐   │
-│  │                    Session Manager                        │   │
-│  │  - Spawn/kill tmux sessions                               │   │
-│  │  - Manage agent panes                                     │   │
-│  │  - Track agent state                                      │   │
-│  └────────────────────────┬─────────────────────────────────┘   │
-│                           │                                     │
-│  ┌────────────────────────▼─────────────────────────────────┐   │
-│  │                     tmux Backend                          │   │
-│  │  - CreateSession, KillSession                             │   │
-│  │  - GetPanes, CapturePaneOutput                            │   │
-│  │  - SendKeys                                               │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                          NTM Control Plane                            │
+├──────────────────────────────────────────────────────────────────────┤
+│  State Store (SQLite)    Scheduler/Coordinator   Policy/Safety Gates  │
+│  Event Log + Event Bus   Task/Reservation FSM    Audits + Approvals   │
+├──────────────────────────────────────────────────────────────────────┤
+│                            NTM API Surface                            │
+│                CLI  |  TUI  |  Robot JSON  |  Web UI (ntm serve)      │
+└──────────────────────────────────────────────────────────────────────┘
+                  ▲                          ▲
+                  │ (events)                 │ (commands)
+                  │                          │
+┌─────────────────┴──────────────────────────┴──────────────────────────┐
+│                              Data Plane                                │
+├──────────────────────────────────────────────────────────────────────┤
+│ tmux adapter   Agent adapters    Tool adapters     Daemon supervisor   │
+│ (panes)        (cc/cod/gmi)      (am/bv/bd/cm/...) (cm serve/bd daemon)│
+└──────────────────────────────────────────────────────────────────────┘
 ```
+
+**Key Architecture Principle**: Everything important is an **event** (spawned, assigned, reserved, blocked, completed…). UIs and automations consume the same event stream; no duplicated logic.
+
+**Why Control Plane / Data Plane separation**:
+- **Better testability**: Mock events + mock adapters
+- **Better resilience**: Restart + replay events to rebuild state
+- **Cleaner integration surfaces**: Each tool gets an adapter
+- **Easier dashboard**: Subscribe to events, don't poll repeatedly
 
 ### Key Source Files
 
@@ -137,6 +168,11 @@ This plan outlines strategic improvements to elevate **NTM** from a capable powe
 | `internal/context/` | Context window tracking |
 | `internal/pipeline/` | Multi-stage pipeline execution |
 | `internal/agentmail/` | Agent Mail client integration |
+| `internal/tools/` | **NEW**: Tool adapter interfaces, capability detection, schema/version guards |
+| `internal/supervisor/` | **NEW**: Daemon lifecycle manager (start/stop/health/restart/log capture) |
+| `internal/events/` | **NEW**: Event bus + event log + subscriptions for CLI/TUI/web |
+| `internal/state/` | **NEW**: Durable state store (sessions, agents, tasks, reservations, messages) |
+| `internal/policy/` | **NEW**: Safety policy enforcement, approval workflows |
 
 ---
 
@@ -280,6 +316,7 @@ The tools form a closed-loop learning system where each cycle compounds:
 | **Session Coordinator** | ❌ **CRITICAL** | Zero | Intelligence layer missing |
 | **BD Message Integration** | ❌ **CRITICAL** | Zero | bd message commands unused |
 | **BD Daemon Mode** | ❌ **CRITICAL** | Zero | Background sync not used |
+| **BV -robot-markdown** | ❌ **CRITICAL** | Zero | Large token waste for smaller-context agents |
 | **UBS** | ✅ Implemented | Production | Dashboard/notifications missing |
 | **bv (basic)** | ⚠️ Minimal | PoC | Only 4 of 41 robot modes used |
 | **Agent Mail (basic)** | ⚠️ Minimal | PoC | Macros, reservations unused |
@@ -368,7 +405,7 @@ inbox, err := fetchInbox(ctx, projectKey, agent.Name)
 if err != nil { return err }
 ```
 
-### The Solution: macro_start_session
+### The Solution: macro_start_session (with capability-gated fallback)
 
 Agent Mail provides a **one-call macro** that does everything:
 
@@ -385,6 +422,11 @@ result, err := macroStartSession(ctx, MacroStartSessionOptions{
 })
 // Returns: project + agent + reservations + inbox in one response
 ```
+
+**Fallback Policy**:
+- If Agent Mail does not support the macro (older version), NTM automatically falls back to the 4–5 legacy calls.
+- Tool version + capability detection is performed once per session and cached.
+- This ensures graceful degradation (Design Invariant #2).
 
 ### All Four Macros
 
@@ -599,6 +641,18 @@ ntm spawn myproject --cc=1 --thread=FEAT-123
 
 # Cross-project agent coordination
 ntm contact myproject/GreenLake other-project/BlueDog --reason="Need review help"
+
+# Project onboarding & diagnostics
+ntm init                 # Sets up .ntm/, policy defaults, wrappers, optional hooks
+ntm doctor               # Validates tools, versions, daemons, capabilities, tmux health
+
+# Local API server for dashboard + robot endpoints
+ntm serve --port 7337    # Starts HTTP server with WebSocket event streaming
+
+# Config profiles
+ntm config show
+ntm config set scheduler.preferCriticalPath=true
+ntm config set safety.autoInstallWrappers=true
 ```
 
 ---
@@ -647,13 +701,23 @@ Agent Mail provides advisory file locks that NTM completely ignores:
 │     └─────────────────────────────────────────────────────────┘ │
 │              │                                                   │
 │              ▼                                                   │
-│  3. RELEASE (after work complete)                                │
+│  3. RENEW (heartbeat while work is active)                       │
 │     ┌─────────────────────────────────────────────────────────┐ │
-│     │ releaseReservations(project, agent)                      │ │
+│     │ renewReservations(project, agent, reservationIds, ttl)   │ │
+│     │ - Called periodically while agent is working             │ │
+│     │ - Extends TTL without re-acquiring                       │ │
+│     │ - Correlation ID links to task                           │ │
 │     └─────────────────────────────────────────────────────────┘ │
 │              │                                                   │
 │              ▼                                                   │
-│  4. FORCE-RELEASE (if agent crashes)                             │
+│  4. RELEASE (after work complete)                                │
+│     ┌─────────────────────────────────────────────────────────┐ │
+│     │ releaseReservations(project, agent)                      │ │
+│     │ - Task-scoped: release only what this task acquired      │ │
+│     └─────────────────────────────────────────────────────────┘ │
+│              │                                                   │
+│              ▼                                                   │
+│  5. FORCE-RELEASE (if agent crashes; policy-gated)               │
 │     ┌─────────────────────────────────────────────────────────┐ │
 │     │ forceReleaseReservation(project, admin, reservationId)  │ │
 │     │ - Validates agent is inactive                            │ │
@@ -788,7 +852,14 @@ func OnSessionEnd(ctx context.Context, session string) error {
 }
 ```
 
-### Integration 3: Force-Release Stale Reservations
+### Integration 3: Force-Release Stale Reservations (with approvals)
+
+**Revision**:
+- Force-release is **approval_required** by default (policy-gated).
+- The coordinator must record:
+  - Why it believes the agent is inactive
+  - Which task/reservation it belongs to (correlation_id)
+  - Who approved the force-release (human or SLB)
 
 ```go
 // internal/monitor/stale.go - NEW FILE
@@ -797,6 +868,7 @@ type StaleReservationMonitor struct {
     session       string
     checkInterval time.Duration
     staleTimeout  time.Duration
+    policyChecker *policy.Checker
 }
 
 func NewStaleReservationMonitor(session string) *StaleReservationMonitor {
@@ -1027,8 +1099,24 @@ type TriageResult struct {
     } `json:"suggestions"`
 }
 
-// GetTriage fetches complete triage data in one call
+// Caching layer for bv triage results
+var (
+    triageCache     *TriageResult
+    triageCacheTime time.Time
+    triageCacheTTL  = 30 * time.Second  // Don't call bv every tick
+    triageCacheMu   sync.Mutex
+)
+
+// GetTriage fetches complete triage data in one call (with caching)
 func GetTriage(ctx context.Context) (*TriageResult, error) {
+    triageCacheMu.Lock()
+    defer triageCacheMu.Unlock()
+
+    // Return cached result if fresh
+    if triageCache != nil && time.Since(triageCacheTime) < triageCacheTTL {
+        return triageCache, nil
+    }
+
     cmd := exec.CommandContext(ctx, "bv", "-robot-triage", "--json")
     out, err := cmd.Output()
     if err != nil {
@@ -1039,7 +1127,19 @@ func GetTriage(ctx context.Context) (*TriageResult, error) {
     if err := json.Unmarshal(out, &result); err != nil {
         return nil, err
     }
+
+    // Cache the result
+    triageCache = &result
+    triageCacheTime = time.Now()
+
     return &result, nil
+}
+
+// InvalidateTriageCache should be called on bd sync events
+func InvalidateTriageCache() {
+    triageCacheMu.Lock()
+    triageCache = nil
+    triageCacheMu.Unlock()
 }
 
 // GetTriageByLabel groups work by label for specialized assignment
@@ -1266,7 +1366,117 @@ cm serve --port 8765 --host 127.0.0.1
 | **Stale Rules** | `cm stale` | Rules without recent feedback | ❌ Unused |
 | **Rule Provenance** | `cm why` | Rule origin tracing | ❌ Unused |
 
-### Integration 1: Launch CM Daemon
+### Integration 1: Launch CM Daemon (under NTM Supervisor)
+
+**Revision**: CM should be started/stopped by a shared `internal/supervisor/` component that:
+- Chooses an available port (or reuses an existing healthy daemon)
+- Writes a PID file under `.ntm/pids/cm-<session>.pid`
+- Streams stdout/stderr to `.ntm/logs/cm-<session>.log`
+- Restarts with exponential backoff if health checks fail
+- Records daemon health in the state store
+
+```go
+// internal/supervisor/supervisor.go - NEW FILE
+
+type DaemonSpec struct {
+    Name        string   // "cm", "bd"
+    Command     string   // "cm", "bd"
+    Args        []string // ["serve", "--port", "8765"]
+    HealthURL   string   // "http://127.0.0.1:8765/health"
+    PortFlag    string   // "--port"
+    DefaultPort int
+}
+
+type Supervisor struct {
+    session    string
+    projectDir string
+    daemons    map[string]*ManagedDaemon
+    mu         sync.Mutex
+}
+
+type ManagedDaemon struct {
+    spec       DaemonSpec
+    cmd        *exec.Cmd
+    port       int
+    pid        int
+    logFile    *os.File
+    restarts   int
+    lastStart  time.Time
+    healthy    bool
+}
+
+func (s *Supervisor) Start(ctx context.Context, spec DaemonSpec) (*ManagedDaemon, error) {
+    s.mu.Lock()
+    defer s.mu.Unlock()
+
+    // Check if already running
+    if existing, ok := s.daemons[spec.Name]; ok && existing.healthy {
+        return existing, nil
+    }
+
+    // Find available port
+    port := findAvailablePort(spec.DefaultPort)
+
+    // Prepare log file (absolute path)
+    logDir := filepath.Join(s.projectDir, ".ntm", "logs")
+    os.MkdirAll(logDir, 0755)
+    logPath := filepath.Join(logDir, fmt.Sprintf("%s-%s.log", spec.Name, s.session))
+    logFile, _ := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+
+    // Build args with port
+    args := append(spec.Args, spec.PortFlag, strconv.Itoa(port))
+
+    cmd := exec.CommandContext(ctx, spec.Command, args...)
+    cmd.Stdout = logFile
+    cmd.Stderr = logFile
+
+    if err := cmd.Start(); err != nil {
+        return nil, err
+    }
+
+    // Write PID file
+    pidDir := filepath.Join(s.projectDir, ".ntm", "pids")
+    os.MkdirAll(pidDir, 0755)
+    pidPath := filepath.Join(pidDir, fmt.Sprintf("%s-%s.pid", spec.Name, s.session))
+    os.WriteFile(pidPath, []byte(strconv.Itoa(cmd.Process.Pid)), 0644)
+
+    daemon := &ManagedDaemon{
+        spec:      spec,
+        cmd:       cmd,
+        port:      port,
+        pid:       cmd.Process.Pid,
+        logFile:   logFile,
+        lastStart: time.Now(),
+    }
+
+    // Wait for health
+    healthURL := strings.Replace(spec.HealthURL, strconv.Itoa(spec.DefaultPort), strconv.Itoa(port), 1)
+    daemon.healthy = waitForHealth(ctx, healthURL, 5*time.Second)
+
+    s.daemons[spec.Name] = daemon
+    return daemon, nil
+}
+
+func (s *Supervisor) Stop(name string) error {
+    s.mu.Lock()
+    defer s.mu.Unlock()
+
+    if daemon, ok := s.daemons[name]; ok {
+        daemon.logFile.Close()
+        if daemon.cmd.Process != nil {
+            daemon.cmd.Process.Kill()
+        }
+        delete(s.daemons, name)
+    }
+    return nil
+}
+```
+
+**Shutdown policy**:
+- If daemon was started by NTM for this session, stop it on session end.
+- If daemon existed before (different PID owner), do not kill it; only disconnect.
+
+Now the CM-specific client:
 
 ```go
 // internal/cm/daemon.go - NEW FILE
@@ -1494,7 +1704,88 @@ A real incident: An agent ran `git checkout --` and **erased hours of another ag
 
 Instructions in AGENTS.md say "don't run destructive commands" but agents can violate instructions.
 
-### The Solution: Mechanical Enforcement via Hooks
+### The Solution: Provider-Agnostic Enforcement + Policy Gates
+
+**Revision**: Keep Claude Code hooks, but also add a provider-agnostic layer so Codex/Gemini panes are protected too.
+
+#### Safety Policy File (repo-local)
+
+NTM manages a policy file at `.ntm/policy.yaml`:
+
+```yaml
+# .ntm/policy.yaml - Safety policy for NTM sessions
+version: 1
+
+# Commands that are always blocked (no override possible)
+blocked:
+  - pattern: "git reset --hard"
+    reason: "Hard reset loses commits"
+  - pattern: "git checkout --"
+    reason: "Discards uncommitted changes"
+  - pattern: "git clean -f"
+    reason: "Force clean deletes files"
+  - pattern: "rm -rf /"
+    reason: "System destruction"
+
+# Commands that require human or SLB approval
+approval_required:
+  - pattern: "git push --force"
+    reason: "Force push rewrites history"
+  - pattern: "git push -f"
+    reason: "Force push rewrites history"
+  - pattern: "rm -rf"
+    reason: "Recursive delete requires approval"
+    exceptions:
+      - "/tmp/*"
+      - ".ntm/cache/*"
+
+# Commands that are explicitly allowed (bypass checks)
+allowed:
+  - pattern: "git checkout -b"
+    reason: "Create branch is safe"
+  - pattern: "git restore --staged"
+    reason: "Unstage is safe"
+  - pattern: "rm -rf /tmp/"
+    reason: "Temp cleanup is safe"
+
+# Automation settings
+automation:
+  auto_push: false          # --auto-push disabled by default (CRITICAL)
+  force_release: approval   # Force-release requires approval
+  auto_commit: true         # Auto-commit is safe
+```
+
+#### PATH-based Wrappers (covers all agent tools)
+
+During spawn, NTM prepends `.ntm/bin` to PATH inside each tmux pane and installs lightweight wrappers:
+
+```bash
+# .ntm/bin/git - Wrapper that checks policy before executing real git
+#!/bin/bash
+POLICY_FILE="${POLICY_FILE:-$PWD/.ntm/policy.yaml}"
+NTM_LOG="${NTM_LOG:-$PWD/.ntm/logs/blocked.jsonl}"
+
+check_blocked() {
+    local cmd="$*"
+    # Check against policy (simplified - real impl uses yq or Go binary)
+    if echo "$cmd" | grep -qE "(reset --hard|checkout --|clean -f)"; then
+        echo "🛑 BLOCKED by NTM policy" >&2
+        echo "{\"ts\":\"$(date -Iseconds)\",\"cmd\":\"$cmd\",\"blocked\":true}" >> "$NTM_LOG"
+        exit 1
+    fi
+    if echo "$cmd" | grep -qE "(push --force|push -f)" && [ "$NTM_APPROVED" != "1" ]; then
+        echo "⚠️  APPROVAL REQUIRED: Run 'ntm approve' or set NTM_APPROVED=1" >&2
+        exit 1
+    fi
+}
+
+check_blocked "$@"
+exec /usr/bin/git "$@"
+```
+
+This ensures safety even if a provider ignores hook systems.
+
+#### Claude Code Hooks (Enhanced)
 
 Claude Code's `PreToolUse` hook system can **mechanically block** commands before execution:
 
@@ -1916,10 +2207,13 @@ func (c *SessionCoordinator) SendDigestToHuman(ctx context.Context) error {
 
     body := formatDigestMarkdown(digest)
 
+    // "Human" is a reserved Agent Mail identity that routes to configured notification channels
+    // (Slack, email, desktop notification) based on .ntm/config.yaml settings.
+    // If no Human identity is configured, messages are logged to .ntm/human_inbox/
     return c.mailClient.SendMessage(ctx, agentmail.MessageOptions{
         ProjectKey: c.projectPath,
         SenderName: c.agentName,
-        To:         []string{"Human"},  // Special recipient
+        To:         []string{"Human"},  // Reserved: routes to human notification channels
         Subject:    fmt.Sprintf("Session %s Digest - %s", c.session, time.Now().Format("15:04")),
         BodyMD:     body,
         Importance: "normal",
@@ -2013,15 +2307,19 @@ func (c *SessionCoordinator) AssignWork(ctx context.Context) error {
         return err
     }
 
-    // Match work to agents
-    for i, agent := range idleAgents {
-        if i >= len(triage.Priority) {
-            break // No more work
-        }
+    // Revised: Score-based assignment (capability + file overlap + critical path)
+    assignments := ScoreAndSelectAssignments(idleAgents, triage, ScoreConfig{
+        PreferCriticalPath:  true,
+        PenalizeFileOverlap: true,
+        UseAgentProfiles:    true,
+        BudgetAware:         true,
+    })
 
-        work := triage.Priority[i]
+    for _, a := range assignments {
+        agent := a.Agent
+        work := a.Work
 
-        // Reserve files
+        // Predict files + penalize overlap with other active tasks
         files := predictAffectedFiles(work)
         reservations, _ := c.mailClient.ReservePaths(ctx, agentmail.FileReservationOptions{
             ProjectKey: c.projectPath,
@@ -2184,11 +2482,13 @@ func (c *BDMessageClient) Ack(ctx context.Context, msgID string) error {
 ```go
 // internal/messaging/unified.go - NEW FILE
 
-// UnifiedMessenger combines Agent Mail and BD messaging
+// UnifiedMessenger combines Agent Mail and BD messaging into a canonical event stream
 type UnifiedMessenger struct {
-    agentMail *agentmail.Client
-    bdMessage *bd.BDMessageClient
-    preferred string // "agentmail" or "bd"
+    agentMail     *agentmail.Client
+    bdMessage     *bd.BDMessageClient
+    preferred     string // "agentmail" or "bd"
+    stateStore    *state.Store
+    seenMessages  map[string]bool // Dedupe key: channel/message_id
 }
 
 func NewUnifiedMessenger(projectPath, agentName string, preferred string) *UnifiedMessenger {
@@ -2213,24 +2513,60 @@ func (m *UnifiedMessenger) Send(ctx context.Context, to, subject, body string) e
     }
 }
 
-// InboxAll retrieves messages from all channels
+// InboxAll retrieves messages from all channels, normalizes, dedupes, and stores them
 func (m *UnifiedMessenger) InboxAll(ctx context.Context) ([]Message, error) {
     var all []Message
 
     // Agent Mail
     amMsgs, _ := m.agentMail.FetchInbox(ctx, agentmail.InboxOptions{Limit: 50})
-    all = append(all, convertAMMessages(amMsgs)...)
+    for _, msg := range convertAMMessages(amMsgs) {
+        dedupeKey := fmt.Sprintf("agentmail/%d", msg.ID)
+        if !m.seenMessages[dedupeKey] {
+            m.seenMessages[dedupeKey] = true
+            msg.Channel = "agentmail"
+            msg.CorrelationID = msg.ThreadID // Link to task if known
+            all = append(all, msg)
+        }
+    }
 
     // BD Messages
     bdMsgs, _ := m.bdMessage.Inbox(ctx, false, false)
-    all = append(all, bdMsgs...)
+    for _, msg := range bdMsgs {
+        dedupeKey := fmt.Sprintf("bd/%s", msg.ID)
+        if !m.seenMessages[dedupeKey] {
+            m.seenMessages[dedupeKey] = true
+            msg.Channel = "bd"
+            all = append(all, msg)
+        }
+    }
 
-    // Sort by timestamp
+    // Store in state store so UIs can be event-driven instead of polling
+    for _, msg := range all {
+        m.stateStore.UpsertMessage(msg)
+    }
+
+    // Sort by timestamp (stable)
     sort.Slice(all, func(i, j int) bool {
         return all[i].Timestamp.After(all[j].Timestamp)
     })
 
     return all, nil
+}
+
+// Canonical Message Schema
+type Message struct {
+    ID            string    `json:"id"`
+    Channel       string    `json:"channel"`       // "agentmail" or "bd"
+    From          string    `json:"from"`
+    To            []string  `json:"to"`
+    Subject       string    `json:"subject"`
+    Body          string    `json:"body"`
+    Timestamp     time.Time `json:"timestamp"`
+    ThreadID      string    `json:"thread_id,omitempty"`
+    CorrelationID string    `json:"correlation_id,omitempty"` // Links to task/reservation
+    Importance    string    `json:"importance"`
+    Read          bool      `json:"read"`
+    Acknowledged  bool      `json:"acknowledged"`
 }
 ```
 
@@ -2267,8 +2603,13 @@ bd sync  # Developer must remember to run this
 
 ```bash
 # BD has a daemon mode that NTM ignores
-bd daemon --start --auto-commit --auto-push --interval 5s --health --metrics --json
+bd daemon --start --auto-commit --interval 5s --health --metrics --json
 ```
+
+**Policy change**: `--auto-push` is **disabled by default** and requires:
+- Explicit CLI flag (`--allow-auto-push`)
+- Policy permission in `.ntm/policy.yaml` (see Destructive Command Protection)
+- Recorded approval (human or SLB gate)
 
 ### Integration: Auto-Start Daemon
 
@@ -2435,21 +2776,137 @@ func searchHistoricalContext(task string, limit int) (*HistoricalContext, error)
     return &ctx, nil
 }
 
-// enrichPromptWithHistory adds historical context to a task prompt
-func enrichPromptWithHistory(prompt string, historyLimit int) (string, error) {
-    ctx, err := searchHistoricalContext(prompt, historyLimit)
-    if err != nil {
-        return prompt, err
+// Revision: Context Pack builder composes CASS + CM + bv + s2p
+// and enforces token budgets per agent type.
+//
+// Output is a single artifact stored in state store and referenced by correlation_id.
+
+type ContextPack struct {
+    ID           string            `json:"id"`
+    BeadID       string            `json:"bead_id"`
+    AgentType    string            `json:"agent_type"`
+    CreatedAt    time.Time         `json:"created_at"`
+    TokenCount   int               `json:"token_count"`
+
+    // Components
+    Triage       *bv.TriageResult  `json:"triage,omitempty"`
+    CMRules      []cm.Rule         `json:"cm_rules,omitempty"`
+    CASSHistory  []CASSMatch       `json:"cass_history,omitempty"`
+    S2PContext   string            `json:"s2p_context,omitempty"`
+
+    // Rendered
+    RenderedPrompt string          `json:"rendered_prompt"`
+}
+
+// BuildContextPack composes all context sources into a single artifact
+func BuildContextPack(ctx context.Context, task string, beadID string, agentType string) (*ContextPack, error) {
+    pack := &ContextPack{
+        ID:        fmt.Sprintf("ctx-%s-%d", beadID, time.Now().UnixNano()),
+        BeadID:    beadID,
+        AgentType: agentType,
+        CreatedAt: time.Now(),
     }
 
-    historicalSection := formatHistoricalPrompt(ctx)
-    if historicalSection == "" {
-        return prompt, nil
+    // Token budgets by agent type
+    budgets := map[string]int{
+        "claude": 180000,
+        "codex":  120000,
+        "gemini": 100000,
+    }
+    budget := budgets[agentType]
+
+    // 1) BV triage/impact (10% of budget)
+    pack.Triage, _ = bv.GetTriage(ctx)
+
+    // 2) CM rules via daemon (5% of budget)
+    if cmClient != nil {
+        result, _ := cmClient.GetContext(ctx, task)
+        pack.CMRules = result.RelevantBullets
     }
 
-    return fmt.Sprintf("%s\n---\n\n%s", historicalSection, prompt), nil
+    // 3) CASS history - hybrid search (15% of budget)
+    pack.CASSHistory, _ = searchHistoricalContext(task, 5)
+
+    // 4) S2P file context (remaining budget)
+    files := predictAffectedFiles(bv.BeadPreview{ID: beadID, Title: task})
+    pack.S2PContext, _ = prepareContext(files, budget*70/100)
+
+    // 5) Render via per-agent template
+    pack.RenderedPrompt = renderContextTemplate(pack, agentType)
+    pack.TokenCount = estimateTokens(pack.RenderedPrompt)
+
+    // 6) Cache by (repo_rev, beadID, agentType)
+    cacheContextPack(pack)
+
+    return pack, nil
 }
 ```
+
+---
+
+## HIGH-LEVERAGE: Workspace Isolation via Git Worktrees
+
+### Motivation
+
+File reservations prevent many conflicts, but Git worktrees **dramatically reduce blast radius**:
+- Agents can safely operate in parallel even on overlapping files
+- Destructive commands are isolated to one worktree
+- Coordinator can merge work on clean boundaries
+- Live conflicts become merge-time conflicts (much safer)
+
+### Integration: Per-Agent Worktrees
+
+On spawn with `--worktrees`, create:
+`.ntm/worktrees/<agentName>/` on branch `ntm/<session>/<agentName>`
+
+```go
+// internal/worktrees/worktrees.go - NEW FILE
+
+type WorktreeManager struct {
+    projectPath string
+    session     string
+}
+
+func (m *WorktreeManager) CreateForAgent(agentName string) (string, error) {
+    worktreePath := filepath.Join(m.projectPath, ".ntm", "worktrees", agentName)
+    branchName := fmt.Sprintf("ntm/%s/%s", m.session, agentName)
+
+    // Create branch from current HEAD
+    cmd := exec.Command("git", "worktree", "add", "-b", branchName, worktreePath)
+    cmd.Dir = m.projectPath
+    if err := cmd.Run(); err != nil {
+        return "", err
+    }
+
+    return worktreePath, nil
+}
+
+func (m *WorktreeManager) Cleanup() error {
+    worktreesPath := filepath.Join(m.projectPath, ".ntm", "worktrees")
+    entries, _ := os.ReadDir(worktreesPath)
+    for _, e := range entries {
+        wtPath := filepath.Join(worktreesPath, e.Name())
+        exec.Command("git", "worktree", "remove", wtPath).Run()
+    }
+    return nil
+}
+```
+
+### New Commands
+
+```bash
+ntm spawn myproject --cc=3 --worktrees   # Each agent gets isolated worktree
+ntm worktrees list                        # List active worktrees
+ntm worktrees merge GreenLake             # Merge agent's work back
+ntm worktrees clean --session myproject   # Cleanup all worktrees
+```
+
+### Interaction with Reservations
+
+With worktrees enabled:
+- Reservations become "soft coordination" rather than "hard safety"
+- Coordinator uses reservations to reduce merge conflicts, not to prevent live overwrites
+- Agents can work on same files; merge happens at commit boundaries
 
 ---
 
@@ -2534,6 +2991,107 @@ llm_price_arena, project_to_jsonl, repo_to_llm_prompt, etc.
 
 ---
 
+## Foundations: Durable State + Event Log
+
+### Why This Is Required for Reliability
+
+NTM currently "knows" everything by actively polling tmux and tools. That fails hard if:
+- NTM crashes
+- The terminal closes
+- A daemon is restarted
+- Tool output changes or is temporarily unavailable
+
+A durable store enables:
+- **Resume / re-attach** to sessions after crash
+- **Dashboard** built on stored state (not constant polling)
+- **Auditability** (who force-released what, with correlation IDs)
+- **Performance** (cache tool responses; store last-known states)
+
+### State Store Schema (SQLite)
+
+NTM should store all orchestration-critical data in a local durable store:
+
+```sql
+-- Sessions
+CREATE TABLE sessions (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    project_path TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    status TEXT NOT NULL  -- active, paused, terminated
+);
+
+-- Agents
+CREATE TABLE agents (
+    id TEXT PRIMARY KEY,
+    session_id TEXT REFERENCES sessions(id),
+    name TEXT NOT NULL,  -- e.g., "GreenLake"
+    type TEXT NOT NULL,  -- cc, cod, gmi
+    model TEXT,
+    tmux_pane_id TEXT,
+    last_seen TIMESTAMP,
+    status TEXT NOT NULL  -- idle, working, error, crashed
+);
+
+-- Tasks/Assignments
+CREATE TABLE tasks (
+    id TEXT PRIMARY KEY,
+    session_id TEXT REFERENCES sessions(id),
+    agent_id TEXT REFERENCES agents(id),
+    bead_id TEXT,
+    correlation_id TEXT,  -- Links to reservations, messages
+    status TEXT NOT NULL,
+    created_at TIMESTAMP,
+    completed_at TIMESTAMP
+);
+
+-- Reservations
+CREATE TABLE reservations (
+    id INTEGER PRIMARY KEY,
+    session_id TEXT REFERENCES sessions(id),
+    agent_id TEXT REFERENCES agents(id),
+    path_pattern TEXT NOT NULL,
+    exclusive BOOLEAN NOT NULL,
+    correlation_id TEXT,
+    expires_at TIMESTAMP,
+    released_at TIMESTAMP,
+    force_released_by TEXT
+);
+
+-- Tool Health Snapshots
+CREATE TABLE tool_health (
+    tool TEXT PRIMARY KEY,
+    version TEXT,
+    capabilities TEXT,  -- JSON array
+    last_ok TIMESTAMP,
+    last_error TEXT
+);
+```
+
+### Event Log (JSONL)
+
+NTM should also append a lightweight event log for replay/debugging:
+
+```jsonl
+{"ts":"2025-01-03T10:00:00Z","event":"session.spawned","session":"myproject","agents":["GreenLake","BlueDog"]}
+{"ts":"2025-01-03T10:00:01Z","event":"agent.spawned","agent":"GreenLake","type":"cc","model":"opus"}
+{"ts":"2025-01-03T10:00:05Z","event":"reservation.granted","agent":"GreenLake","pattern":"internal/auth/**","correlation":"task-123"}
+{"ts":"2025-01-03T10:00:10Z","event":"task.assigned","agent":"GreenLake","bead":"ntm-abc","correlation":"task-123"}
+{"ts":"2025-01-03T10:30:00Z","event":"command.blocked","agent":"GreenLake","command":"git checkout --","reason":"destructive"}
+{"ts":"2025-01-03T11:00:00Z","event":"reservation.released","agent":"GreenLake","pattern":"internal/auth/**"}
+```
+
+Event types:
+- `session.spawned`, `session.terminated`
+- `agent.spawned`, `agent.crashed`, `agent.rotated`
+- `task.assigned`, `task.completed`, `task.failed`
+- `reservation.granted`, `reservation.conflicted`, `reservation.released`, `reservation.force_released`
+- `command.blocked`, `approval.requested`, `approval.granted`
+
+This enables: 1) Crash-safe recovery, 2) Faster UI, 3) Audits, 4) Deterministic testing.
+
+---
+
 ## Priority Matrix
 
 ### Updated Priority Matrix with Tier 0
@@ -2605,6 +3163,39 @@ llm_price_arena, project_to_jsonl, repo_to_llm_prompt, etc.
 ---
 
 ## Implementation Roadmap (Updated)
+
+### Phase -1: Foundations (Do FIRST; enables everything else)
+
+These foundational components make all Tier 0 integrations faster and safer to implement:
+
+- [ ] **Tool Adapter Framework** (`internal/tools/`)
+  - Detect(), Version(), Capabilities(), Health() for each tool
+  - Schema guards for JSON responses
+  - Automatic fallback when capabilities missing
+  - Cache results per session
+
+- [ ] **Daemon Supervisor** (`internal/supervisor/`)
+  - Port allocation + PID files
+  - Log capture to `.ntm/logs/`
+  - Health checks + exponential backoff restart
+  - Clean shutdown on session end
+
+- [ ] **Durable State Store** (`internal/state/`)
+  - SQLite schema for sessions, agents, tasks, reservations, messages
+  - Correlation IDs for traceability
+  - Event log (JSONL) for replay/debugging
+
+- [ ] **Event Bus** (`internal/events/`)
+  - Pub/sub for session lifecycle events
+  - Subscriptions for TUI, robot API, web dashboard
+  - Replay from event log for crash recovery
+
+- [ ] **`ntm doctor` Baseline Checks**
+  - Tool detection (bv, bd, am, cm, cass, s2p)
+  - Version compatibility
+  - Daemon health
+  - tmux version and configuration
+  - PATH wrapper status
 
 ### Phase 0: Critical Tier 0 (Week 1)
 
@@ -2694,7 +3285,7 @@ llm_price_arena, project_to_jsonl, repo_to_llm_prompt, etc.
 
 ## Conclusion
 
-This comprehensive plan identifies **9 Tier 0 critical integrations** that have **zero current usage** despite being designed specifically for agent coordination:
+This comprehensive plan identifies **9 Tier 0 critical integrations** that have **zero current usage** (or effectively zero, in the case of token-efficiency) despite being designed specifically for agent coordination:
 
 1. **Agent Mail Macros** - One call replaces 4-5 separate calls
 2. **File Reservation Lifecycle** - Prevents multi-agent conflicts
@@ -2704,6 +3295,7 @@ This comprehensive plan identifies **9 Tier 0 critical integrations** that have 
 6. **Session Coordinator Intelligence** - Active vs passive coordination
 7. **BD Message Integration** - Unified messaging through beads
 8. **BD Daemon Mode** - Background sync for all agents
+9. **BV -robot-markdown** - Token-efficient triage/context for smaller-context agents
 
 These Tier 0 integrations, combined with the Tier 1 underexplored features (CASS, s2p, UBS notifications, remaining bv modes) and planned Tier 2-3 integrations (CAAM, CM, SLB), will transform NTM from a session manager into an **intelligent orchestrator** that:
 
@@ -2720,7 +3312,172 @@ The result is a closed-loop system where each cycle compounds, making the entire
 
 ---
 
+## Test Strategy (Required for Reliability)
+
+Orchestrators fail at the seams. The test strategy must specifically cover integration boundaries and failure modes.
+
+### 1) Tool Contract Tests (when tools are installed)
+
+These run in CI when the full ecosystem is available:
+
+```go
+// internal/tools/contract_test.go
+
+func TestBVVersionParsing(t *testing.T) {
+    adapter := NewBVAdapter()
+    version, err := adapter.Version()
+    require.NoError(t, err)
+    require.True(t, version.GreaterOrEqual("0.30.0"))
+}
+
+func TestBVCapabilityDetection(t *testing.T) {
+    adapter := NewBVAdapter()
+    caps, err := adapter.Capabilities()
+    require.NoError(t, err)
+    require.Contains(t, caps, "robot-triage")
+}
+
+func TestBVTriageSchema(t *testing.T) {
+    adapter := NewBVAdapter()
+    result, err := adapter.GetTriage(context.Background())
+    require.NoError(t, err)
+
+    // Golden test - validate schema hasn't drifted
+    golden := loadGolden(t, "testdata/bv_triage_schema.json")
+    validateSchema(t, result, golden)
+}
+```
+
+### 2) Deterministic Fake Tools (always in CI)
+
+Fake binaries in `testdata/faketools/` that simulate tool behavior:
+
+```bash
+# testdata/faketools/bv - Fake bv for testing
+#!/bin/bash
+case "$1" in
+    "-robot-triage")
+        cat testdata/fixtures/bv_triage_response.json
+        ;;
+    "-robot-triage" | "--json")
+        cat testdata/fixtures/bv_triage_response.json
+        ;;
+    "--version")
+        echo "bv version 0.31.0 (fake)"
+        ;;
+    *)
+        echo "Unknown command: $*" >&2
+        exit 1
+        ;;
+esac
+```
+
+Test scenarios:
+- Normal operation
+- Timeout (sleep forever)
+- Partial output (truncated JSON)
+- Schema change (different field names)
+- Non-zero exit codes
+- Missing binary
+
+### 3) Daemon Chaos Tests
+
+Test supervisor resilience:
+
+```go
+func TestDaemonRestartOnCrash(t *testing.T) {
+    sup := NewSupervisor("test-session", t.TempDir())
+
+    // Start daemon
+    daemon, err := sup.Start(ctx, cmSpec)
+    require.NoError(t, err)
+
+    // Kill it unexpectedly
+    daemon.cmd.Process.Kill()
+
+    // Wait for supervisor to detect and restart
+    time.Sleep(5 * time.Second)
+
+    // Verify restarted
+    require.True(t, daemon.healthy)
+    require.Equal(t, 1, daemon.restarts)
+}
+
+func TestPortCollision(t *testing.T) {
+    // Start something on the default port
+    listener, _ := net.Listen("tcp", ":8765")
+    defer listener.Close()
+
+    sup := NewSupervisor("test-session", t.TempDir())
+    daemon, err := sup.Start(ctx, cmSpec)
+    require.NoError(t, err)
+
+    // Should have chosen a different port
+    require.NotEqual(t, 8765, daemon.port)
+}
+
+func TestHealthCheckFlapping(t *testing.T) {
+    // Daemon that intermittently fails health checks
+    // Verify supervisor doesn't restart too aggressively
+}
+```
+
+### 4) End-to-End Session Tests
+
+Full integration tests with real tmux:
+
+```go
+func TestFullSessionLifecycle(t *testing.T) {
+    if testing.Short() {
+        t.Skip("Skipping E2E test")
+    }
+
+    // Spawn session
+    session, err := SpawnSession(ctx, SpawnOptions{
+        Name:   "e2e-test",
+        CC:     1,
+        Safety: true,
+    })
+    require.NoError(t, err)
+    defer session.Kill()
+
+    // Verify agent registered in state store
+    agents, _ := stateStore.GetAgents(session.ID)
+    require.Len(t, agents, 1)
+
+    // Verify events emitted
+    events := eventLog.Since(session.CreatedAt)
+    require.Contains(t, eventTypes(events), "session.spawned")
+    require.Contains(t, eventTypes(events), "agent.spawned")
+
+    // Verify recovery after simulated crash
+    stateStore.Close()
+    stateStore = state.Open(dbPath)
+    recovered, _ := stateStore.GetSession(session.ID)
+    require.Equal(t, "active", recovered.Status)
+}
+```
+
+### 5) Policy Enforcement Tests
+
+```go
+func TestBlockedCommandLogged(t *testing.T) {
+    // Execute blocked command through wrapper
+    // Verify logged to .ntm/logs/blocked.jsonl
+    // Verify event emitted
+}
+
+func TestApprovalWorkflow(t *testing.T) {
+    // Execute approval_required command
+    // Verify blocked without approval
+    // Set NTM_APPROVED=1
+    // Verify command proceeds
+}
+```
+
+---
+
 *Document generated: 2025-01-03*
 *NTM Version: v1.3.0*
 *Ecosystem: Dicklesworthstone Stack v1.0*
-*Research depth: Tier 0 Critical Discovery*
+*Research depth: Tier 0 Critical Discovery + Architectural Review*
