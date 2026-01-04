@@ -604,6 +604,36 @@ func TestTruncatePrompt(t *testing.T) {
 			n:     20,
 			want:  "hello world",
 		},
+		{
+			// UTF-8 edge case: "αβγ" is 6 bytes (2 per char), n=4 means content max is 1 byte
+			// Must return "..." (3 bytes) since no full rune fits in 1 byte
+			name:  "utf8 multibyte truncate small",
+			input: "αβγ", // 6 bytes
+			n:     4,
+			want:  "...", // Can't fit any full rune + "..."
+		},
+		{
+			// UTF-8: "αβγ" is 6 bytes, n=5 means content max is 2 bytes (exactly one α)
+			name:  "utf8 multibyte exact rune boundary",
+			input: "αβγ", // 6 bytes
+			n:     5,
+			want:  "α...", // 2 + 3 = 5 bytes
+		},
+		{
+			// UTF-8: "αβγ" is 6 bytes, n=6 means content max is 3 bytes
+			// Only one 2-byte rune fits, result should be 5 bytes not 6
+			name:  "utf8 multibyte between boundaries",
+			input: "αβγ", // 6 bytes
+			n:     6,
+			want:  "α...", // 2 + 3 = 5 bytes (not 7 which would be "αβ...")
+		},
+		{
+			// Mixed ASCII and UTF-8: "aβc" is 4 bytes (a=1, β=2, c=1)
+			name:  "utf8 mixed ascii",
+			input: "aβc",
+			n:     6,
+			want:  "aβ...", // a(1) + β(2) + ... (3) = 6 bytes
+		},
 	}
 
 	for _, tt := range tests {
