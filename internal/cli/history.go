@@ -545,10 +545,23 @@ func truncate(s string, maxLen int) string {
 	s = strings.ReplaceAll(s, "\n", " ")
 	s = strings.ReplaceAll(s, "\r", "")
 
+	if maxLen <= 3 {
+		if maxLen <= 0 {
+			return ""
+		}
+		return s[:min(len(s), maxLen)]
+	}
 	if len(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen-3] + "..."
+	// Find first rune boundary at or after maxLen-3 bytes
+	targetLen := maxLen - 3
+	for i := range s {
+		if i >= targetLen {
+			return s[:i] + "..."
+		}
+	}
+	return s
 }
 
 func formatBytes(b int64) string {
