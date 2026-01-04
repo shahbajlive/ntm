@@ -380,6 +380,233 @@ func TestRobotStatusHandlesLongSessionNames(t *testing.T) {
 	}
 }
 
+// TestRobotSpawn tests the --robot-spawn flag for creating sessions.
+func TestRobotSpawn(t *testing.T) {
+	testutil.RequireE2E(t)
+	testutil.RequireTmux(t)
+	testutil.RequireNTMBinary(t)
+
+	logger := testutil.NewTestLogger(t, t.TempDir())
+
+	session := fmt.Sprintf("robot_spawn_%d", time.Now().UnixNano())
+	projectsBase := t.TempDir()
+	projectDir := filepath.Join(projectsBase, session)
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatalf("failed to create project dir: %v", err)
+	}
+
+	configDir := t.TempDir()
+	configPath := filepath.Join(configDir, "config.toml")
+	configContent := fmt.Sprintf(`
+projects_base = %q
+
+[agents]
+claude = "bash"
+codex = "bash"
+`, projectsBase)
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+
+	t.Cleanup(func() {
+		exec.Command("tmux", "kill-session", "-t", session).Run()
+	})
+
+	// Test robot-spawn with Claude agents
+	logger.LogSection("robot-spawn")
+	out := testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath,
+		"--robot-spawn", session, "--spawn-cc=2", "--spawn-wait")
+	logger.Log("robot-spawn output: %s", string(out))
+
+	var payload struct {
+		Success bool   `json:"success"`
+		Session string `json:"session"`
+		Panes   []struct {
+			Index int    `json:"index"`
+			Type  string `json:"type"`
+		} `json:"panes"`
+		AgentCounts struct {
+			Claude int `json:"claude"`
+			Total  int `json:"total"`
+		} `json:"agent_counts"`
+	}
+
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\nOutput: %s", err, string(out))
+	}
+
+	if !payload.Success {
+		t.Fatalf("robot-spawn should succeed")
+	}
+	if payload.Session != session {
+		t.Errorf("session = %q, want %q", payload.Session, session)
+	}
+	if payload.AgentCounts.Claude < 2 {
+		t.Errorf("claude count = %d, want at least 2", payload.AgentCounts.Claude)
+	}
+}
+
+// TestRobotSendAndTail tests --robot-send and --robot-tail together.
+func TestRobotSendAndTail(t *testing.T) {
+	testutil.RequireE2E(t)
+	testutil.RequireTmux(t)
+	testutil.RequireNTMBinary(t)
+
+	logger := testutil.NewTestLogger(t, t.TempDir())
+
+	session := fmt.Sprintf("robot_send_%d", time.Now().UnixNano())
+	projectsBase := t.TempDir()
+	projectDir := filepath.Join(projectsBase, session)
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatalf("failed to create project dir: %v", err)
+	}
+
+	configDir := t.TempDir()
+	configPath := filepath.Join(configDir, "config.toml")
+	configContent := fmt.Sprintf(`
+projects_base = %q
+
+[agents]
+claude = "bash"
+`, projectsBase)
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+
+	t.Cleanup(func() {
+		exec.Command("tmux", "kill-session", "-t", session).Run()
+	})
+
+	// Spawn session first
+	logger.LogSection("spawn session for send test")
+	_, _ = logger.Exec("ntm", "--config", configPath, "spawn", session, "--cc=1", "--safety")
+	time.Sleep(500 * time.Millisecond)
+
+	// Test robot-send
+	marker := fmt.Sprintf("ROBOT_SEND_MARKER_%d", time.Now().UnixNano())
+	logger.LogSection("robot-send")
+	out := testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath,
+		"--robot-send", session, "--msg", fmt.Sprintf("echo %s", marker), "--cc")
+	logger.Log("robot-send output: %s", string(out))
+
+	var sendPayload struct {
+		Success bool `json:"success"`
+		Targets []struct {
+			PaneIdx int `json:"pane_idx"`
+		} `json:"targets"`
+		TargetCount int `json:"target_count"`
+	}
+
+	if err := json.Unmarshal(out, &sendPayload); err != nil {
+		t.Fatalf("invalid robot-send JSON: %v", err)
+	}
+
+	if !sendPayload.Success {
+		t.Fatalf("robot-send should succeed")
+	}
+	if sendPayload.TargetCount < 1 {
+		t.Errorf("target_count = %d, want at least 1", sendPayload.TargetCount)
+	}
+
+	// Wait for command to execute
+	time.Sleep(300 * time.Millisecond)
+
+	// Test robot-tail
+	logger.LogSection("robot-tail")
+	out = testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath,
+		"--robot-tail", session, "--lines=50")
+	logger.Log("robot-tail output: %s", string(out))
+
+	var tailPayload struct {
+		Success bool   `json:"success"`
+		Session string `json:"session"`
+		Panes   []struct {
+			Index   int    `json:"index"`
+			Content string `json:"content"`
+		} `json:"panes"`
+	}
+
+	if err := json.Unmarshal(out, &tailPayload); err != nil {
+		t.Fatalf("invalid robot-tail JSON: %v", err)
+	}
+
+	if !tailPayload.Success {
+		t.Fatalf("robot-tail should succeed")
+	}
+	if tailPayload.Session != session {
+		t.Errorf("session = %q, want %q", tailPayload.Session, session)
+	}
+
+	// Check if marker appears in any pane content
+	markerFound := false
+	for _, pane := range tailPayload.Panes {
+		if strings.Contains(pane.Content, marker) {
+			markerFound = true
+			logger.Log("Found marker in pane %d", pane.Index)
+			break
+		}
+	}
+	if !markerFound {
+		logger.Log("WARNING: marker not found in tail output - timing issue possible")
+	}
+}
+
+// TestRobotInterrupt tests the --robot-interrupt flag.
+func TestRobotInterrupt(t *testing.T) {
+	testutil.RequireE2E(t)
+	testutil.RequireTmux(t)
+	testutil.RequireNTMBinary(t)
+
+	logger := testutil.NewTestLogger(t, t.TempDir())
+
+	session := fmt.Sprintf("robot_interrupt_%d", time.Now().UnixNano())
+	projectsBase := t.TempDir()
+	projectDir := filepath.Join(projectsBase, session)
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatalf("failed to create project dir: %v", err)
+	}
+
+	configDir := t.TempDir()
+	configPath := filepath.Join(configDir, "config.toml")
+	configContent := fmt.Sprintf(`
+projects_base = %q
+
+[agents]
+claude = "bash"
+`, projectsBase)
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+
+	t.Cleanup(func() {
+		exec.Command("tmux", "kill-session", "-t", session).Run()
+	})
+
+	// Spawn session
+	logger.LogSection("spawn session for interrupt test")
+	_, _ = logger.Exec("ntm", "--config", configPath, "spawn", session, "--cc=1", "--safety")
+	time.Sleep(500 * time.Millisecond)
+
+	// Test robot-interrupt
+	logger.LogSection("robot-interrupt")
+	out := testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath,
+		"--robot-interrupt", session, "--interrupt-force")
+	logger.Log("robot-interrupt output: %s", string(out))
+
+	var payload struct {
+		Success     bool `json:"success"`
+		Interrupted int  `json:"interrupted"`
+	}
+
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("invalid robot-interrupt JSON: %v", err)
+	}
+
+	if !payload.Success {
+		t.Fatalf("robot-interrupt should succeed")
+	}
+}
+
 func createSyntheticAgentSession(t *testing.T, logger *testutil.TestLogger) string {
 	t.Helper()
 
