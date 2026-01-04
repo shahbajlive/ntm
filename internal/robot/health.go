@@ -376,24 +376,34 @@ type ErrorCheckResult struct {
 	Reason      string   `json:"reason,omitempty"`
 }
 
-// Error patterns for detailed detection
+// Error patterns for detailed detection (literal string patterns for strings.Contains)
 var healthErrorPatterns = []struct {
 	Pattern string
 	Type    string
 }{
-	{"rate.?limit", "rate_limit"},
+	// Rate limit patterns
+	{"rate limit", "rate_limit"},
+	{"ratelimit", "rate_limit"},
+	{"rate-limit", "rate_limit"},
 	{"429", "rate_limit"},
-	{"too.?many.?requests", "rate_limit"},
-	{"quota.?exceeded", "rate_limit"},
-	{"authentication.?(failed|error)", "auth_error"},
+	{"too many requests", "rate_limit"},
+	{"quota exceeded", "rate_limit"},
+	// Auth error patterns
+	{"authentication failed", "auth_error"},
+	{"authentication error", "auth_error"},
 	{"401", "auth_error"},
 	{"unauthorized", "auth_error"},
+	// Crash patterns
 	{"panic:", "crash"},
-	{"fatal.?error", "crash"},
-	{"segmentation.?fault", "crash"},
-	{"stack.?trace", "crash"},
-	{"connection.?(refused|reset|timeout)", "network_error"},
-	{"network.?(error|unreachable)", "network_error"},
+	{"fatal error", "crash"},
+	{"segmentation fault", "crash"},
+	{"stack trace", "crash"},
+	// Network error patterns
+	{"connection refused", "network_error"},
+	{"connection reset", "network_error"},
+	{"connection timeout", "network_error"},
+	{"network error", "network_error"},
+	{"network unreachable", "network_error"},
 }
 
 // CheckAgentHealthWithActivity performs a comprehensive health check using activity detection
@@ -576,27 +586,45 @@ func checkErrors(paneID string) *ErrorCheckResult {
 
 // parseRateLimitWait extracts wait time from rate limit messages
 func parseRateLimitWait(output string) int {
-	// Common patterns: "wait 60 seconds", "retry in 30s", "try again in 60s"
-	patterns := []string{
-		`wait\s+(\d+)\s*(?:second|sec|s)`,
-		`retry\s+(?:in|after)\s+(\d+)\s*(?:second|sec|s)`,
-		`try\s+again\s+in\s+(\d+)\s*(?:second|sec|s)`,
-		`(\d+)\s*(?:second|sec|s)\s+(?:cooldown|delay)`,
+	outputLower := strings.ToLower(output)
+
+	// Look for common wait time indicators and extract the number
+	// Patterns: "wait 60 seconds", "retry in 30s", "try again in 60s", "60 second cooldown"
+	indicators := []string{
+		"wait ", "retry in ", "retry after ",
+		"try again in ", " second", " sec", "cooldown", "delay",
 	}
 
-	outputLower := strings.ToLower(output)
-	for _, pattern := range patterns {
-		if idx := strings.Index(outputLower, pattern[:10]); idx >= 0 {
-			// Simple number extraction after the pattern start
-			remaining := outputLower[idx:]
-			for i := 0; i < len(remaining); i++ {
-				if remaining[i] >= '0' && remaining[i] <= '9' {
-					var num int
-					fmt.Sscanf(remaining[i:], "%d", &num)
-					if num > 0 && num < 3600 { // Reasonable wait time
-						return num
-					}
-					break
+	// Find any indicator and look for nearby numbers
+	for _, ind := range indicators {
+		idx := strings.Index(outputLower, ind)
+		if idx < 0 {
+			continue
+		}
+
+		// Search around the indicator for a number (before or after)
+		searchStart := idx - 10
+		if searchStart < 0 {
+			searchStart = 0
+		}
+		searchEnd := idx + len(ind) + 10
+		if searchEnd > len(outputLower) {
+			searchEnd = len(outputLower)
+		}
+
+		region := outputLower[searchStart:searchEnd]
+
+		// Extract numbers from the region
+		var num int
+		for i := 0; i < len(region); i++ {
+			if region[i] >= '0' && region[i] <= '9' {
+				fmt.Sscanf(region[i:], "%d", &num)
+				if num > 0 && num <= 3600 { // Reasonable wait time (1 sec to 1 hour)
+					return num
+				}
+				// Skip past this number
+				for i < len(region) && region[i] >= '0' && region[i] <= '9' {
+					i++
 				}
 			}
 		}

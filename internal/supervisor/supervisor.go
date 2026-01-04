@@ -147,8 +147,9 @@ func (s *Supervisor) Start(spec DaemonSpec) error {
 	defer s.mu.Unlock()
 
 	// Check if already running or starting
+	// Note: StateRestarting is allowed because handleDaemonFailure sets it before calling Start()
 	if d, exists := s.daemons[spec.Name]; exists {
-		if d.State == StateRunning || d.State == StateStarting || d.State == StateRestarting {
+		if d.State == StateRunning || d.State == StateStarting {
 			return fmt.Errorf("daemon %s already running (state: %s)", spec.Name, d.State)
 		}
 	}

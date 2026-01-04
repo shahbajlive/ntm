@@ -454,6 +454,102 @@ func (c *Client) StartSession(ctx context.Context, projectKey, program, model, t
 	return &sessionResult, nil
 }
 
+// PrepareThread aligns an agent with an existing thread, optionally summarizing the thread.
+// This is a macro that ensures registration, summarizes the thread, and fetches recent inbox context.
+func (c *Client) PrepareThread(ctx context.Context, opts PrepareThreadOptions) (*PrepareThreadResult, error) {
+	args := map[string]interface{}{
+		"project_key": opts.ProjectKey,
+		"thread_id":   opts.ThreadID,
+		"program":     opts.Program,
+		"model":       opts.Model,
+	}
+
+	if opts.AgentName != "" {
+		args["agent_name"] = opts.AgentName
+	}
+	if opts.TaskDescription != "" {
+		args["task_description"] = opts.TaskDescription
+	}
+	if opts.LLMModel != "" {
+		args["llm_model"] = opts.LLMModel
+	}
+
+	// Boolean options with non-default values
+	args["include_examples"] = opts.IncludeExamples
+	args["include_inbox_bodies"] = opts.IncludeInboxBodies
+	args["llm_mode"] = opts.LLMMode
+	args["register_if_missing"] = opts.RegisterIfMissing
+
+	if opts.InboxLimit > 0 {
+		args["inbox_limit"] = opts.InboxLimit
+	}
+
+	result, err := c.callTool(ctx, "macro_prepare_thread", args)
+	if err != nil {
+		return nil, err
+	}
+
+	var threadResult PrepareThreadResult
+	if err := json.Unmarshal(result, &threadResult); err != nil {
+		return nil, NewAPIError("macro_prepare_thread", 0, err)
+	}
+
+	return &threadResult, nil
+}
+
+// ContactHandshake requests contact permissions and optionally auto-approves and sends a welcome message.
+func (c *Client) ContactHandshake(ctx context.Context, opts ContactHandshakeOptions) (*ContactHandshakeResult, error) {
+	args := map[string]interface{}{
+		"project_key": opts.ProjectKey,
+	}
+
+	if opts.AgentName != "" {
+		args["agent_name"] = opts.AgentName
+	}
+	if opts.ToAgent != "" {
+		args["to_agent"] = opts.ToAgent
+	}
+	if opts.ToProject != "" {
+		args["to_project"] = opts.ToProject
+	}
+	if opts.Reason != "" {
+		args["reason"] = opts.Reason
+	}
+	if opts.Program != "" {
+		args["program"] = opts.Program
+	}
+	if opts.Model != "" {
+		args["model"] = opts.Model
+	}
+	if opts.TaskDescription != "" {
+		args["task_description"] = opts.TaskDescription
+	}
+	if opts.WelcomeSubject != "" {
+		args["welcome_subject"] = opts.WelcomeSubject
+	}
+	if opts.WelcomeBody != "" {
+		args["welcome_body"] = opts.WelcomeBody
+	}
+	if opts.TTLSeconds > 0 {
+		args["ttl_seconds"] = opts.TTLSeconds
+	}
+
+	args["auto_accept"] = opts.AutoAccept
+	args["register_if_missing"] = true // Always try to register
+
+	result, err := c.callTool(ctx, "macro_contact_handshake", args)
+	if err != nil {
+		return nil, err
+	}
+
+	var handshakeResult ContactHandshakeResult
+	if err := json.Unmarshal(result, &handshakeResult); err != nil {
+		return nil, NewAPIError("macro_contact_handshake", 0, err)
+	}
+
+	return &handshakeResult, nil
+}
+
 // SendOverseerMessage sends a Human Overseer message via the HTTP REST API.
 // This bypasses contact policies and auto-injects a preamble telling agents
 // to prioritize the human's instructions. Messages are automatically marked

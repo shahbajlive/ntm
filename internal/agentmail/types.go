@@ -214,3 +214,51 @@ type OverseerSendResult struct {
 	Recipients []string  `json:"recipients"`
 	SentAt     time.Time `json:"sent_at"`
 }
+
+// PrepareThreadOptions contains options for the macro_prepare_thread call.
+type PrepareThreadOptions struct {
+	ProjectKey         string // Absolute path to project
+	ThreadID           string // Thread to prepare for (e.g., "FEAT-123")
+	Program            string // e.g., "claude-code"
+	Model              string // e.g., "opus-4.5"
+	AgentName          string // Optional; auto-generated if empty
+	IncludeExamples    bool   // Include sample messages from thread
+	IncludeInboxBodies bool   // Include full body in inbox messages
+	InboxLimit         int    // Max inbox messages to fetch
+	LLMMode            bool   // Use LLM to refine summary
+	LLMModel           string // Override LLM model for summary
+	RegisterIfMissing  bool   // Register agent if not already registered
+	TaskDescription    string // Current task description
+}
+
+// PrepareThreadResult contains the result of macro_prepare_thread.
+type PrepareThreadResult struct {
+	Agent         *Agent         `json:"agent"`
+	ThreadSummary *ThreadSummary `json:"thread_summary"`
+	Examples      []InboxMessage `json:"examples,omitempty"`
+	Inbox         []InboxMessage `json:"inbox"`
+}
+
+// ContactHandshakeOptions contains options for the macro_contact_handshake call.
+type ContactHandshakeOptions struct {
+	ProjectKey      string // Absolute path to project
+	AgentName       string // Your agent name (optional, auto-generated if empty)
+	ToAgent         string // Target agent to contact
+	ToProject       string // Target project (optional, same project if empty)
+	Reason          string // Reason for contact request
+	Program         string // Your program (optional, for auto-registration)
+	Model           string // Your model (optional, for auto-registration)
+	TaskDescription string // Your task description (optional)
+	AutoAccept      bool   // Auto-accept the contact (requires mutual)
+	WelcomeSubject  string // Subject for welcome message (optional)
+	WelcomeBody     string // Body for welcome message (optional)
+	TTLSeconds      int    // TTL for contact approval
+}
+
+// ContactHandshakeResult contains the result of macro_contact_handshake.
+type ContactHandshakeResult struct {
+	Agent         *Agent       `json:"agent,omitempty"`
+	ContactStatus string       `json:"contact_status"` // "approved", "pending", "denied"
+	Link          *ContactLink `json:"link,omitempty"`
+	WelcomeMsg    *Message     `json:"welcome_message,omitempty"`
+}

@@ -242,9 +242,9 @@ func ApplyMigrations(db *sql.DB) error {
 	for _, filename := range files {
 		// Parse version from filename (e.g., "001_initial.sql" -> 1)
 		var version int
-		_, err := fmt.Sscanf(filename, "%03d_", &version)
-		if err != nil {
-			return fmt.Errorf("parse migration version from %s: %w", filename, err)
+		n, _ := fmt.Sscanf(filename, "%03d_", &version)
+		if n != 1 {
+			return fmt.Errorf("parse migration version from %s: invalid format", filename)
 		}
 
 		if applied[version] {
