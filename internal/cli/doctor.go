@@ -221,7 +221,7 @@ func checkTools(ctx context.Context) []ToolCheck {
 			// Health check
 			if health, err := adapter.Health(ctx); err == nil && health.Healthy {
 				check.Status = "ok"
-				check.Message = fmt.Sprintf("v%s", check.Version)
+				check.Message = check.Version
 			} else {
 				check.Status = "warning"
 				check.Message = "health check failed"
