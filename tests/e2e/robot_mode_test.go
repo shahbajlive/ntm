@@ -419,30 +419,36 @@ codex = "bash"
 	logger.Log("robot-spawn output: %s", string(out))
 
 	var payload struct {
-		Success bool   `json:"success"`
 		Session string `json:"session"`
-		Panes   []struct {
-			Index int    `json:"index"`
+		Error   string `json:"error,omitempty"`
+		Agents  []struct {
+			Pane  string `json:"pane"`
 			Type  string `json:"type"`
-		} `json:"panes"`
-		AgentCounts struct {
-			Claude int `json:"claude"`
-			Total  int `json:"total"`
-		} `json:"agent_counts"`
+			Title string `json:"title"`
+			Ready bool   `json:"ready"`
+		} `json:"agents"`
 	}
 
 	if err := json.Unmarshal(out, &payload); err != nil {
 		t.Fatalf("invalid JSON: %v\nOutput: %s", err, string(out))
 	}
 
-	if !payload.Success {
-		t.Fatalf("robot-spawn should succeed")
+	if payload.Error != "" {
+		t.Fatalf("robot-spawn should succeed, got error: %s", payload.Error)
 	}
 	if payload.Session != session {
 		t.Errorf("session = %q, want %q", payload.Session, session)
 	}
-	if payload.AgentCounts.Claude < 2 {
-		t.Errorf("claude count = %d, want at least 2", payload.AgentCounts.Claude)
+
+	// Count Claude agents (type "claude" in agents list, excluding "user" type)
+	claudeCount := 0
+	for _, agent := range payload.Agents {
+		if agent.Type == "claude" {
+			claudeCount++
+		}
+	}
+	if claudeCount < 2 {
+		t.Errorf("claude count = %d, want at least 2", claudeCount)
 	}
 }
 
