@@ -25,12 +25,10 @@ const (
 
 // Rule represents a single policy rule.
 type Rule struct {
-	Pattern    string   `yaml:"pattern"`
-	Reason     string   `yaml:"reason,omitempty"`
-	SLB        bool     `yaml:"slb,omitempty"`        // Requires SLB two-person approval
-	Exceptions []string `yaml:"exceptions,omitempty"` // Patterns to exclude
-	regex      *regexp.Regexp
-	exceptions []*regexp.Regexp
+	Pattern string `yaml:"pattern"`
+	Reason  string `yaml:"reason,omitempty"`
+	SLB     bool   `yaml:"slb,omitempty"` // Requires SLB two-person approval
+	regex   *regexp.Regexp
 }
 
 // AutomationConfig controls automatic operations.
@@ -137,10 +135,9 @@ func DefaultPolicy() *Policy {
 			{Pattern: `force_release`, Reason: "Force release another agent's reservation", SLB: true},
 		},
 	}
-	if err := p.compile(); err != nil {
-		// Log error but return the policy anyway (patterns that failed will just not match)
-		fmt.Fprintf(os.Stderr, "policy compile warning: %v\n", err)
-	}
+	// Compile patterns; ignore errors for default policy as these are hardcoded
+	// and should always be valid. Any patterns that fail will just not match.
+	_ = p.compile()
 	return p
 }
 

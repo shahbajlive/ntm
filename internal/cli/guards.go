@@ -480,9 +480,3 @@ func sanitizeForShellComment(s string) string {
 	s = strings.ReplaceAll(s, "\r", " ")
 	return s
 }
-
-// fileExists returns true if the file at path exists.
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
