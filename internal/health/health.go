@@ -472,14 +472,11 @@ func detectActivity(output string, lastActivity time.Time, title string) Activit
 		return ActivityUnknown
 	}
 
-	if idleTime < 30*time.Second {
+	if idleTime < 5*time.Minute {
 		return ActivityActive
-	} else if idleTime < 5*time.Minute {
-		return ActivityActive
-	} else {
-		// Stale if > 5 minutes with no activity
-		return ActivityStale
 	}
+	// Stale if > 5 minutes with no activity
+	return ActivityStale
 }
 
 // detectProcessStatus determines if the agent process is running
