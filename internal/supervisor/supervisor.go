@@ -199,12 +199,19 @@ func (s *Supervisor) Start(spec DaemonSpec) error {
 		return fmt.Errorf("start daemon %s: %w", spec.Name, err)
 	}
 
+	// Preserve restart count from existing daemon if this is a restart
+	var restartCount int
+	if existing, exists := s.daemons[spec.Name]; exists && existing.State == StateRestarting {
+		restartCount = existing.Restarts
+	}
+
 	daemon := &ManagedDaemon{
 		Spec:       spec,
 		State:      StateStarting,
 		PID:        cmd.Process.Pid,
 		Port:       port,
 		StartedAt:  time.Now(),
+		Restarts:   restartCount,
 		OwnerID:    s.sessionID,
 		cmd:        cmd,
 		logFile:    logFile,

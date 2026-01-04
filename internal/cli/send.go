@@ -1126,14 +1126,15 @@ func runKill(session string, force bool, tags []string, noHooks bool) error {
 
 // truncatePrompt truncates a prompt to the specified length for display, respecting UTF-8 boundaries.
 func truncatePrompt(s string, maxLen int) string {
-	if maxLen <= 3 {
-		if maxLen <= 0 {
-			return ""
-		}
-		return s[:min(len(s), maxLen)]
+	if maxLen <= 0 {
+		return ""
 	}
 	if len(s) <= maxLen {
 		return s
+	}
+	// String needs truncation - if maxLen too small for content + "...", just return "..."
+	if maxLen <= 3 {
+		return "..."[:maxLen]
 	}
 	// Find first rune boundary at or after maxLen-3 bytes
 	targetLen := maxLen - 3
