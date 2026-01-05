@@ -2,9 +2,11 @@ package integration
 
 import (
 	"encoding/json"
+	"fmt"
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Dicklesworthstone/ntm/tests/testutil"
 )
@@ -1025,5 +1027,283 @@ func TestRobotFilesAgentHints(t *testing.T) {
 		if payload.AgentHints.Summary == "" {
 			t.Errorf("_agent_hints.summary should not be empty when hints present")
 		}
+	}
+}
+
+// =============================================================================
+// --robot-inspect-pane tests (ntm-ux4w: E2E test with state detection)
+// =============================================================================
+
+func TestRobotInspectPaneNonExistentSession(t *testing.T) {
+	testutil.RequireNTMBinary(t)
+	testutil.RequireTmux(t)
+
+	logger := testutil.NewTestLoggerStdout(t)
+	// Non-existent session should return error JSON with exit code 1
+	cmd := exec.Command("ntm", "--robot-inspect-pane=nonexistent-session-xyz")
+	out, err := cmd.CombinedOutput()
+	logger.Log("Output: %s", string(out))
+
+	if err == nil {
+		t.Fatalf("expected command to fail for nonexistent session")
+	}
+
+	// Find JSON in output (there may be stderr text after)
+	jsonStart := strings.Index(string(out), "{")
+	jsonEnd := strings.LastIndex(string(out), "}") + 1
+	if jsonStart == -1 || jsonEnd <= jsonStart {
+		t.Fatalf("no valid JSON found in output")
+	}
+	jsonBytes := out[jsonStart:jsonEnd]
+
+	var payload struct {
+		Success   bool   `json:"success"`
+		ErrorCode string `json:"error_code"`
+		Error     string `json:"error"`
+		Hint      string `json:"hint"`
+	}
+
+	if err := json.Unmarshal(jsonBytes, &payload); err != nil {
+		t.Fatalf("invalid JSON error response: %v\nOutput: %s", err, string(out))
+	}
+
+	if payload.Success {
+		t.Errorf("expected success=false for nonexistent session")
+	}
+	if payload.ErrorCode != "SESSION_NOT_FOUND" {
+		t.Errorf("expected error_code='SESSION_NOT_FOUND', got %q", payload.ErrorCode)
+	}
+	if payload.Error == "" {
+		t.Errorf("expected error message to be non-empty")
+	}
+}
+
+func TestRobotInspectPanePaneNotFound(t *testing.T) {
+	testutil.RequireNTMBinary(t)
+	testutil.RequireTmux(t)
+
+	// First we need a real session to test PANE_NOT_FOUND
+	// Create a temporary session for this test
+	sessionName := fmt.Sprintf("ntm-test-inspect-%d", time.Now().UnixNano())
+	createCmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName)
+	if err := createCmd.Run(); err != nil {
+		t.Skipf("Could not create test session: %v", err)
+	}
+	defer func() {
+		exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+	}()
+
+	// Try to inspect a pane that doesn't exist (e.g., index 99)
+	cmd := exec.Command("ntm", "--robot-inspect-pane="+sessionName, "--inspect-index=99")
+	out, err := cmd.CombinedOutput()
+
+	if err == nil {
+		t.Fatalf("expected command to fail for nonexistent pane index")
+	}
+
+	// Find JSON in output (there may be stderr text after)
+	jsonStart := strings.Index(string(out), "{")
+	jsonEnd := strings.LastIndex(string(out), "}") + 1
+	if jsonStart == -1 || jsonEnd <= jsonStart {
+		t.Fatalf("no valid JSON found in output")
+	}
+	jsonBytes := out[jsonStart:jsonEnd]
+
+	var payload struct {
+		Success   bool   `json:"success"`
+		ErrorCode string `json:"error_code"`
+		Error     string `json:"error"`
+		Hint      string `json:"hint"`
+	}
+
+	if err := json.Unmarshal(jsonBytes, &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\nOutput: %s", err, string(out))
+	}
+
+	if payload.Success {
+		t.Errorf("expected success=false for nonexistent pane")
+	}
+	if payload.ErrorCode != "PANE_NOT_FOUND" {
+		t.Errorf("expected error_code='PANE_NOT_FOUND', got %q", payload.ErrorCode)
+	}
+}
+
+func TestRobotInspectPaneSuccessStructure(t *testing.T) {
+	testutil.RequireNTMBinary(t)
+	testutil.RequireTmux(t)
+
+	// Create a test session with a single pane
+	sessionName := fmt.Sprintf("ntm-test-inspect-%d", time.Now().UnixNano())
+	createCmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName)
+	if err := createCmd.Run(); err != nil {
+		t.Skipf("Could not create test session: %v", err)
+	}
+	defer func() {
+		exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+	}()
+
+	logger := testutil.NewTestLoggerStdout(t)
+	out := testutil.AssertCommandSuccess(t, logger, "ntm", "--robot-inspect-pane="+sessionName)
+
+	var payload struct {
+		Success   bool   `json:"success"`
+		Timestamp string `json:"timestamp"`
+		Session   string `json:"session"`
+		PaneIndex int    `json:"pane_index"`
+		PaneID    string `json:"pane_id"`
+		Agent     struct {
+			Type            string  `json:"type"`
+			Title           string  `json:"title"`
+			State           string  `json:"state"`
+			StateConfidence float64 `json:"state_confidence"`
+			ProcessRunning  bool    `json:"process_running"`
+		} `json:"agent"`
+		Output struct {
+			Lines       int      `json:"lines"`
+			Characters  int      `json:"characters"`
+			LastLines   []string `json:"last_lines"`
+			ErrorsFound []string `json:"errors_found,omitempty"`
+		} `json:"output"`
+		Context struct {
+			RecentFiles []string `json:"recent_files,omitempty"`
+			PendingMail int      `json:"pending_mail"`
+		} `json:"context"`
+		AgentHints *struct {
+			Summary string `json:"summary"`
+		} `json:"_agent_hints,omitempty"`
+	}
+
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\nOutput: %s", err, string(out))
+	}
+
+	if !payload.Success {
+		t.Errorf("expected success=true for valid session")
+	}
+	if payload.Session != sessionName {
+		t.Errorf("expected session=%q, got %q", sessionName, payload.Session)
+	}
+	if payload.PaneID == "" {
+		t.Errorf("expected pane_id to be non-empty")
+	}
+	if payload.Agent.Type == "" {
+		t.Errorf("expected agent.type to be set")
+	}
+	// Output may or may not have lines depending on pane content
+	// Just verify the output structure is valid - LastLines can be null if no output
+}
+
+func TestRobotInspectPaneInspectLinesFlag(t *testing.T) {
+	testutil.RequireNTMBinary(t)
+	testutil.RequireTmux(t)
+
+	sessionName := fmt.Sprintf("ntm-test-inspect-%d", time.Now().UnixNano())
+	createCmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName)
+	if err := createCmd.Run(); err != nil {
+		t.Skipf("Could not create test session: %v", err)
+	}
+	defer func() {
+		exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+	}()
+
+	logger := testutil.NewTestLoggerStdout(t)
+	// Test with explicit lines limit
+	out := testutil.AssertCommandSuccess(t, logger, "ntm", "--robot-inspect-pane="+sessionName, "--inspect-lines=200")
+
+	var payload struct {
+		Success bool `json:"success"`
+		Output  struct {
+			Lines int `json:"lines"`
+		} `json:"output"`
+	}
+
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	if !payload.Success {
+		t.Errorf("expected success=true")
+	}
+	// Lines should be within the requested limit (can't verify exact because
+	// output depends on pane history)
+}
+
+func TestRobotInspectPaneInspectCodeFlag(t *testing.T) {
+	testutil.RequireNTMBinary(t)
+	testutil.RequireTmux(t)
+
+	sessionName := fmt.Sprintf("ntm-test-inspect-%d", time.Now().UnixNano())
+	createCmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName)
+	if err := createCmd.Run(); err != nil {
+		t.Skipf("Could not create test session: %v", err)
+	}
+	defer func() {
+		exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+	}()
+
+	logger := testutil.NewTestLoggerStdout(t)
+	// Test with --inspect-code flag
+	out := testutil.AssertCommandSuccess(t, logger, "ntm", "--robot-inspect-pane="+sessionName, "--inspect-code")
+
+	var payload struct {
+		Success bool `json:"success"`
+		Output  struct {
+			CodeBlocks []struct {
+				Language  string `json:"language,omitempty"`
+				LineStart int    `json:"line_start"`
+				LineEnd   int    `json:"line_end"`
+			} `json:"code_blocks,omitempty"`
+		} `json:"output"`
+	}
+
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	if !payload.Success {
+		t.Errorf("expected success=true")
+	}
+	// Code blocks may or may not be present depending on pane content
+	// Just verifying the structure is valid
+}
+
+func TestRobotInspectPaneAgentHints(t *testing.T) {
+	testutil.RequireNTMBinary(t)
+	testutil.RequireTmux(t)
+
+	sessionName := fmt.Sprintf("ntm-test-inspect-%d", time.Now().UnixNano())
+	createCmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName)
+	if err := createCmd.Run(); err != nil {
+		t.Skipf("Could not create test session: %v", err)
+	}
+	defer func() {
+		exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+	}()
+
+	logger := testutil.NewTestLoggerStdout(t)
+	out := testutil.AssertCommandSuccess(t, logger, "ntm", "--robot-inspect-pane="+sessionName)
+
+	var payload struct {
+		AgentHints *struct {
+			Summary          string `json:"summary"`
+			Warnings         []string `json:"warnings,omitempty"`
+			SuggestedActions []struct {
+				Action   string `json:"action"`
+				Target   string `json:"target"`
+				Reason   string `json:"reason"`
+				Priority int    `json:"priority"`
+			} `json:"suggested_actions,omitempty"`
+		} `json:"_agent_hints,omitempty"`
+	}
+
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	// AgentHints should be present with at least a summary
+	if payload.AgentHints == nil {
+		t.Errorf("expected _agent_hints to be present")
+	} else if payload.AgentHints.Summary == "" {
+		t.Errorf("expected _agent_hints.summary to be non-empty")
 	}
 }
