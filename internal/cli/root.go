@@ -608,6 +608,80 @@ Shell Integration:
 			return
 		}
 
+		// TUI Parity robot handlers - expose TUI functionality to AI agents
+		if robotFiles != "" {
+			opts := robot.FilesOptions{
+				Session:    robotFiles,
+				TimeWindow: robotFilesWindow,
+				Limit:      robotFilesLimit,
+			}
+			if err := robot.PrintFiles(opts); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+		if robotInspectPane != "" {
+			opts := robot.InspectPaneOptions{
+				Session:     robotInspectPane,
+				PaneIndex:   robotInspectIndex,
+				Lines:       robotInspectLines,
+				IncludeCode: robotInspectCode,
+			}
+			if err := robot.PrintInspectPane(opts); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+		if robotMetrics != "" {
+			opts := robot.MetricsOptions{
+				Session: robotMetrics,
+				Period:  robotMetricsPeriod,
+			}
+			if err := robot.PrintMetrics(opts); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+		if robotReplay != "" {
+			opts := robot.ReplayOptions{
+				Session:   robotReplay,
+				HistoryID: robotReplayID,
+				DryRun:    robotReplayDryRun,
+			}
+			if err := robot.PrintReplay(opts); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+		if robotPaletteInfo {
+			opts := robot.PaletteOptions{
+				Session:     robotPaletteSession,
+				Category:    robotPaletteCategory,
+				SearchQuery: robotPaletteSearch,
+			}
+			if err := robot.PrintPalette(cfg, opts); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+		if robotDismissAlert != "" {
+			opts := robot.DismissAlertOptions{
+				AlertID:    robotDismissAlert,
+				Session:    robotDismissSession,
+				DismissAll: robotDismissAll,
+			}
+			if err := robot.PrintDismissAlert(opts); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+
 		// Show stunning help with gradients when run without subcommand
 		PrintStunningHelp(cmd.OutOrStdout())
 	},
@@ -775,6 +849,27 @@ var (
 	robotPipelineVars    string // JSON variables for pipeline
 	robotPipelineDryRun  bool   // validate without executing
 	robotPipelineBG      bool   // run in background
+
+	// TUI Parity robot flags - expose TUI functionality to AI agents
+	robotFiles           string // session name for file changes query
+	robotFilesWindow     string // time window: 5m, 15m, 1h, all (default: 15m)
+	robotFilesLimit      int    // max changes to return
+	robotInspectPane     string // session name for pane inspection
+	robotInspectIndex    int    // pane index to inspect
+	robotInspectLines    int    // lines to capture for inspection
+	robotInspectCode     bool   // parse code blocks in output
+	robotMetrics         string // session name for metrics
+	robotMetricsPeriod   string // period: 1h, 24h, 7d, all
+	robotReplay          string // session name for replay
+	robotReplayID        string // history entry ID to replay
+	robotReplayDryRun    bool   // just show what would be replayed
+	robotPaletteInfo     bool   // query palette information
+	robotPaletteSession  string // filter to session
+	robotPaletteCategory string // filter by category
+	robotPaletteSearch   string // search query
+	robotDismissAlert    string // alert ID to dismiss
+	robotDismissSession  string // session scope for alert dismissal
+	robotDismissAll      bool   // dismiss all matching alerts
 )
 
 func init() {
@@ -928,6 +1023,32 @@ func init() {
 	rootCmd.Flags().StringVar(&robotPipelineVars, "pipeline-vars", "", "JSON variables for pipeline. Optional with --robot-pipeline-run. Example: --pipeline-vars='{\"env\":\"prod\"}'")
 	rootCmd.Flags().BoolVar(&robotPipelineDryRun, "pipeline-dry-run", false, "Validate workflow without executing. Optional with --robot-pipeline-run")
 	rootCmd.Flags().BoolVar(&robotPipelineBG, "pipeline-background", false, "Run pipeline in background. Optional with --robot-pipeline-run")
+
+	// TUI Parity robot flags - expose TUI dashboard functionality to AI agents
+	rootCmd.Flags().StringVar(&robotFiles, "robot-files", "", "Get file changes with agent attribution. Optional SESSION filter. Example: ntm --robot-files=myproject --files-window=15m")
+	rootCmd.Flags().StringVar(&robotFilesWindow, "files-window", "15m", "Time window: 5m, 15m, 1h, all. Optional with --robot-files. Example: --files-window=1h")
+	rootCmd.Flags().IntVar(&robotFilesLimit, "files-limit", 100, "Max changes to return. Optional with --robot-files. Example: --files-limit=50")
+
+	rootCmd.Flags().StringVar(&robotInspectPane, "robot-inspect-pane", "", "Detailed pane inspection. Required: SESSION. Example: ntm --robot-inspect-pane=myproject --inspect-index=1")
+	rootCmd.Flags().IntVar(&robotInspectIndex, "inspect-index", 0, "Pane index to inspect. Optional with --robot-inspect-pane. Example: --inspect-index=2")
+	rootCmd.Flags().IntVar(&robotInspectLines, "inspect-lines", 100, "Lines to capture. Optional with --robot-inspect-pane. Example: --inspect-lines=200")
+	rootCmd.Flags().BoolVar(&robotInspectCode, "inspect-code", false, "Parse code blocks from output. Optional with --robot-inspect-pane")
+
+	rootCmd.Flags().StringVar(&robotMetrics, "robot-metrics", "", "Session metrics export. Optional SESSION. Example: ntm --robot-metrics=myproject --metrics-period=24h")
+	rootCmd.Flags().StringVar(&robotMetricsPeriod, "metrics-period", "24h", "Period: 1h, 24h, 7d, all. Optional with --robot-metrics. Example: --metrics-period=7d")
+
+	rootCmd.Flags().StringVar(&robotReplay, "robot-replay", "", "Replay command from history. Required: SESSION. Use with --replay-id. Example: ntm --robot-replay=myproject --replay-id=1735830245123-a1b2c3d4")
+	rootCmd.Flags().StringVar(&robotReplayID, "replay-id", "", "History entry ID to replay. Required with --robot-replay. Get IDs from --robot-history")
+	rootCmd.Flags().BoolVar(&robotReplayDryRun, "replay-dry-run", false, "Preview replay without executing. Optional with --robot-replay")
+
+	rootCmd.Flags().BoolVar(&robotPaletteInfo, "robot-palette", false, "Query palette commands. Example: ntm --robot-palette --palette-category=quick")
+	rootCmd.Flags().StringVar(&robotPaletteSession, "palette-session", "", "Filter recents to session. Optional with --robot-palette")
+	rootCmd.Flags().StringVar(&robotPaletteCategory, "palette-category", "", "Filter by category. Optional with --robot-palette. Example: --palette-category=code_quality")
+	rootCmd.Flags().StringVar(&robotPaletteSearch, "palette-search", "", "Search commands. Optional with --robot-palette. Example: --palette-search=test")
+
+	rootCmd.Flags().StringVar(&robotDismissAlert, "robot-dismiss-alert", "", "Dismiss an alert by ID. Example: ntm --robot-dismiss-alert=alert-abc123")
+	rootCmd.Flags().StringVar(&robotDismissSession, "dismiss-session", "", "Scope dismissal to session. Optional with --robot-dismiss-alert")
+	rootCmd.Flags().BoolVar(&robotDismissAll, "dismiss-all", false, "Dismiss all matching alerts. Optional with --robot-dismiss-alert")
 
 	// Sync version info with robot package
 	robot.Version = Version
