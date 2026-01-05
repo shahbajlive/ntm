@@ -1030,6 +1030,24 @@ func TestUpgradeErrorExactMatch(t *testing.T) {
 		t.Error("Error output missing 'check version' hint for version mismatch")
 	}
 
+	// Verify ClosestMatch is populated for exact semantic matches
+	if err.ClosestMatch == nil {
+		t.Error("ClosestMatch should be populated for exact semantic match")
+	} else {
+		if err.ClosestMatch.Match != "exact" {
+			t.Errorf("ClosestMatch.Match = %q, want %q", err.ClosestMatch.Match, "exact")
+		}
+		if err.ClosestMatch.OS != "linux" || err.ClosestMatch.Arch != "amd64" {
+			t.Errorf("ClosestMatch platform = %s/%s, want linux/amd64", err.ClosestMatch.OS, err.ClosestMatch.Arch)
+		}
+	}
+
+	// Verify JSON includes closest_match
+	jsonStr := err.JSON()
+	if !strings.Contains(jsonStr, `"closest_match"`) {
+		t.Error("JSON output missing closest_match field for exact semantic match")
+	}
+
 	// Log for debugging
 	t.Logf("Error output:\n%s", errStr)
 }

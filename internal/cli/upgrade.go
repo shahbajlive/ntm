@@ -226,8 +226,11 @@ func newUpgradeError(targetOS, targetArch, version string, triedNames []string, 
 		info := parseAssetInfo(asset.Name, targetOS, displayArch, version)
 		err.AvailableAssets = append(err.AvailableAssets, info)
 
-		// Track closest match
-		if info.Match == "close" && err.ClosestMatch == nil {
+		// Track closest match (prefer "exact" over "close" - exact means platform matches but name didn't)
+		if info.Match == "exact" {
+			infoCopy := info
+			err.ClosestMatch = &infoCopy
+		} else if info.Match == "close" && err.ClosestMatch == nil {
 			infoCopy := info
 			err.ClosestMatch = &infoCopy
 		}
