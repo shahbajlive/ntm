@@ -151,12 +151,27 @@ func (e *RobotModeEstimator) Estimate(state *ContextState) (*ContextEstimate, er
 // ParseRobotModeContext attempts to parse context info from robot mode JSON output.
 // Returns nil if context info is not present in the output.
 func ParseRobotModeContext(output string) *ContextEstimate {
-	// Look for JSON that might contain context info
-	// Expected format from agent output:
-	// {"context_used": 145000, "context_limit": 200000, ...}
+	// The output might contain mixed text, so we scan for lines that look like our JSON
 	var data map[string]interface{}
-	if err := json.Unmarshal([]byte(output), &data); err != nil {
-		return nil
+	found := false
+
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if (strings.Contains(line, `"context_used"`) || strings.Contains(line, `"tokens_used"`)) &&
+			strings.HasPrefix(line, "{") && strings.HasSuffix(line, "}") {
+			if err := json.Unmarshal([]byte(line), &data); err == nil {
+				found = true
+				break
+			}
+		}
+	}
+
+	if !found {
+		// Fallback: try unmarshalling the whole blob in case it's multiline JSON without noise
+		if err := json.Unmarshal([]byte(output), &data); err != nil {
+			return nil
+		}
 	}
 
 	contextUsed, hasUsed := data["context_used"].(float64)
