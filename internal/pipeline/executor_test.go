@@ -959,3 +959,292 @@ func TestExecutorConfig_Overrides(t *testing.T) {
 		t.Error("Verbose should be true")
 	}
 }
+
+func TestShouldRerunStep(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		result StepResult
+		want   bool
+	}{
+		{
+			name:   "failed status",
+			result: StepResult{Status: StatusFailed},
+			want:   true,
+		},
+		{
+			name:   "cancelled status",
+			result: StepResult{Status: StatusCancelled},
+			want:   true,
+		},
+		{
+			name:   "running status",
+			result: StepResult{Status: StatusRunning},
+			want:   true,
+		},
+		{
+			name:   "pending status",
+			result: StepResult{Status: StatusPending},
+			want:   true,
+		},
+		{
+			name:   "empty status",
+			result: StepResult{Status: ""},
+			want:   true,
+		},
+		{
+			name:   "completed status",
+			result: StepResult{Status: StatusCompleted},
+			want:   false,
+		},
+		{
+			name:   "skipped - dependency failed",
+			result: StepResult{Status: StatusSkipped, SkipReason: "dependency failed: step1"},
+			want:   true,
+		},
+		{
+			name:   "skipped - cancelled",
+			result: StepResult{Status: StatusSkipped, SkipReason: "cancelled during execution"},
+			want:   true,
+		},
+		{
+			name:   "skipped - when condition false",
+			result: StepResult{Status: StatusSkipped, SkipReason: "when condition evaluated to false"},
+			want:   false,
+		},
+		{
+			name:   "skipped - no reason",
+			result: StepResult{Status: StatusSkipped, SkipReason: ""},
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := shouldRerunStep(tt.result)
+			if got != tt.want {
+				t.Errorf("shouldRerunStep(%+v) = %v, want %v", tt.result, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExecutor_ClearStepVariables(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		state         *ExecutionState
+		workflow      *Workflow
+		stepID        string
+		wantVariables map[string]interface{}
+	}{
+		{
+			name:          "nil state",
+			state:         nil,
+			workflow:      &Workflow{},
+			stepID:        "step1",
+			wantVariables: nil,
+		},
+		{
+			name: "nil variables in state",
+			state: &ExecutionState{
+				Variables: nil,
+			},
+			workflow:      &Workflow{},
+			stepID:        "step1",
+			wantVariables: nil,
+		},
+		{
+			name: "clears step output variables",
+			state: &ExecutionState{
+				Variables: map[string]interface{}{
+					"steps.step1.output": "some output",
+					"steps.step1.data":   map[string]interface{}{"key": "value"},
+					"steps.step2.output": "other output",
+					"other_var":          "keep this",
+				},
+			},
+			workflow: &Workflow{
+				Steps: []Step{{ID: "step1", Prompt: "test"}},
+			},
+			stepID: "step1",
+			wantVariables: map[string]interface{}{
+				"steps.step2.output": "other output",
+				"other_var":          "keep this",
+			},
+		},
+		{
+			name: "clears custom output_var",
+			state: &ExecutionState{
+				Variables: map[string]interface{}{
+					"steps.step1.output":  "output",
+					"steps.step1.data":    "data",
+					"my_custom_var":       "custom value",
+					"my_custom_var_parsed": map[string]interface{}{"parsed": true},
+					"keep_me":             "still here",
+				},
+			},
+			workflow: &Workflow{
+				Steps: []Step{{ID: "step1", Prompt: "test", OutputVar: "my_custom_var"}},
+			},
+			stepID: "step1",
+			wantVariables: map[string]interface{}{
+				"keep_me": "still here",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Create executor
+			cfg := DefaultExecutorConfig("test")
+			e := NewExecutor(cfg)
+			e.state = tt.state
+
+			// Create dependency graph if workflow provided
+			if tt.workflow != nil {
+				e.graph = NewDependencyGraph(tt.workflow)
+			}
+
+			// Run clearStepVariables
+			e.clearStepVariables(tt.stepID)
+
+			// Verify results
+			if tt.wantVariables == nil {
+				if tt.state != nil && tt.state.Variables != nil {
+					// State was nil or variables were nil, nothing to check
+					return
+				}
+				return
+			}
+
+			if len(e.state.Variables) != len(tt.wantVariables) {
+				t.Errorf("clearStepVariables() left %d variables, want %d", len(e.state.Variables), len(tt.wantVariables))
+				t.Errorf("got: %v", e.state.Variables)
+				t.Errorf("want: %v", tt.wantVariables)
+				return
+			}
+
+			for k, want := range tt.wantVariables {
+				got, ok := e.state.Variables[k]
+				if !ok {
+					t.Errorf("clearStepVariables() missing variable %q", k)
+					continue
+				}
+				// For simple string comparisons
+				if gotStr, ok := got.(string); ok {
+					if wantStr, ok := want.(string); ok {
+						if gotStr != wantStr {
+							t.Errorf("variable %q = %q, want %q", k, gotStr, wantStr)
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestExecutor_ApplyResumeState(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		state        *ExecutionState
+		workflow     *Workflow
+		wantExecuted []string
+		wantRemoved  []string
+	}{
+		{
+			name:     "nil state",
+			state:    nil,
+			workflow: &Workflow{},
+		},
+		{
+			name: "completed steps are marked executed",
+			state: &ExecutionState{
+				Steps: map[string]StepResult{
+					"step1": {StepID: "step1", Status: StatusCompleted},
+					"step2": {StepID: "step2", Status: StatusCompleted},
+				},
+			},
+			workflow: &Workflow{
+				Steps: []Step{
+					{ID: "step1", Prompt: "test1"},
+					{ID: "step2", Prompt: "test2"},
+				},
+			},
+			wantExecuted: []string{"step1", "step2"},
+		},
+		{
+			name: "failed steps are cleared for rerun",
+			state: &ExecutionState{
+				Steps: map[string]StepResult{
+					"step1": {StepID: "step1", Status: StatusCompleted},
+					"step2": {StepID: "step2", Status: StatusFailed},
+				},
+				Variables: map[string]interface{}{
+					"steps.step2.output": "old output",
+				},
+			},
+			workflow: &Workflow{
+				Steps: []Step{
+					{ID: "step1", Prompt: "test1"},
+					{ID: "step2", Prompt: "test2"},
+				},
+			},
+			wantExecuted: []string{"step1"},
+			wantRemoved:  []string{"step2"},
+		},
+		{
+			name: "running steps are cleared for rerun",
+			state: &ExecutionState{
+				Steps: map[string]StepResult{
+					"step1": {StepID: "step1", Status: StatusRunning},
+				},
+				Variables: map[string]interface{}{},
+			},
+			workflow: &Workflow{
+				Steps: []Step{
+					{ID: "step1", Prompt: "test1"},
+				},
+			},
+			wantExecuted: []string{},
+			wantRemoved:  []string{"step1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := DefaultExecutorConfig("test")
+			e := NewExecutor(cfg)
+			e.state = tt.state
+
+			if tt.workflow != nil {
+				e.graph = NewDependencyGraph(tt.workflow)
+			}
+
+			e.applyResumeState()
+
+			// Check executed steps
+			for _, stepID := range tt.wantExecuted {
+				if !e.graph.IsExecuted(stepID) {
+					t.Errorf("step %q should be marked executed", stepID)
+				}
+			}
+
+			// Check removed steps
+			for _, stepID := range tt.wantRemoved {
+				if _, exists := e.state.Steps[stepID]; exists {
+					t.Errorf("step %q should be removed from state", stepID)
+				}
+			}
+		})
+	}
+}
