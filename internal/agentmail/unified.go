@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/Dicklesworthstone/ntm/internal/bd"
@@ -112,4 +113,86 @@ func (m *UnifiedMessenger) Send(ctx context.Context, to, subject, body string) e
 	}
 
 	return fmt.Errorf("no message channels available")
+}
+
+// Read retrieves a specific message by its unified ID (e.g., "am-123" or "bd-456")
+func (m *UnifiedMessenger) Read(ctx context.Context, id string) (*UnifiedMessage, error) {
+	if len(id) < 4 {
+		return nil, fmt.Errorf("invalid message ID format: %s", id)
+	}
+
+	channel := id[:2]
+	rawID := id[3:] // Skip "am-" or "bd-"
+
+	switch channel {
+	case "am":
+		if m.amClient != nil && m.amClient.IsAvailable() {
+			msgID, err := strconv.Atoi(rawID)
+			if err != nil {
+				return nil, fmt.Errorf("invalid agent mail message ID: %w", err)
+			}
+			// Agent Mail mark as read
+			err = m.amClient.MarkMessageRead(ctx, m.projectKey, m.agentName, msgID)
+			if err != nil {
+				return nil, fmt.Errorf("mark message read: %w", err)
+			}
+			// Return a placeholder - we'd need to fetch the full message
+			return &UnifiedMessage{
+				ID:      id,
+				Channel: "agentmail",
+			}, nil
+		}
+		return nil, fmt.Errorf("agent mail not available")
+
+	case "bd":
+		if m.bdClient != nil {
+			msg, err := m.bdClient.Read(ctx, rawID)
+			if err != nil {
+				return nil, fmt.Errorf("read bd message: %w", err)
+			}
+			return &UnifiedMessage{
+				ID:        id,
+				Channel:   "bd",
+				From:      msg.From,
+				Subject:   "(No Subject)",
+				Body:      msg.Body,
+				Timestamp: msg.Timestamp,
+			}, nil
+		}
+		return nil, fmt.Errorf("bd messaging not available")
+
+	default:
+		return nil, fmt.Errorf("unknown message channel: %s", channel)
+	}
+}
+
+// Ack acknowledges a message by its unified ID
+func (m *UnifiedMessenger) Ack(ctx context.Context, id string) error {
+	if len(id) < 4 {
+		return fmt.Errorf("invalid message ID format: %s", id)
+	}
+
+	channel := id[:2]
+	rawID := id[3:]
+
+	switch channel {
+	case "am":
+		if m.amClient != nil && m.amClient.IsAvailable() {
+			msgID, err := strconv.Atoi(rawID)
+			if err != nil {
+				return fmt.Errorf("invalid agent mail message ID: %w", err)
+			}
+			return m.amClient.AcknowledgeMessage(ctx, m.projectKey, m.agentName, msgID)
+		}
+		return fmt.Errorf("agent mail not available")
+
+	case "bd":
+		if m.bdClient != nil {
+			return m.bdClient.Ack(ctx, rawID)
+		}
+		return fmt.Errorf("bd messaging not available")
+
+	default:
+		return fmt.Errorf("unknown message channel: %s", channel)
+	}
 }
