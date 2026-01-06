@@ -216,8 +216,8 @@ func TestDefaultScoreConfig(t *testing.T) {
 	if !config.BudgetAware {
 		t.Error("expected BudgetAware to be true by default")
 	}
-	if config.ContextThreshold != 0.8 {
-		t.Errorf("expected ContextThreshold 0.8, got %f", config.ContextThreshold)
+	if config.ContextThreshold != 80 {
+		t.Errorf("expected ContextThreshold 80, got %f", config.ContextThreshold)
 	}
 }
 
@@ -399,8 +399,8 @@ func TestComputeFileOverlapPenalty(t *testing.T) {
 
 func TestScoreAndSelectAssignments(t *testing.T) {
 	agents := []*AgentState{
-		{PaneID: "%1", AgentType: "cc", ContextUsage: 0.3, Status: robot.StateWaiting},
-		{PaneID: "%2", AgentType: "cod", ContextUsage: 0.5, Status: robot.StateWaiting},
+		{PaneID: "%1", AgentType: "cc", ContextUsage: 30, Status: robot.StateWaiting},
+		{PaneID: "%2", AgentType: "cod", ContextUsage: 50, Status: robot.StateWaiting},
 	}
 
 	triage := &bv.TriageResponse{

@@ -16,7 +16,7 @@ type ScoreConfig struct {
 	PenalizeFileOverlap bool    // Avoid assigning overlapping files
 	UseAgentProfiles    bool    // Match work to agent capabilities
 	BudgetAware         bool    // Consider token budgets
-	ContextThreshold    float64 // Max context usage before penalizing (0.0-1.0, default 0.8)
+	ContextThreshold    float64 // Max context usage before penalizing (percentage 0-100, default 80)
 }
 
 // DefaultScoreConfig returns a reasonable default configuration.
@@ -26,7 +26,7 @@ func DefaultScoreConfig() ScoreConfig {
 		PenalizeFileOverlap: true,
 		UseAgentProfiles:    true,
 		BudgetAware:         true,
-		ContextThreshold:    0.8,
+		ContextThreshold:    80,
 	}
 }
 
@@ -392,10 +392,11 @@ func scoreAssignment(
 	}
 
 	// Context/budget penalty
+	// Note: ContextUsage is in percentage scale (0-100), not ratio (0-1)
 	if config.BudgetAware {
 		threshold := config.ContextThreshold
 		if threshold == 0 {
-			threshold = 0.8
+			threshold = 80 // 80% threshold (percentage scale)
 		}
 		breakdown.ContextPenalty = computeContextPenalty(agent.ContextUsage, threshold)
 	}
@@ -539,12 +540,14 @@ func computeFileOverlapPenalty(agent *AgentState, reservations map[string][]stri
 }
 
 // computeContextPenalty penalizes agents with high context window usage.
+// Both contextUsage and threshold are in percentage scale (0-100).
 func computeContextPenalty(contextUsage float64, threshold float64) float64 {
 	if contextUsage <= threshold {
 		return 0
 	}
 
-	// Linear penalty above threshold
+	// Linear penalty above threshold: 50% of the excess amount
+	// e.g., 10% over threshold → 5% penalty; 20% over → 10% penalty
 	excess := contextUsage - threshold
-	return excess * 0.5 // 50% penalty per 10% over threshold
+	return excess * 0.5
 }
