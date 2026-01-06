@@ -29,6 +29,7 @@ type Config struct {
 	Checkpoints     CheckpointsConfig     `toml:"checkpoints"`
 	Notifications   notify.Config         `toml:"notifications"`
 	Resilience      ResilienceConfig      `toml:"resilience"`
+	Health          HealthConfig          `toml:"health"`           // Health monitoring configuration
 	Scanner         ScannerConfig         `toml:"scanner"`          // UBS scanner configuration
 	CASS            CASSConfig            `toml:"cass"`             // CASS integration configuration
 	Accounts        AccountsConfig        `toml:"accounts"`         // Multi-account management
@@ -119,6 +120,54 @@ func DefaultResilienceConfig() ResilienceConfig {
 			Patterns: nil,  // Use default patterns (rate limit, 429, too many requests, quota exceeded)
 		},
 	}
+}
+
+// HealthConfig holds configuration for agent health monitoring.
+// This is separate from ResilienceConfig which handles crash recovery;
+// HealthConfig focuses on proactive monitoring and stall detection.
+type HealthConfig struct {
+	Enabled            bool `toml:"enabled"`              // Master toggle for health monitoring
+	CheckInterval      int  `toml:"check_interval"`       // Seconds between health checks
+	StallThreshold     int  `toml:"stall_threshold"`      // Seconds without output before agent is stalled
+	AutoRestart        bool `toml:"auto_restart"`         // Auto-restart on unhealthy state
+	MaxRestarts        int  `toml:"max_restarts"`         // Max restart attempts before giving up
+	RestartBackoffBase int  `toml:"restart_backoff_base"` // Initial restart delay (seconds)
+	RestartBackoffMax  int  `toml:"restart_backoff_max"`  // Maximum restart delay (seconds)
+}
+
+// DefaultHealthConfig returns sensible health monitoring defaults
+func DefaultHealthConfig() HealthConfig {
+	return HealthConfig{
+		Enabled:            true,  // Health monitoring enabled by default
+		CheckInterval:      10,    // Check every 10 seconds
+		StallThreshold:     300,   // 5 minutes without output = stalled
+		AutoRestart:        false, // Disabled by default, opt-in
+		MaxRestarts:        3,     // Stop after 3 restart attempts
+		RestartBackoffBase: 30,    // Initial 30 second delay
+		RestartBackoffMax:  300,   // Max 5 minute delay (exponential backoff)
+	}
+}
+
+// ValidateHealthConfig validates the health monitoring configuration
+func ValidateHealthConfig(cfg *HealthConfig) error {
+	if cfg.CheckInterval < 1 {
+		return fmt.Errorf("check_interval must be at least 1 second, got %d", cfg.CheckInterval)
+	}
+	if cfg.StallThreshold < cfg.CheckInterval {
+		return fmt.Errorf("stall_threshold (%d) must be >= check_interval (%d)",
+			cfg.StallThreshold, cfg.CheckInterval)
+	}
+	if cfg.MaxRestarts < 0 {
+		return fmt.Errorf("max_restarts must be non-negative, got %d", cfg.MaxRestarts)
+	}
+	if cfg.RestartBackoffBase < 1 {
+		return fmt.Errorf("restart_backoff_base must be at least 1 second, got %d", cfg.RestartBackoffBase)
+	}
+	if cfg.RestartBackoffMax < cfg.RestartBackoffBase {
+		return fmt.Errorf("restart_backoff_max (%d) must be >= restart_backoff_base (%d)",
+			cfg.RestartBackoffMax, cfg.RestartBackoffBase)
+	}
+	return nil
 }
 
 // AccountEntry represents a single account for a provider
@@ -679,6 +728,7 @@ func Default() *Config {
 		Checkpoints:     DefaultCheckpointsConfig(),
 		Notifications:   notify.DefaultConfig(),
 		Resilience:      DefaultResilienceConfig(),
+		Health:          DefaultHealthConfig(),
 		Scanner:         DefaultScannerConfig(),
 		CASS:            DefaultCASSConfig(),
 		Accounts:        DefaultAccountsConfig(),
@@ -1287,6 +1337,19 @@ func Print(cfg *Config, w io.Writer) error {
 	fmt.Fprintf(w, "show_reset_timers = %t     # Show reset countdown\n", cfg.Rotation.Dashboard.ShowResetTimers)
 	fmt.Fprintln(w)
 
+	// Write health monitoring configuration
+	fmt.Fprintln(w, "[health]")
+	fmt.Fprintln(w, "# Agent health monitoring configuration")
+	fmt.Fprintln(w, "# Proactive monitoring to detect stalled, unresponsive, or unhealthy agents")
+	fmt.Fprintf(w, "enabled = %t                # Master toggle for health monitoring\n", cfg.Health.Enabled)
+	fmt.Fprintf(w, "check_interval = %d          # Seconds between health checks\n", cfg.Health.CheckInterval)
+	fmt.Fprintf(w, "stall_threshold = %d        # Seconds without output before agent is stalled\n", cfg.Health.StallThreshold)
+	fmt.Fprintf(w, "auto_restart = %t           # Auto-restart on unhealthy state\n", cfg.Health.AutoRestart)
+	fmt.Fprintf(w, "max_restarts = %d            # Max restart attempts before giving up\n", cfg.Health.MaxRestarts)
+	fmt.Fprintf(w, "restart_backoff_base = %d   # Initial restart delay (seconds)\n", cfg.Health.RestartBackoffBase)
+	fmt.Fprintf(w, "restart_backoff_max = %d    # Maximum restart delay (seconds)\n", cfg.Health.RestartBackoffMax)
+	fmt.Fprintln(w)
+
 	fmt.Fprintln(w, "[scanner]")
 	fmt.Fprintln(w, "# UBS scanner configuration")
 	if cfg.Scanner.UBSPath != "" {
@@ -1599,6 +1662,26 @@ func GetValue(cfg *Config, path string) (interface{}, error) {
 		case "timeout":
 			return cfg.CASS.Timeout, nil
 		}
+	case "health":
+		if len(parts) < 2 {
+			return cfg.Health, nil
+		}
+		switch parts[1] {
+		case "enabled":
+			return cfg.Health.Enabled, nil
+		case "check_interval":
+			return cfg.Health.CheckInterval, nil
+		case "stall_threshold":
+			return cfg.Health.StallThreshold, nil
+		case "auto_restart":
+			return cfg.Health.AutoRestart, nil
+		case "max_restarts":
+			return cfg.Health.MaxRestarts, nil
+		case "restart_backoff_base":
+			return cfg.Health.RestartBackoffBase, nil
+		case "restart_backoff_max":
+			return cfg.Health.RestartBackoffMax, nil
+		}
 	}
 
 	return nil, fmt.Errorf("unknown config path: %s", path)
@@ -1691,6 +1774,15 @@ func Diff(cfg *Config) []ConfigDiff {
 	addDiff("cass.enabled", defaults.CASS.Enabled, cfg.CASS.Enabled)
 	addDiff("cass.timeout", defaults.CASS.Timeout, cfg.CASS.Timeout)
 
+	// Health monitoring
+	addDiff("health.enabled", defaults.Health.Enabled, cfg.Health.Enabled)
+	addDiff("health.check_interval", defaults.Health.CheckInterval, cfg.Health.CheckInterval)
+	addDiff("health.stall_threshold", defaults.Health.StallThreshold, cfg.Health.StallThreshold)
+	addDiff("health.auto_restart", defaults.Health.AutoRestart, cfg.Health.AutoRestart)
+	addDiff("health.max_restarts", defaults.Health.MaxRestarts, cfg.Health.MaxRestarts)
+	addDiff("health.restart_backoff_base", defaults.Health.RestartBackoffBase, cfg.Health.RestartBackoffBase)
+	addDiff("health.restart_backoff_max", defaults.Health.RestartBackoffMax, cfg.Health.RestartBackoffMax)
+
 	return diffs
 }
 
@@ -1705,6 +1797,11 @@ func Validate(cfg *Config) []error {
 	// Validate context rotation
 	if err := ValidateContextRotationConfig(&cfg.ContextRotation); err != nil {
 		errs = append(errs, fmt.Errorf("context_rotation: %w", err))
+	}
+
+	// Validate health monitoring
+	if err := ValidateHealthConfig(&cfg.Health); err != nil {
+		errs = append(errs, fmt.Errorf("health: %w", err))
 	}
 
 	// Validate projects_base if set
