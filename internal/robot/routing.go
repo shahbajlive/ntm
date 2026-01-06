@@ -849,7 +849,6 @@ type RoutingStrategy interface {
 	Select(agents []ScoredAgent, ctx RoutingContext) *ScoredAgent
 }
 
-// RoutingResult represents the outcome of a routing decision.
 // ReservationWarning contains information about file reservation conflicts.
 type ReservationWarning struct {
 	Message     string   `json:"message"`               // Human-readable warning message
