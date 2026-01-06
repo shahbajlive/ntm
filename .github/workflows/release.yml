@@ -174,7 +174,7 @@ jobs:
           - os: macos-latest
             goos: darwin
             goarch: arm64
-          - os: macos-13
+          - os: macos-15
             goos: darwin
             goarch: amd64
           - os: windows-latest
