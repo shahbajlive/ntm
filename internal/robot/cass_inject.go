@@ -343,6 +343,169 @@ func itoa(i int) string {
 }
 
 // =============================================================================
+// Topic Detection & Filtering
+// =============================================================================
+
+// Topic represents a category of code/task.
+type Topic string
+
+const (
+	TopicAuth     Topic = "auth"
+	TopicUI       Topic = "ui"
+	TopicAPI      Topic = "api"
+	TopicDatabase Topic = "database"
+	TopicTesting  Topic = "testing"
+	TopicInfra    Topic = "infrastructure"
+	TopicDocs     Topic = "docs"
+	TopicGeneral  Topic = "general"
+)
+
+// topicKeywords maps topics to their indicator keywords.
+var topicKeywords = map[Topic][]string{
+	TopicAuth: {
+		"auth", "login", "logout", "password", "jwt", "token", "session",
+		"oauth", "sso", "credential", "authenticate", "authorization",
+		"permission", "role", "user", "signup", "signin", "register",
+	},
+	TopicUI: {
+		"ui", "component", "css", "style", "button", "form", "input",
+		"modal", "dialog", "layout", "responsive", "theme", "design",
+		"frontend", "html", "render", "display", "view", "template",
+		"animation", "transition", "hover", "click",
+	},
+	TopicAPI: {
+		"endpoint", "route", "request", "response", "rest", "graphql",
+		"http", "api", "handler", "controller", "middleware", "cors",
+		"json", "payload", "body", "header", "status", "method",
+	},
+	TopicDatabase: {
+		"query", "schema", "migration", "model", "database", "sql",
+		"table", "column", "index", "foreign", "primary", "key",
+		"join", "select", "insert", "update", "delete", "transaction",
+		"postgres", "mysql", "sqlite", "mongo", "redis", "orm",
+	},
+	TopicTesting: {
+		"test", "spec", "mock", "fixture", "assert", "expect", "describe",
+		"unit", "integration", "e2e", "coverage", "benchmark", "stub",
+		"fake", "spy", "suite", "runner", "jest", "pytest", "gotest",
+	},
+	TopicInfra: {
+		"deploy", "docker", "kubernetes", "k8s", "ci", "cd", "pipeline",
+		"terraform", "aws", "gcp", "azure", "cloud", "server", "container",
+		"helm", "ansible", "nginx", "loadbalancer", "ssl", "dns",
+	},
+	TopicDocs: {
+		"readme", "documentation", "docs", "comment", "docstring", "jsdoc",
+		"godoc", "markdown", "wiki", "changelog", "guide", "tutorial",
+	},
+}
+
+// TopicFilterConfig holds configuration for topic-based filtering.
+type TopicFilterConfig struct {
+	// Enabled controls whether topic filtering is applied.
+	Enabled bool `json:"enabled"`
+
+	// MatchTopics requires results to match at least one detected topic.
+	// If true, results with no topic overlap are penalized.
+	MatchTopics bool `json:"match_topics"`
+
+	// ExcludeTopics lists topics to completely filter out.
+	ExcludeTopics []Topic `json:"exclude_topics,omitempty"`
+
+	// SameTopicBoost is the multiplier for results matching prompt topics.
+	// Default: 1.5
+	SameTopicBoost float64 `json:"same_topic_boost"`
+
+	// DifferentTopicPenalty is the multiplier for results not matching prompt topics.
+	// Default: 0.5
+	DifferentTopicPenalty float64 `json:"different_topic_penalty"`
+}
+
+// DefaultTopicFilterConfig returns sensible defaults for topic filtering.
+func DefaultTopicFilterConfig() TopicFilterConfig {
+	return TopicFilterConfig{
+		Enabled:               false, // Off by default until stable
+		MatchTopics:           true,
+		ExcludeTopics:         nil,
+		SameTopicBoost:        1.5,
+		DifferentTopicPenalty: 0.5,
+	}
+}
+
+// DetectTopics analyzes text and returns detected topics.
+func DetectTopics(text string) []Topic {
+	text = strings.ToLower(text)
+
+	// Remove code blocks to avoid false positives from code syntax
+	text = removeCodeBlocks(text)
+
+	// Tokenize
+	words := tokenize(text)
+	wordSet := make(map[string]bool)
+	for _, w := range words {
+		wordSet[w] = true
+	}
+
+	// Count keyword matches per topic
+	topicScores := make(map[Topic]int)
+	for topic, keywords := range topicKeywords {
+		for _, kw := range keywords {
+			if wordSet[kw] {
+				topicScores[topic]++
+			}
+		}
+	}
+
+	// Collect topics with at least 2 keyword matches (avoids false positives)
+	var detected []Topic
+	for topic, score := range topicScores {
+		if score >= 2 {
+			detected = append(detected, topic)
+		}
+	}
+
+	// If no strong matches, check for single keyword matches
+	if len(detected) == 0 {
+		for topic, score := range topicScores {
+			if score >= 1 {
+				detected = append(detected, topic)
+			}
+		}
+	}
+
+	// If still nothing, return general
+	if len(detected) == 0 {
+		detected = []Topic{TopicGeneral}
+	}
+
+	return detected
+}
+
+// topicsOverlap checks if two topic slices have any common elements.
+func topicsOverlap(a, b []Topic) bool {
+	setA := make(map[Topic]bool)
+	for _, t := range a {
+		setA[t] = true
+	}
+	for _, t := range b {
+		if setA[t] {
+			return true
+		}
+	}
+	return false
+}
+
+// containsTopic checks if a topic is in the slice.
+func containsTopic(topics []Topic, target Topic) bool {
+	for _, t := range topics {
+		if t == target {
+			return true
+		}
+	}
+	return false
+}
+
+// =============================================================================
 // Relevance Filtering
 // =============================================================================
 
@@ -369,6 +532,13 @@ type FilterConfig struct {
 	// Higher values favor newer results more strongly.
 	// Default: 0.3
 	RecencyBoost float64 `json:"recency_boost"`
+
+	// TopicFilter configures topic-based filtering.
+	TopicFilter TopicFilterConfig `json:"topic_filter"`
+
+	// PromptTopics are the topics detected from the prompt (set by caller).
+	// If empty and TopicFilter.Enabled, topics will be detected from hits.
+	PromptTopics []Topic `json:"prompt_topics,omitempty"`
 }
 
 // DefaultFilterConfig returns sensible defaults for relevance filtering.
@@ -401,6 +571,10 @@ type CASSScoreDetail struct {
 	ProjectBonus float64 `json:"project_bonus"`
 	// AgePenalty is subtracted for older results.
 	AgePenalty float64 `json:"age_penalty"`
+	// TopicMultiplier is applied for topic match/mismatch (1.0 = neutral).
+	TopicMultiplier float64 `json:"topic_multiplier,omitempty"`
+	// DetectedTopics are the topics detected in this result.
+	DetectedTopics []Topic `json:"detected_topics,omitempty"`
 }
 
 // FilterResult holds the results of filtering CASS hits.
@@ -415,14 +589,20 @@ type FilterResult struct {
 	RemovedByScore int `json:"removed_by_score"`
 	// RemovedByAge is how many were removed for being too old.
 	RemovedByAge int `json:"removed_by_age"`
+	// RemovedByTopic is how many were removed for excluded topics.
+	RemovedByTopic int `json:"removed_by_topic"`
+	// PromptTopics are the topics detected in the prompt.
+	PromptTopics []Topic `json:"prompt_topics,omitempty"`
 }
 
 // FilterResults filters and scores CASS hits based on relevance criteria.
-// It applies recency preference, same-project preference, and minimum score thresholds.
+// It applies recency preference, same-project preference, topic filtering,
+// and minimum score thresholds.
 func FilterResults(hits []CASSHit, config FilterConfig) FilterResult {
 	result := FilterResult{
 		Hits:          []ScoredHit{},
 		OriginalCount: len(hits),
+		PromptTopics:  config.PromptTopics,
 	}
 
 	if len(hits) == 0 {
@@ -431,6 +611,10 @@ func FilterResults(hits []CASSHit, config FilterConfig) FilterResult {
 
 	now := time.Now()
 	maxAgeTime := now.AddDate(0, 0, -config.MaxAgeDays)
+
+	// Topic filtering setup
+	topicEnabled := config.TopicFilter.Enabled
+	promptTopics := config.PromptTopics
 
 	// Score and filter each hit
 	var scored []ScoredHit
@@ -445,7 +629,40 @@ func FilterResults(hits []CASSHit, config FilterConfig) FilterResult {
 		}
 
 		// Compute score components
-		breakdown := CASSScoreDetail{}
+		breakdown := CASSScoreDetail{
+			TopicMultiplier: 1.0, // Neutral default
+		}
+
+		// Detect topics from hit content if topic filtering is enabled
+		var hitTopics []Topic
+		excludedByTopic := false
+		if topicEnabled && hit.Content != "" {
+			hitTopics = DetectTopics(hit.Content)
+			breakdown.DetectedTopics = hitTopics
+
+			// Check for excluded topics
+			for _, excluded := range config.TopicFilter.ExcludeTopics {
+				if containsTopic(hitTopics, excluded) {
+					result.RemovedByTopic++
+					excludedByTopic = true
+					break
+				}
+			}
+			if excludedByTopic {
+				continue
+			}
+
+			// Apply topic matching
+			if config.TopicFilter.MatchTopics && len(promptTopics) > 0 {
+				if topicsOverlap(promptTopics, hitTopics) {
+					// Boost for matching topics
+					breakdown.TopicMultiplier = config.TopicFilter.SameTopicBoost
+				} else if !containsTopic(hitTopics, TopicGeneral) && !containsTopic(promptTopics, TopicGeneral) {
+					// Penalize for non-matching topics (unless either is general)
+					breakdown.TopicMultiplier = config.TopicFilter.DifferentTopicPenalty
+				}
+			}
+		}
 
 		// Base score from position (earlier = higher, normalized 0.5-1.0)
 		// Position 0 gets 1.0, position N-1 gets 0.5
@@ -478,8 +695,12 @@ func FilterResults(hits []CASSHit, config FilterConfig) FilterResult {
 			}
 		}
 
-		// Compute final score (capped at 1.0)
+		// Compute final score
+		// Start with base + bonuses - penalties
 		finalScore := breakdown.BaseScore + breakdown.RecencyBonus + breakdown.ProjectBonus - breakdown.AgePenalty
+		// Apply topic multiplier
+		finalScore *= breakdown.TopicMultiplier
+		// Cap at 1.0
 		if finalScore > 1.0 {
 			finalScore = 1.0
 		}

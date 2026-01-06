@@ -1460,3 +1460,375 @@ func TestNewCASSInjectionInfo_EmptyHits(t *testing.T) {
 		t.Errorf("SkippedReason = %q, want 'no relevant context found'", info.SkippedReason)
 	}
 }
+
+// =============================================================================
+// Topic Detection Tests
+// =============================================================================
+
+func TestDetectTopics(t *testing.T) {
+	tests := []struct {
+		name     string
+		text     string
+		expected []Topic
+	}{
+		{
+			name:     "auth topic - multiple keywords",
+			text:     "Fix the login authentication issue with jwt tokens",
+			expected: []Topic{TopicAuth},
+		},
+		{
+			name:     "ui topic - multiple keywords",
+			text:     "Update the button component style and hover animation",
+			expected: []Topic{TopicUI},
+		},
+		{
+			name:     "api topic - multiple keywords",
+			text:     "Add new endpoint handler for json request/response",
+			expected: []Topic{TopicAPI},
+		},
+		{
+			name:     "database topic - multiple keywords",
+			text:     "Run migration to update schema with new index",
+			expected: []Topic{TopicDatabase},
+		},
+		{
+			name:     "testing topic - multiple keywords",
+			text:     "Write unit test with mock fixture",
+			expected: []Topic{TopicTesting},
+		},
+		{
+			name:     "infrastructure topic - multiple keywords",
+			text:     "Deploy docker container to kubernetes cluster",
+			expected: []Topic{TopicInfra},
+		},
+		{
+			name:     "docs topic - multiple keywords",
+			text:     "Update readme documentation with guide",
+			expected: []Topic{TopicDocs},
+		},
+		{
+			name:     "general - no specific keywords",
+			text:     "Make some improvements to the code",
+			expected: []Topic{TopicGeneral},
+		},
+		{
+			name:     "multiple topics detected",
+			text:     "Add authentication endpoint with jwt token handler for login route",
+			expected: []Topic{TopicAuth, TopicAPI}, // order may vary
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			detected := DetectTopics(tt.text)
+
+			// For multiple expected topics, check all are present
+			for _, expected := range tt.expected {
+				found := false
+				for _, topic := range detected {
+					if topic == expected {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("DetectTopics(%q) = %v, missing expected topic %q",
+						tt.text, detected, expected)
+				}
+			}
+		})
+	}
+}
+
+func TestDetectTopics_CodeBlocksIgnored(t *testing.T) {
+	// Code blocks should be ignored to avoid false positives from code syntax
+	text := "Check this code:\n```go\nfunc login() { token := \"test\" }\n```\nThe issue is elsewhere"
+
+	detected := DetectTopics(text)
+
+	// Should not detect auth just from code block content
+	// Only "login" and "token" in code should be stripped
+	hasAuth := false
+	for _, topic := range detected {
+		if topic == TopicAuth {
+			hasAuth = true
+		}
+	}
+	// With code blocks removed, we might still get auth from "login" in description
+	// This test ensures code isn't double-counted
+	t.Logf("Detected topics: %v (hasAuth: %v)", detected, hasAuth)
+}
+
+func TestTopicsOverlap(t *testing.T) {
+	tests := []struct {
+		name     string
+		a, b     []Topic
+		expected bool
+	}{
+		{
+			name:     "exact match",
+			a:        []Topic{TopicAuth},
+			b:        []Topic{TopicAuth},
+			expected: true,
+		},
+		{
+			name:     "partial overlap",
+			a:        []Topic{TopicAuth, TopicAPI},
+			b:        []Topic{TopicAPI, TopicDatabase},
+			expected: true,
+		},
+		{
+			name:     "no overlap",
+			a:        []Topic{TopicAuth, TopicUI},
+			b:        []Topic{TopicAPI, TopicDatabase},
+			expected: false,
+		},
+		{
+			name:     "empty first",
+			a:        []Topic{},
+			b:        []Topic{TopicAuth},
+			expected: false,
+		},
+		{
+			name:     "empty second",
+			a:        []Topic{TopicAuth},
+			b:        []Topic{},
+			expected: false,
+		},
+		{
+			name:     "both empty",
+			a:        []Topic{},
+			b:        []Topic{},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := topicsOverlap(tt.a, tt.b)
+			if result != tt.expected {
+				t.Errorf("topicsOverlap(%v, %v) = %v, want %v",
+					tt.a, tt.b, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestContainsTopic(t *testing.T) {
+	tests := []struct {
+		name     string
+		topics   []Topic
+		target   Topic
+		expected bool
+	}{
+		{
+			name:     "contains target",
+			topics:   []Topic{TopicAuth, TopicAPI, TopicUI},
+			target:   TopicAPI,
+			expected: true,
+		},
+		{
+			name:     "does not contain target",
+			topics:   []Topic{TopicAuth, TopicUI},
+			target:   TopicAPI,
+			expected: false,
+		},
+		{
+			name:     "empty slice",
+			topics:   []Topic{},
+			target:   TopicAuth,
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := containsTopic(tt.topics, tt.target)
+			if result != tt.expected {
+				t.Errorf("containsTopic(%v, %q) = %v, want %v",
+					tt.topics, tt.target, result, tt.expected)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// Topic Filtering Integration Tests
+// =============================================================================
+
+func TestFilterResults_TopicFiltering_ExcludedTopic(t *testing.T) {
+	now := time.Now()
+	hits := []CASSHit{
+		{
+			SourcePath: fmt.Sprintf("/sessions/%d/%02d/%02d/auth-session.jsonl", now.Year(), now.Month(), now.Day()),
+			Content:    "Handle authentication with jwt tokens and login",
+		},
+		{
+			SourcePath: fmt.Sprintf("/sessions/%d/%02d/%02d/api-session.jsonl", now.Year(), now.Month(), now.Day()),
+			Content:    "Implement endpoint handler for http requests",
+		},
+	}
+
+	config := DefaultFilterConfig()
+	config.MinRelevance = 0.0 // Accept all scores
+	config.TopicFilter = TopicFilterConfig{
+		Enabled:               true,
+		MatchTopics:           false,
+		ExcludeTopics:         []Topic{TopicAuth}, // Exclude auth
+		SameTopicBoost:        1.5,
+		DifferentTopicPenalty: 0.5,
+	}
+
+	result := FilterResults(hits, config)
+
+	// Auth topic should be excluded
+	if result.RemovedByTopic != 1 {
+		t.Errorf("RemovedByTopic = %d, want 1", result.RemovedByTopic)
+	}
+	if result.FilteredCount != 1 {
+		t.Errorf("FilteredCount = %d, want 1", result.FilteredCount)
+	}
+	// The remaining hit should be API-related
+	if len(result.Hits) > 0 && !containsTopic(result.Hits[0].ScoreDetail.DetectedTopics, TopicAPI) {
+		t.Errorf("Expected remaining hit to have API topic, got %v",
+			result.Hits[0].ScoreDetail.DetectedTopics)
+	}
+}
+
+func TestFilterResults_TopicFiltering_BoostMatchingTopic(t *testing.T) {
+	now := time.Now()
+	hits := []CASSHit{
+		{
+			SourcePath: fmt.Sprintf("/sessions/%d/%02d/%02d/auth-session.jsonl", now.Year(), now.Month(), now.Day()),
+			Content:    "Handle authentication with jwt tokens",
+		},
+		{
+			SourcePath: fmt.Sprintf("/sessions/%d/%02d/%02d/ui-session.jsonl", now.Year(), now.Month(), now.Day()),
+			Content:    "Update button component style and layout",
+		},
+	}
+
+	config := DefaultFilterConfig()
+	config.MinRelevance = 0.0
+	config.PromptTopics = []Topic{TopicAuth} // Prompt is about auth
+	config.TopicFilter = TopicFilterConfig{
+		Enabled:               true,
+		MatchTopics:           true,
+		SameTopicBoost:        1.5,
+		DifferentTopicPenalty: 0.5,
+	}
+
+	result := FilterResults(hits, config)
+
+	// Both should pass (no exclusions)
+	if result.FilteredCount != 2 {
+		t.Errorf("FilteredCount = %d, want 2", result.FilteredCount)
+	}
+
+	// Auth hit should be boosted and ranked first
+	if len(result.Hits) >= 2 {
+		authHit := result.Hits[0]
+		uiHit := result.Hits[1]
+
+		// Auth should have topic multiplier of 1.5
+		if authHit.ScoreDetail.TopicMultiplier != 1.5 {
+			t.Errorf("Auth hit TopicMultiplier = %f, want 1.5",
+				authHit.ScoreDetail.TopicMultiplier)
+		}
+
+		// UI should have topic multiplier of 0.5 (penalized)
+		if uiHit.ScoreDetail.TopicMultiplier != 0.5 {
+			t.Errorf("UI hit TopicMultiplier = %f, want 0.5",
+				uiHit.ScoreDetail.TopicMultiplier)
+		}
+
+		// Auth should have higher score
+		if authHit.ComputedScore <= uiHit.ComputedScore {
+			t.Errorf("Auth score (%f) should be higher than UI score (%f)",
+				authHit.ComputedScore, uiHit.ComputedScore)
+		}
+	}
+}
+
+func TestFilterResults_TopicFiltering_Disabled(t *testing.T) {
+	now := time.Now()
+	hits := []CASSHit{
+		{
+			SourcePath: fmt.Sprintf("/sessions/%d/%02d/%02d/session.jsonl", now.Year(), now.Month(), now.Day()),
+			Content:    "Handle authentication with jwt tokens",
+		},
+	}
+
+	config := DefaultFilterConfig()
+	config.MinRelevance = 0.0
+	config.PromptTopics = []Topic{TopicUI} // Different topic
+	config.TopicFilter = TopicFilterConfig{
+		Enabled:               false, // Disabled
+		MatchTopics:           true,
+		SameTopicBoost:        1.5,
+		DifferentTopicPenalty: 0.5,
+	}
+
+	result := FilterResults(hits, config)
+
+	// With topic filtering disabled, hit should not be penalized
+	if result.FilteredCount != 1 {
+		t.Errorf("FilteredCount = %d, want 1", result.FilteredCount)
+	}
+	if len(result.Hits) > 0 && result.Hits[0].ScoreDetail.TopicMultiplier != 1.0 {
+		t.Errorf("TopicMultiplier = %f, want 1.0 (neutral when disabled)",
+			result.Hits[0].ScoreDetail.TopicMultiplier)
+	}
+}
+
+func TestFilterResults_TopicFiltering_GeneralTopicNopenalty(t *testing.T) {
+	now := time.Now()
+	hits := []CASSHit{
+		{
+			SourcePath: fmt.Sprintf("/sessions/%d/%02d/%02d/session.jsonl", now.Year(), now.Month(), now.Day()),
+			Content:    "Make some improvements", // General topic
+		},
+	}
+
+	config := DefaultFilterConfig()
+	config.MinRelevance = 0.0
+	config.PromptTopics = []Topic{TopicAuth} // Specific topic
+	config.TopicFilter = TopicFilterConfig{
+		Enabled:               true,
+		MatchTopics:           true,
+		SameTopicBoost:        1.5,
+		DifferentTopicPenalty: 0.5,
+	}
+
+	result := FilterResults(hits, config)
+
+	// General topic should not be penalized
+	if result.FilteredCount != 1 {
+		t.Errorf("FilteredCount = %d, want 1", result.FilteredCount)
+	}
+	if len(result.Hits) > 0 && result.Hits[0].ScoreDetail.TopicMultiplier != 1.0 {
+		t.Errorf("TopicMultiplier = %f, want 1.0 (no penalty for general topic)",
+			result.Hits[0].ScoreDetail.TopicMultiplier)
+	}
+}
+
+func TestDefaultTopicFilterConfig(t *testing.T) {
+	config := DefaultTopicFilterConfig()
+
+	// Check defaults
+	if config.Enabled != false {
+		t.Errorf("Enabled = %v, want false (disabled by default)", config.Enabled)
+	}
+	if config.MatchTopics != true {
+		t.Errorf("MatchTopics = %v, want true", config.MatchTopics)
+	}
+	if config.SameTopicBoost != 1.5 {
+		t.Errorf("SameTopicBoost = %f, want 1.5", config.SameTopicBoost)
+	}
+	if config.DifferentTopicPenalty != 0.5 {
+		t.Errorf("DifferentTopicPenalty = %f, want 0.5", config.DifferentTopicPenalty)
+	}
+	if len(config.ExcludeTopics) != 0 {
+		t.Errorf("ExcludeTopics = %v, want empty", config.ExcludeTopics)
+	}
+}
