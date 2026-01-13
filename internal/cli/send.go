@@ -327,9 +327,13 @@ func newSendCmd() *cobra.Command {
 	}
 
 	// Use custom flag values that support --cc or --cc=variant syntax
+	// NoOptDefVal must be set explicitly for pflag to honor IsBoolFlag() on custom Var types
 	cmd.Flags().Var(newSendTargetValue(AgentTypeClaude, &targets), "cc", "send to Claude agents (optional :variant filter)")
+	cmd.Flags().Lookup("cc").NoOptDefVal = "true"
 	cmd.Flags().Var(newSendTargetValue(AgentTypeCodex, &targets), "cod", "send to Codex agents (optional :variant filter)")
+	cmd.Flags().Lookup("cod").NoOptDefVal = "true"
 	cmd.Flags().Var(newSendTargetValue(AgentTypeGemini, &targets), "gmi", "send to Gemini agents (optional :variant filter)")
+	cmd.Flags().Lookup("gmi").NoOptDefVal = "true"
 	cmd.Flags().BoolVar(&targetAll, "all", false, "send to all panes (including user pane)")
 	cmd.Flags().BoolVarP(&skipFirst, "skip-first", "s", false, "skip the first (user) pane")
 	cmd.Flags().IntVarP(&paneIndex, "pane", "p", -1, "send to specific pane index")
