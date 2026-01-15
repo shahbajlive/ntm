@@ -5,6 +5,13 @@ import (
 	"time"
 )
 
+// DefaultCacheTTL is the default cache entry time-to-live.
+const DefaultCacheTTL = 5 * time.Minute
+
+// MinCacheTTL is the minimum allowed TTL to ensure the cleanup ticker is valid.
+// time.NewTicker requires a positive duration, and ttl/2 must be > 0.
+const MinCacheTTL = 2 * time.Millisecond
+
 // cacheEntry holds a cached value with expiration
 type cacheEntry struct {
 	value     interface{}
@@ -20,8 +27,17 @@ type Cache struct {
 	closed  bool
 }
 
-// NewCache creates a new cache with the specified TTL
+// NewCache creates a new cache with the specified TTL.
+// If ttl is 0, DefaultCacheTTL is used.
+// If ttl is less than MinCacheTTL, MinCacheTTL is used to ensure
+// the cleanup goroutine's ticker has a valid positive duration.
 func NewCache(ttl time.Duration) *Cache {
+	if ttl <= 0 {
+		ttl = DefaultCacheTTL
+	} else if ttl < MinCacheTTL {
+		ttl = MinCacheTTL
+	}
+
 	c := &Cache{
 		entries: make(map[string]cacheEntry),
 		ttl:     ttl,
