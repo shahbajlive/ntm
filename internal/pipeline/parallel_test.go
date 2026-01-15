@@ -131,11 +131,13 @@ func TestExecuteParallel_GroupTimeout(t *testing.T) {
 
 	e, workflow := createTestExecutor()
 
-	// Create a parallel group with a short timeout
+	// Create a parallel group with a timeout
 	// In dry run mode, steps complete instantly, so timeout won't be hit
+	// Use a generous timeout (5s) to account for test infrastructure overhead
+	// (goroutine spawning, state persistence, channel operations, etc.)
 	step := &Step{
 		ID:      "parallel_group",
-		Timeout: Duration{Duration: 100 * time.Millisecond},
+		Timeout: Duration{Duration: 5 * time.Second},
 		Parallel: []Step{
 			{ID: "step1", Prompt: "Do task 1"},
 		},

@@ -2,8 +2,10 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -1587,3 +1589,307 @@ func TestExecutor_Run_DryRun_ProgressEvents(t *testing.T) {
 		t.Errorf("last event type = %q, want workflow_complete", events[len(events)-1].Type)
 	}
 }
+
+func TestCaptureErrorContext_DryRun(t *testing.T) {
+	cfg := DefaultExecutorConfig("test")
+	cfg.DryRun = true
+	e := NewExecutor(cfg)
+
+	// DryRun mode should return empty string
+	result := e.captureErrorContext("pane-1", 100)
+	if result != "" {
+		t.Errorf("captureErrorContext in DryRun = %q, want empty string", result)
+	}
+}
+
+func TestCaptureErrorContext_EmptyPaneID(t *testing.T) {
+	cfg := DefaultExecutorConfig("test")
+	e := NewExecutor(cfg)
+
+	// Empty paneID should return empty string
+	result := e.captureErrorContext("", 100)
+	if result != "" {
+		t.Errorf("captureErrorContext with empty paneID = %q, want empty string", result)
+	}
+}
+
+func TestDetectAgentState_DryRun(t *testing.T) {
+	cfg := DefaultExecutorConfig("test")
+	cfg.DryRun = true
+	e := NewExecutor(cfg)
+
+	// DryRun mode should return empty string
+	result := e.detectAgentState("pane-1")
+	if result != "" {
+		t.Errorf("detectAgentState in DryRun = %q, want empty string", result)
+	}
+}
+
+func TestDetectAgentState_EmptyPaneID(t *testing.T) {
+	cfg := DefaultExecutorConfig("test")
+	e := NewExecutor(cfg)
+
+	// Empty paneID should return empty string
+	result := e.detectAgentState("")
+	if result != "" {
+		t.Errorf("detectAgentState with empty paneID = %q, want empty string", result)
+	}
+}
+
+// TestExecutor_selectPaneExcluding_DryRun tests selectPaneExcluding in dry run mode
+func TestExecutor_selectPaneExcluding_DryRun(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultExecutorConfig("test-session")
+	cfg.DryRun = true
+	e := NewExecutor(cfg)
+
+	step := &Step{ID: "step1", Prompt: "test prompt"}
+	usedPanes := make(map[string]bool)
+	var mu sync.Mutex
+
+	paneID, agentType, err := e.selectPaneExcluding(step, usedPanes, &mu)
+
+	if err != nil {
+		t.Fatalf("selectPaneExcluding() returned error: %v", err)
+	}
+	if paneID != "dry-run-pane" {
+		t.Errorf("paneID = %q, want %q", paneID, "dry-run-pane")
+	}
+	if agentType != "dry-run-agent" {
+		t.Errorf("agentType = %q, want %q", agentType, "dry-run-agent")
+	}
+}
+
+// TestExecutor_selectPaneExcluding_DryRun_WithUsedPanes tests that dry run ignores usedPanes
+func TestExecutor_selectPaneExcluding_DryRun_WithUsedPanes(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultExecutorConfig("test-session")
+	cfg.DryRun = true
+	e := NewExecutor(cfg)
+
+	step := &Step{ID: "step1", Prompt: "test prompt"}
+	usedPanes := map[string]bool{
+		"dry-run-pane": true, // Already marked as used
+	}
+	var mu sync.Mutex
+
+	// In dry run mode, should still return dry-run-pane regardless of usedPanes
+	paneID, agentType, err := e.selectPaneExcluding(step, usedPanes, &mu)
+
+	if err != nil {
+		t.Fatalf("selectPaneExcluding() returned error: %v", err)
+	}
+	if paneID != "dry-run-pane" {
+		t.Errorf("paneID = %q, want %q", paneID, "dry-run-pane")
+	}
+	if agentType != "dry-run-agent" {
+		t.Errorf("agentType = %q, want %q", agentType, "dry-run-agent")
+	}
+}
+
+// TestWaitForIdle_ContextCancelled tests waitForIdle with cancelled context
+func TestWaitForIdle_ContextCancelled(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultExecutorConfig("test")
+	cfg.ProgressInterval = 50 * time.Millisecond // Fast for testing
+	e := NewExecutor(cfg)
+
+	// Create already cancelled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := e.waitForIdle(ctx, "pane-1", 5*time.Second)
+
+	if err == nil {
+		t.Error("waitForIdle() should return error for cancelled context")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("waitForIdle() error = %v, want context.Canceled", err)
+	}
+}
+
+// TestWaitForIdle_ContextDeadline tests waitForIdle with deadline exceeded
+func TestWaitForIdle_ContextDeadline(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultExecutorConfig("test")
+	cfg.ProgressInterval = 50 * time.Millisecond // Fast for testing
+	e := NewExecutor(cfg)
+
+	// Create context with very short deadline
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	err := e.waitForIdle(ctx, "pane-1", 5*time.Second)
+
+	if err == nil {
+		t.Error("waitForIdle() should return error for deadline exceeded")
+	}
+	// Should get context error before timeout
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("waitForIdle() error = %v, want context.DeadlineExceeded", err)
+	}
+}
+
+// TestPersistState_NilState tests persistState with nil state
+func TestPersistState_NilState(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultExecutorConfig("test")
+	e := NewExecutor(cfg)
+	e.state = nil
+
+	// Should not panic with nil state
+	e.persistState()
+}
+
+// TestPersistState_EmptyProjectDir tests persistState with empty project dir
+func TestPersistState_EmptyProjectDir(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultExecutorConfig("test")
+	cfg.ProjectDir = "" // Empty project dir
+	e := NewExecutor(cfg)
+	e.state = &ExecutionState{
+		RunID:      "test-run",
+		WorkflowID: "test-workflow",
+	}
+
+	// Should not panic and should return early
+	e.persistState()
+}
+
+// TestSnapshotState tests snapshotState function
+func TestSnapshotState(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultExecutorConfig("test")
+	e := NewExecutor(cfg)
+
+	now := time.Now()
+	e.state = &ExecutionState{
+		RunID:      "test-run",
+		WorkflowID: "test-workflow",
+		Status:     StatusRunning,
+		StartedAt:  now,
+		Steps: map[string]StepResult{
+			"step1": {StepID: "step1", Status: StatusCompleted, Output: "output1"},
+		},
+		Variables: map[string]interface{}{
+			"var1": "value1",
+		},
+	}
+
+	snapshot := e.snapshotState()
+
+	if snapshot == nil {
+		t.Fatal("snapshotState() returned nil")
+	}
+	if snapshot.RunID != "test-run" {
+		t.Errorf("snapshot.RunID = %q, want %q", snapshot.RunID, "test-run")
+	}
+	if len(snapshot.Steps) != 1 {
+		t.Errorf("snapshot.Steps length = %d, want 1", len(snapshot.Steps))
+	}
+	if len(snapshot.Variables) != 1 {
+		t.Errorf("snapshot.Variables length = %d, want 1", len(snapshot.Variables))
+	}
+
+	// Verify it's a copy, not the same reference
+	e.state.Variables["var2"] = "value2"
+	if _, exists := snapshot.Variables["var2"]; exists {
+		t.Error("snapshot.Variables should be a copy, not a reference")
+	}
+}
+
+// TestSnapshotState_NilState tests snapshotState with nil state
+func TestSnapshotState_NilState(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultExecutorConfig("test")
+	e := NewExecutor(cfg)
+	e.state = nil
+
+	snapshot := e.snapshotState()
+
+	if snapshot != nil {
+		t.Error("snapshotState() should return nil for nil state")
+	}
+}
+
+// TestExecutor_Run_DryRun_WithParallel tests parallel step execution in dry run mode
+func TestExecutor_Run_DryRun_WithParallel(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultExecutorConfig("test-session")
+	cfg.DryRun = true
+	e := NewExecutor(cfg)
+
+	workflow := &Workflow{
+		SchemaVersion: SchemaVersion,
+		Name:          "test-workflow",
+		Settings:      DefaultWorkflowSettings(),
+		Steps: []Step{
+			{ID: "step1", Prompt: "Task 1"},
+			{
+				ID: "step2",
+				Parallel: []Step{
+					{ID: "parallel-a", Prompt: "Parallel task A"},
+					{ID: "parallel-b", Prompt: "Parallel task B"},
+				},
+			},
+			{ID: "step3", Prompt: "Task 3", DependsOn: []string{"step2"}},
+		},
+	}
+
+	ctx := context.Background()
+	state, err := e.Run(ctx, workflow, nil, nil)
+
+	if err != nil {
+		t.Fatalf("Run() returned error: %v", err)
+	}
+	if state.Status != StatusCompleted {
+		t.Errorf("state.Status = %v, want Completed", state.Status)
+	}
+}
+
+// TestExecutor_Run_DryRun_WithLoop tests loop step execution in dry run mode
+func TestExecutor_Run_DryRun_WithLoop(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultExecutorConfig("test-session")
+	cfg.DryRun = true
+	e := NewExecutor(cfg)
+
+	workflow := &Workflow{
+		SchemaVersion: SchemaVersion,
+		Name:          "test-workflow",
+		Settings:      DefaultWorkflowSettings(),
+		Vars: map[string]VarDef{
+			"items": {Default: []interface{}{"item1", "item2", "item3"}},
+		},
+		Steps: []Step{
+			{
+				ID:     "loop-step",
+				Prompt: "Process ${loop.item}",
+				Loop: &LoopConfig{
+					Items: "${vars.items}",
+				},
+			},
+		},
+	}
+
+	ctx := context.Background()
+	state, err := e.Run(ctx, workflow, nil, nil)
+
+	if err != nil {
+		t.Fatalf("Run() returned error: %v", err)
+	}
+	if state.Status != StatusCompleted {
+		t.Errorf("state.Status = %v, want Completed", state.Status)
+	}
+}
+

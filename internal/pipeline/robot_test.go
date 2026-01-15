@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -663,6 +664,122 @@ func TestPrintPipelineRun_ValidationErrors(t *testing.T) {
 
 			if result.ErrorCode != ErrCodeInvalidFlag {
 				t.Errorf("ErrorCode = %q, want %q", result.ErrorCode, ErrCodeInvalidFlag)
+			}
+		})
+	}
+}
+
+func TestPrintPipelineRun_WorkflowLoadErrors(t *testing.T) {
+	// Test workflow loading errors that don't require tmux
+
+	tests := []struct {
+		name       string
+		setupFile  func(t *testing.T) string // returns path to workflow file
+		wantCode   int
+		wantErrMsg string
+	}{
+		{
+			name: "nonexistent workflow file",
+			setupFile: func(t *testing.T) string {
+				return "/nonexistent/path/to/workflow.yaml"
+			},
+			wantCode:   1,
+			wantErrMsg: "failed to load workflow",
+		},
+		{
+			name: "invalid YAML syntax",
+			setupFile: func(t *testing.T) string {
+				f, err := os.CreateTemp(t.TempDir(), "invalid-*.yaml")
+				if err != nil {
+					t.Fatalf("Failed to create temp file: %v", err)
+				}
+				f.WriteString("invalid: yaml: content: [")
+				f.Close()
+				return f.Name()
+			},
+			wantCode:   1,
+			wantErrMsg: "failed to load workflow",
+		},
+		{
+			name: "missing schema_version",
+			setupFile: func(t *testing.T) string {
+				f, err := os.CreateTemp(t.TempDir(), "noschema-*.yaml")
+				if err != nil {
+					t.Fatalf("Failed to create temp file: %v", err)
+				}
+				// Valid YAML but missing required 'schema_version' field
+				f.WriteString("name: test-workflow\nsteps:\n  - id: step1\n    command: echo hello\n")
+				f.Close()
+				return f.Name()
+			},
+			wantCode:   1,
+			wantErrMsg: "schema_version is required",
+		},
+		{
+			name: "missing name field",
+			setupFile: func(t *testing.T) string {
+				f, err := os.CreateTemp(t.TempDir(), "noname-*.yaml")
+				if err != nil {
+					t.Fatalf("Failed to create temp file: %v", err)
+				}
+				// Valid YAML but missing required 'name' field (has schema_version)
+				f.WriteString("schema_version: \"1.0\"\nsteps:\n  - id: step1\n    command: echo hello\n")
+				f.Close()
+				return f.Name()
+			},
+			wantCode:   1,
+			wantErrMsg: "name is required",
+		},
+		{
+			name: "empty steps array",
+			setupFile: func(t *testing.T) string {
+				f, err := os.CreateTemp(t.TempDir(), "nosteps-*.yaml")
+				if err != nil {
+					t.Fatalf("Failed to create temp file: %v", err)
+				}
+				f.WriteString("schema_version: \"1.0\"\nname: test-workflow\nsteps: []\n")
+				f.Close()
+				return f.Name()
+			},
+			wantCode:   1,
+			wantErrMsg: "at least one step is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			workflowPath := tt.setupFile(t)
+
+			opts := PipelineRunOptions{
+				WorkflowFile: workflowPath,
+				Session:      "test-session",
+			}
+
+			var exitCode int
+			output := captureStdout(t, func() {
+				exitCode = PrintPipelineRun(opts)
+			})
+
+			if exitCode != tt.wantCode {
+				t.Errorf("PrintPipelineRun() exit code = %d, want %d", exitCode, tt.wantCode)
+			}
+
+			var result PipelineRunOutput
+			if err := json.Unmarshal([]byte(output), &result); err != nil {
+				t.Fatalf("Failed to parse JSON: %v\nOutput: %s", err, output)
+			}
+
+			if result.Success {
+				t.Error("Expected success=false for workflow load error")
+			}
+
+			if result.Error == "" {
+				t.Error("Expected non-empty error message")
+			}
+
+			// Check that error message contains expected text
+			if tt.wantErrMsg != "" && !strings.Contains(result.Error, tt.wantErrMsg) {
+				t.Errorf("Error = %q, want to contain %q", result.Error, tt.wantErrMsg)
 			}
 		})
 	}
