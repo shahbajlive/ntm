@@ -565,10 +565,13 @@ func gitCheckIgnored(root string, entries []fileEntry) (map[string]bool, error) 
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		stdin.Close() // Clean up stdin pipe on stdout pipe failure
 		return result, err
 	}
 
 	if err := cmd.Start(); err != nil {
+		stdin.Close()  // Clean up pipes on start failure
+		stdout.Close() // (stdout pipe also needs closing)
 		return result, err
 	}
 

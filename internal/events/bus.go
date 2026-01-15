@@ -104,6 +104,10 @@ func (b *EventBus) Publish(event BusEvent) {
 	for _, entry := range entries {
 		// Run handler in goroutine for non-blocking publish
 		go func(h EventHandler) {
+			defer func() {
+				// Recover from panics in event handlers to prevent crashes
+				_ = recover()
+			}()
 			h(event)
 		}(entry.handler)
 	}
@@ -131,6 +135,10 @@ func (b *EventBus) PublishSync(event BusEvent) {
 		wg.Add(1)
 		go func(h EventHandler) {
 			defer wg.Done()
+			defer func() {
+				// Recover from panics in event handlers to prevent crashes
+				_ = recover()
+			}()
 			h(event)
 		}(entry.handler)
 	}
