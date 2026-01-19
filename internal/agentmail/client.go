@@ -164,6 +164,40 @@ func (c *Client) InvalidateCache() {
 	c.availableCacheTime.Store(0)
 }
 
+// DefaultArchivePath is the default location for the Agent Mail archive.
+const DefaultArchivePath = ".mcp_agent_mail_git_mailbox_repo"
+
+// HasArchive checks if the Agent Mail archive directory exists.
+// This provides a fallback detection method when the HTTP endpoint isn't available
+// but Agent Mail is running via MCP stdio protocol.
+func HasArchive() bool {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	archivePath := filepath.Join(homeDir, DefaultArchivePath)
+	info, err := os.Stat(archivePath)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
+}
+
+// HasArchiveForProject checks if the Agent Mail archive has data for a specific project.
+func HasArchiveForProject(projectKey string) bool {
+	if !HasArchive() {
+		return false
+	}
+	homeDir, _ := os.UserHomeDir()
+	slug := ProjectSlugFromPath(projectKey)
+	projectPath := filepath.Join(homeDir, DefaultArchivePath, "projects", slug)
+	info, err := os.Stat(projectPath)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
+}
+
 // HealthCheck performs a health check against the Agent Mail server.
 // This uses the MCP health_check tool via JSON-RPC.
 func (c *Client) HealthCheck(ctx context.Context) (*HealthStatus, error) {

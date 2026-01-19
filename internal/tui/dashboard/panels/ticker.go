@@ -31,9 +31,11 @@ type TickerData struct {
 	BlockedBeads    int
 
 	// Mail
-	UnreadMessages int
-	ActiveLocks    int
-	MailConnected  bool
+	UnreadMessages   int
+	ActiveLocks      int
+	MailConnected    bool
+	MailAvailable    bool // HTTP API reachable
+	MailArchiveFound bool // Archive directory exists (fallback detection)
 
 	// Checkpoints
 	CheckpointCount  int
@@ -238,23 +240,27 @@ func (m *TickerPanel) buildPlainBeadsSegment() string {
 
 // buildPlainMailSegment creates plain text mail segment
 func (m *TickerPanel) buildPlainMailSegment() string {
-	if !m.data.MailConnected {
-		return "Mail: offline"
+	// Connected via HTTP - full functionality available
+	if m.data.MailConnected {
+		var mailParts []string
+		if m.data.UnreadMessages > 0 {
+			mailParts = append(mailParts, fmt.Sprintf("%d unread", m.data.UnreadMessages))
+		} else {
+			mailParts = append(mailParts, "0 unread")
+		}
+		if m.data.ActiveLocks > 0 {
+			mailParts = append(mailParts, fmt.Sprintf("%d locks", m.data.ActiveLocks))
+		}
+		return "Mail: " + strings.Join(mailParts, " ")
 	}
 
-	var mailParts []string
-
-	if m.data.UnreadMessages > 0 {
-		mailParts = append(mailParts, fmt.Sprintf("%d unread", m.data.UnreadMessages))
-	} else {
-		mailParts = append(mailParts, "0 unread")
+	// Fallback: archive detected (Agent Mail running via MCP stdio, not HTTP)
+	if m.data.MailArchiveFound {
+		return "Mail: detected"
 	}
 
-	if m.data.ActiveLocks > 0 {
-		mailParts = append(mailParts, fmt.Sprintf("%d locks", m.data.ActiveLocks))
-	}
-
-	return "Mail: " + strings.Join(mailParts, " ")
+	// Neither HTTP nor archive found
+	return "Mail: offline"
 }
 
 // buildPlainCheckpointSegment creates plain text checkpoint segment
@@ -377,6 +383,10 @@ func (m *TickerPanel) styleVisibleText(text string) string {
 	// Style "offline" in dim
 	offlineStyled := lipgloss.NewStyle().Foreground(t.Overlay).Italic(true).Render("offline")
 	result = strings.Replace(result, "offline", offlineStyled, 1)
+
+	// Style "detected" in yellow (MCP-only mode, partial functionality)
+	detectedStyled := lipgloss.NewStyle().Foreground(t.Yellow).Render("detected")
+	result = strings.Replace(result, "detected", detectedStyled, 1)
 
 	return result
 }

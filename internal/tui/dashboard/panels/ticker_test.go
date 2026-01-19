@@ -303,9 +303,18 @@ func TestTickerPanelBuildMailSegment(t *testing.T) {
 		{
 			name: "offline",
 			data: TickerData{
-				MailConnected: false,
+				MailConnected:    false,
+				MailArchiveFound: false,
 			},
 			contains: []string{"Mail", "offline"},
+		},
+		{
+			name: "detected via archive (MCP-only mode)",
+			data: TickerData{
+				MailConnected:    false,
+				MailArchiveFound: true,
+			},
+			contains: []string{"Mail", "detected"},
 		},
 		{
 			name: "connected with unread",

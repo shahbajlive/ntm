@@ -76,11 +76,12 @@ type ScanStatusMsg struct {
 
 // AgentMailUpdateMsg is sent when Agent Mail data is fetched
 type AgentMailUpdateMsg struct {
-	Available bool
-	Connected bool
-	Locks     int
-	LockInfo  []AgentMailLockInfo
-	Gen       uint64
+	Available    bool
+	Connected    bool
+	ArchiveFound bool // Fallback detection via archive directory
+	Locks        int
+	LockInfo     []AgentMailLockInfo
+	Gen          uint64
 }
 
 // CassSelectMsg is sent when a CASS search result is selected
@@ -323,8 +324,9 @@ type Model struct {
 	tier layout.Tier
 
 	// Agent Mail integration
-	agentMailAvailable bool
-	agentMailConnected bool
+	agentMailAvailable    bool
+	agentMailConnected    bool
+	agentMailArchiveFound bool // Fallback: archive directory exists
 	agentMailLocks     int                 // Active file reservations
 	agentMailUnread    int                 // Unread message count (requires agent context)
 	agentMailLockInfo  []AgentMailLockInfo // Lock details for display
@@ -681,7 +683,7 @@ func (m *Model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 
 	m.width = width
 	m.height = height
-	m.tier = layout.TierForWidth(width)
+	m.tier = layout.TierForWidthWithHysteresis(width, prevTier)
 
 	m.cycleFocus(0)
 
@@ -852,9 +854,16 @@ func (m *Model) fetchAgentMailStatus() tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		// Check availability
+		// Check availability via HTTP
 		if !client.IsAvailable() {
-			return AgentMailUpdateMsg{Available: false, Gen: gen}
+			// Fallback: check if archive directory exists
+			// This detects Agent Mail running via MCP stdio protocol (not HTTP)
+			archiveFound := agentmail.HasArchiveForProject(projectKey)
+			return AgentMailUpdateMsg{
+				Available:    false,
+				ArchiveFound: archiveFound,
+				Gen:          gen,
+			}
 		}
 
 		// Ensure project exists
@@ -1553,7 +1562,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.width = msg.Width
 		m.height = msg.Height
-		m.tier = layout.TierForWidth(msg.Width)
+		m.tier = layout.TierForWidthWithHysteresis(msg.Width, prevTier)
 
 		m.cycleFocus(0)
 
@@ -1639,11 +1648,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				prevSelectedID = m.panes[m.cursor].ID
 			}
 
+			// Build old pane ID to index lookup BEFORE updating panes
+			// This is used to migrate paneStatus entries to new indices
+			oldPaneIDToIdx := make(map[string]int, len(m.panes))
+			for _, p := range m.panes {
+				oldPaneIDToIdx[p.ID] = p.Index
+			}
+
 			sort.Slice(msg.Panes, func(i, j int) bool {
 				return msg.Panes[i].Index < msg.Panes[j].Index
 			})
 
 			m.panes = msg.Panes
+
+			// Migrate paneStatus entries from old indices to new indices by pane ID
+			// This prevents stale data when pane indices change (add/remove/reorder)
+			newPaneIDToIdx := make(map[string]int, len(m.panes))
+			for _, p := range m.panes {
+				newPaneIDToIdx[p.ID] = p.Index
+			}
+			newPaneStatus := make(map[int]PaneStatus, len(m.panes))
+			for paneID, newIdx := range newPaneIDToIdx {
+				if oldIdx, exists := oldPaneIDToIdx[paneID]; exists {
+					// Pane still exists - migrate its status to new index
+					if ps, ok := m.paneStatus[oldIdx]; ok {
+						newPaneStatus[newIdx] = ps
+					}
+				}
+			}
+			m.paneStatus = newPaneStatus
+
 			m.updateStats()
 			m.paneOutputCaptureCursor = msg.NextCaptureCursor
 
@@ -1888,6 +1922,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.agentMailAvailable = msg.Available
 		m.agentMailConnected = msg.Connected
+		m.agentMailArchiveFound = msg.ArchiveFound
 		m.agentMailLocks = msg.Locks
 		m.agentMailLockInfo = msg.LockInfo
 		m.markUpdated(refreshAgentMail, time.Now())
@@ -2143,6 +2178,8 @@ func (m *Model) updateTickerData() {
 		UnreadMessages:   m.agentMailUnread,
 		ActiveLocks:      m.agentMailLocks,
 		MailConnected:    m.agentMailConnected,
+		MailAvailable:    m.agentMailAvailable,
+		MailArchiveFound: m.agentMailArchiveFound,
 		CheckpointCount:  m.checkpointCount,
 		CheckpointStatus: m.checkpointStatus,
 		BugsCritical:     m.bugsCritical,
