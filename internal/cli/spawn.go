@@ -119,6 +119,14 @@ type SpawnOptions struct {
 	Safety bool
 
 	// Stagger configuration for thundering herd prevention
+	// StaggerMode: "smart", "fixed", or "none" (default)
+	// - smart: Use learned optimal delays from RateLimitTracker
+	// - fixed: Use fixed delay (StaggerDelay)
+	// - none: No staggering (backward compatible default)
+	StaggerMode  string        // "smart", "fixed", or "none"
+	StaggerDelay time.Duration // Delay for fixed mode (default 15s)
+
+	// Legacy stagger fields (deprecated, kept for backward compatibility)
 	Stagger        time.Duration // Delay between agent prompt delivery
 	StaggerEnabled bool          // True if --stagger flag was provided
 
@@ -231,6 +239,10 @@ func newSpawnCmd() *cobra.Command {
 	var staggerEnabled bool
 	var safety bool
 
+	// New stagger flags for bd-2wih
+	var staggerMode string        // smart, fixed, or none
+	var staggerDelay time.Duration // delay for fixed mode
+
 	// Assignment flags for spawn+assign workflow (bd-3nde)
 	var assignEnabled bool
 	var assignStrategy string
@@ -290,11 +302,18 @@ CASS Context Injection:
   Automatically finds relevant past sessions and injects context into agents.
   Use --cass-context="query" to be specific, or rely on prompt/recipe context.
 
-Stagger mode (--stagger):
-  Prevents thundering herd when agents receive identical prompts. All panes
-  are created immediately for dashboard visibility, but prompts are delivered
-  with delays: Agent 1 immediately, Agent 2 after 90s, Agent 3 after 180s, etc.
-  Use --stagger for default 90s interval, --stagger=2m for custom duration.
+Stagger mode (--stagger-mode):
+  Prevents thundering herd and rate limiting when spawning multiple agents.
+  All panes are created immediately for dashboard visibility, but prompts
+  are delivered with delays between agents.
+
+  Modes:
+    - smart: Adaptive delays from rate limit tracker (learns optimal spacing)
+    - fixed: Use fixed delay (--stagger-delay, default 15s)
+    - none:  No staggering (default, backward compatible)
+
+  Legacy --stagger flag still works for duration-based staggering.
+  Smart mode automatically backs off on rate limits and speeds up on success.
 
 Examples:
   ntm spawn myproject --cc=2 --cod=2           # 2 Claude, 2 Codex + user pane
@@ -307,7 +326,9 @@ Examples:
   ntm spawn myproject --cc=2 --auto-restart    # With auto-restart enabled
   ntm spawn myproject --persona=architect --persona=implementer:2  # Using personas
   ntm spawn myproject --cc=1 --prompt="fix auth" # Inject context about auth
-  ntm spawn myproject --cc=3 --stagger --prompt="find bugs"  # Staggered prompts`,
+  ntm spawn myproject --cc=3 --stagger --prompt="find bugs"  # Staggered prompts (legacy)
+  ntm spawn myproject --cc=5 --stagger-mode=smart  # Adaptive rate limit avoidance
+  ntm spawn myproject --cc=4 --stagger-mode=fixed --stagger-delay=20s  # Fixed 20s delay`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sessionName := args[0]
@@ -498,6 +519,8 @@ Examples:
 				Prompt:             prompt,
 				NoHooks:            noHooks,
 				Safety:             safety,
+				StaggerMode:        staggerMode,
+				StaggerDelay:       staggerDelay,
 				Stagger:            staggerDuration,
 				StaggerEnabled:     staggerEnabled,
 				ProfileList:        profileList,
@@ -525,6 +548,10 @@ Examples:
 	// Custom handling: --stagger enables with default 90s, --stagger=2m for custom duration
 	staggerValue := newOptionalDurationValue(90*time.Second, &staggerDuration, &staggerEnabled)
 	cmd.Flags().Var(staggerValue, "stagger", "Stagger prompt delivery between agents (default 90s when enabled)")
+
+	// New stagger mode flags (bd-2wih)
+	cmd.Flags().StringVar(&staggerMode, "stagger-mode", "none", "Stagger mode: smart (adaptive), fixed, or none")
+	cmd.Flags().DurationVar(&staggerDelay, "stagger-delay", 15*time.Second, "Fixed delay between agents (used with --stagger-mode=fixed)")
 
 	// CASS context flags
 	cmd.Flags().StringVar(&contextQuery, "cass-context", "", "Explicit context query for CASS")
@@ -758,10 +785,35 @@ func spawnSessionLogic(opts SpawnOptions) error {
 	var setupWg sync.WaitGroup
 	var maxStaggerDelay time.Duration
 
+	// Initialize rate limit tracker for smart stagger mode (bd-2wih)
+	var rateLimitTracker *ratelimit.RateLimitTracker
+	if opts.StaggerMode == "smart" {
+		rateLimitTracker = ratelimit.NewRateLimitTracker(dir)
+		if err := rateLimitTracker.LoadFromDir(dir); err != nil {
+			if !IsJSONOutput() {
+				output.PrintWarningf("Failed to load rate limit history: %v", err)
+			}
+		}
+	}
+
+	// Determine effective stagger mode (new mode takes precedence over legacy)
+	effectiveStaggerMode := opts.StaggerMode
+	if effectiveStaggerMode == "" || effectiveStaggerMode == "none" {
+		if opts.StaggerEnabled && opts.Stagger > 0 {
+			effectiveStaggerMode = "legacy" // Use legacy duration-based stagger
+		}
+	}
+
 	// Spawn state for dashboard display (only used when stagger is enabled)
 	var spawnState *SpawnState
-	if opts.StaggerEnabled && opts.Stagger > 0 && opts.Prompt != "" {
-		spawnState = NewSpawnState(spawnCtx.BatchID, int(opts.Stagger.Seconds()), len(opts.Agents))
+	staggerInterval := opts.Stagger
+	if effectiveStaggerMode == "fixed" {
+		staggerInterval = opts.StaggerDelay
+	} else if effectiveStaggerMode == "smart" && rateLimitTracker != nil {
+		staggerInterval = rateLimitTracker.GetOptimalDelay("anthropic") // Default to Anthropic timing
+	}
+	if effectiveStaggerMode != "none" && effectiveStaggerMode != "" && opts.Prompt != "" {
+		spawnState = NewSpawnState(spawnCtx.BatchID, int(staggerInterval.Seconds()), len(opts.Agents))
 	}
 
 	// Resolve CASS context if enabled
