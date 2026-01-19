@@ -20,6 +20,8 @@ const (
 	StrategyQuality Strategy = "quality"
 	// StrategyDependency prioritizes blockers and dependency chains.
 	StrategyDependency Strategy = "dependency"
+	// StrategyRoundRobin distributes work evenly across agents in round-robin fashion.
+	StrategyRoundRobin Strategy = "round-robin"
 )
 
 // ParseStrategy converts a string to Strategy with validation.
@@ -33,6 +35,8 @@ func ParseStrategy(s string) Strategy {
 		return StrategyQuality
 	case "dependency":
 		return StrategyDependency
+	case "round-robin", "roundrobin", "rr":
+		return StrategyRoundRobin
 	default:
 		return StrategyBalanced // Default
 	}
@@ -138,6 +142,8 @@ func (m *Matcher) AssignTasks(beads []Bead, agents []Agent, strategy Strategy) [
 		return m.assignQuality(sortedBeads, available)
 	case StrategyDependency:
 		return m.assignDependency(sortedBeads, available)
+	case StrategyRoundRobin:
+		return m.assignRoundRobin(sortedBeads, available)
 	default: // StrategyBalanced
 		return m.assignBalanced(sortedBeads, available)
 	}
@@ -335,6 +341,38 @@ func (m *Matcher) assignDependency(beads []Bead, agents []Agent) []Assignment {
 			})
 			usedAgents[bestAgent.ID] = true
 		}
+	}
+
+	return assignments
+}
+
+// assignRoundRobin distributes work evenly across agents in round-robin fashion.
+// Each bead is assigned to agents in order, cycling back to the first agent after the last.
+// This ensures even distribution: 12 beads / 4 agents = 3, 3, 3, 3
+// With uneven counts, first agents get +1: 13 beads / 4 agents = 4, 3, 3, 3
+// Beads are assigned in BV priority order (already sorted by caller), so:
+// - Agent 1 gets: bead 1, 5, 9, 13...
+// - Agent 2 gets: bead 2, 6, 10, 14...
+// - Agent 3 gets: bead 3, 7, 11, 15...
+// - Agent 4 gets: bead 4, 8, 12, 16...
+// Score is 1.0 for all assignments since round-robin doesn't score.
+func (m *Matcher) assignRoundRobin(beads []Bead, agents []Agent) []Assignment {
+	if len(agents) == 0 {
+		return nil
+	}
+
+	assignments := make([]Assignment, 0, len(beads))
+	numAgents := len(agents)
+
+	for i, bead := range beads {
+		agent := agents[i%numAgents]
+		assignments = append(assignments, Assignment{
+			Bead:       bead,
+			Agent:      agent,
+			Score:      1.0, // Round-robin assigns all equally
+			Confidence: 1.0, // Deterministic assignment
+			Reason:     fmt.Sprintf("round-robin assignment: bead %d → agent %d (%s)", i+1, (i%numAgents)+1, agent.AgentType),
+		})
 	}
 
 	return assignments

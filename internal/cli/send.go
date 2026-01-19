@@ -1,13 +1,16 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/mattn/go-isatty"
@@ -72,6 +75,14 @@ type SendOptions struct {
 
 	// Hooks
 	NoHooks bool
+
+	// Batch processing options
+	BatchFile       string        // Path to batch file
+	BatchDelay      time.Duration // Delay between prompts
+	BatchConfirm    bool          // Confirm each prompt before sending
+	BatchStopOnErr  bool          // Stop on first error
+	BatchBroadcast  bool          // Send same prompt to all agents simultaneously
+	BatchAgentIndex int           // Send to specific agent index (-1 = round-robin)
 
 	// Runtime: filled by smart routing
 	routingResult *SendRoutingResult
@@ -227,6 +238,14 @@ func newSendCmd() *cobra.Command {
 	var distributeLimit int
 	var distributeAuto bool
 
+	// Batch mode variables
+	var batchFile string
+	var batchDelay string
+	var batchConfirm bool
+	var batchStopOnErr bool
+	var batchBroadcast bool
+	var batchAgentIndex int
+
 	cmd := &cobra.Command{
 		Use:   "send <session> [prompt]",
 		Short: "Send a prompt to agent panes",
@@ -289,6 +308,39 @@ func newSendCmd() *cobra.Command {
 			// Handle --distribute mode: auto-distribute work from bv triage
 			if distribute {
 				return runDistributeMode(session, distributeStrategy, distributeLimit, distributeAuto)
+			}
+
+			// Handle --batch mode: send multiple prompts from file
+			if batchFile != "" {
+				var delay time.Duration
+				if batchDelay != "" {
+					var err error
+					delay, err = time.ParseDuration(batchDelay)
+					if err != nil {
+						return fmt.Errorf("invalid --delay value %q: %w", batchDelay, err)
+					}
+				}
+				batchOpts := SendOptions{
+					Session:         session,
+					Targets:         targets,
+					TargetAll:       targetAll,
+					SkipFirst:       skipFirst,
+					PaneIndex:       paneIndex,
+					Tags:            tags,
+					SmartRoute:      smartRoute,
+					RouteStrategy:   routeStrategy,
+					CassCheck:       cassCheck && !noCassCheck,
+					CassSimilarity:  cassSimilarity,
+					CassCheckDays:   cassCheckDays,
+					NoHooks:         noHooks,
+					BatchFile:       batchFile,
+					BatchDelay:      delay,
+					BatchConfirm:    batchConfirm,
+					BatchStopOnErr:  batchStopOnErr,
+					BatchBroadcast:  batchBroadcast,
+					BatchAgentIndex: batchAgentIndex,
+				}
+				return runSendBatch(batchOpts)
 			}
 
 			opts := SendOptions{
@@ -374,6 +426,14 @@ func newSendCmd() *cobra.Command {
 	cmd.Flags().Float64Var(&cassSimilarity, "cass-similarity", 0.7, "Similarity threshold for duplicate detection")
 	cmd.Flags().IntVar(&cassCheckDays, "cass-check-days", 7, "Look back N days for duplicates")
 	cmd.Flags().BoolVar(&noHooks, "no-hooks", false, "Disable command hooks")
+
+	// Batch mode flags - send multiple prompts from file
+	cmd.Flags().StringVar(&batchFile, "batch", "", "Read prompts from file (one per line or --- separated)")
+	cmd.Flags().StringVar(&batchDelay, "delay", "", "Delay between prompts (e.g., 5s, 100ms)")
+	cmd.Flags().BoolVar(&batchConfirm, "confirm-each", false, "Confirm each prompt before sending")
+	cmd.Flags().BoolVar(&batchStopOnErr, "stop-on-error", false, "Stop batch on first send failure")
+	cmd.Flags().BoolVar(&batchBroadcast, "broadcast", false, "Send same prompt to all agents simultaneously")
+	cmd.Flags().IntVar(&batchAgentIndex, "agent", -1, "Send to specific agent index only (-1 = round-robin)")
 
 	return cmd
 }
@@ -1409,6 +1469,399 @@ func runDistributeMode(session, strategy string, limit int, autoExecute bool) er
 		fmt.Printf("✓ Successfully distributed %d tasks\n", delivered)
 	} else {
 		fmt.Printf("Distributed %d tasks (%d failed)\n", delivered, failed)
+	}
+
+	return nil
+}
+
+// BatchResult represents the JSON output for batch send operations
+type BatchResult struct {
+	Success   bool                `json:"success"`
+	Session   string              `json:"session"`
+	Total     int                 `json:"batch_total"`
+	Delivered int                 `json:"batch_delivered"`
+	Failed    int                 `json:"batch_failed"`
+	Skipped   int                 `json:"batch_skipped"`
+	Results   []BatchPromptResult `json:"results"`
+	Error     string              `json:"error,omitempty"`
+}
+
+// BatchPromptResult represents the result of sending a single prompt in a batch
+type BatchPromptResult struct {
+	Index        int    `json:"index"`
+	PromptPreview string `json:"prompt_preview"`
+	Success      bool   `json:"success"`
+	Targets      []int  `json:"targets,omitempty"`
+	Delivered    int    `json:"delivered"`
+	Error        string `json:"error,omitempty"`
+	Skipped      bool   `json:"skipped,omitempty"`
+}
+
+// parseBatchFile reads and parses a batch file into individual prompts.
+// Supports two formats:
+// 1. One prompt per line (simple)
+// 2. Multi-line prompts separated by "---" on its own line
+// Lines starting with # are treated as comments and ignored.
+func parseBatchFile(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading batch file: %w", err)
+	}
+
+	content := string(data)
+	if strings.TrimSpace(content) == "" {
+		return nil, errors.New("batch file is empty")
+	}
+
+	var prompts []string
+
+	// Check if file uses --- separators
+	if strings.Contains(content, "\n---\n") || strings.HasPrefix(content, "---\n") {
+		// Multi-line format with --- separators
+		parts := strings.Split(content, "\n---\n")
+		for _, part := range parts {
+			// Handle leading --- at start of file
+			if strings.HasPrefix(part, "---\n") {
+				part = strings.TrimPrefix(part, "---\n")
+			}
+			// Remove comments and trim
+			cleaned := removeComments(part)
+			if cleaned != "" {
+				prompts = append(prompts, cleaned)
+			}
+		}
+	} else {
+		// Simple one-prompt-per-line format
+		lines := strings.Split(content, "\n")
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			// Skip empty lines and comments
+			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+				continue
+			}
+			prompts = append(prompts, trimmed)
+		}
+	}
+
+	if len(prompts) == 0 {
+		return nil, errors.New("batch file contains no prompts (all lines are comments or empty)")
+	}
+
+	return prompts, nil
+}
+
+// removeComments removes comment lines (starting with #) from text
+func removeComments(text string) string {
+	var lines []string
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "#") {
+			lines = append(lines, line)
+		}
+	}
+	result := strings.Join(lines, "\n")
+	return strings.TrimSpace(result)
+}
+
+// truncateForPreview shortens a string for display/logging
+func truncateForPreview(s string, maxLen int) string {
+	s = strings.TrimSpace(s)
+	s = strings.ReplaceAll(s, "\n", " ")
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
+}
+
+// batchAction represents a user choice when an error occurs during batch processing
+type batchAction int
+
+const (
+	batchContinue batchAction = iota
+	batchSkip
+	batchAbort
+)
+
+// promptBatchAction asks the user what to do when an error occurs during batch processing
+func promptBatchAction(prompt string) batchAction {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Printf("%s (c=continue, s=skip, a=abort) [c]: ", prompt)
+	answer, _ := reader.ReadString('\n')
+	answer = strings.TrimSpace(strings.ToLower(answer))
+	switch answer {
+	case "s", "skip":
+		return batchSkip
+	case "a", "abort":
+		return batchAbort
+	default:
+		return batchContinue
+	}
+}
+
+// filterPanesForBatch applies target and tag filters to the given panes
+func filterPanesForBatch(panes []tmux.Pane, opts SendOptions) []tmux.Pane {
+	var filtered []tmux.Pane
+
+	// Determine if we have any filters
+	hasTargets := len(opts.Targets) > 0
+	hasTags := len(opts.Tags) > 0
+	noFilter := !hasTargets && !hasTags && !opts.TargetAll
+
+	for _, p := range panes {
+		// If --all, include everything
+		if opts.TargetAll {
+			filtered = append(filtered, p)
+			continue
+		}
+
+		// If no filters specified, include all non-user panes
+		if noFilter {
+			if p.Type != tmux.AgentUser {
+				filtered = append(filtered, p)
+			}
+			continue
+		}
+
+		// Skip user panes unless --all was specified
+		if p.Type == tmux.AgentUser {
+			continue
+		}
+
+		// Apply tag filter (OR logic)
+		if hasTags {
+			if !HasAnyTag(p.Tags, opts.Tags) {
+				continue
+			}
+		}
+
+		// Apply agent type filter
+		if hasTargets {
+			if !opts.Targets.MatchesPane(p) {
+				continue
+			}
+		}
+
+		filtered = append(filtered, p)
+	}
+
+	return filtered
+}
+
+// runSendBatch handles --batch mode: send multiple prompts from file
+func runSendBatch(opts SendOptions) error {
+	// Parse the batch file
+	prompts, err := parseBatchFile(opts.BatchFile)
+	if err != nil {
+		return err
+	}
+
+	jsonOutput := IsJSONOutput()
+	total := len(prompts)
+
+	// Get available panes for round-robin targeting
+	panes, err := tmux.GetPanes(opts.Session)
+	if err != nil {
+		return fmt.Errorf("getting session panes: %w", err)
+	}
+
+	// Apply agent type and tag filters
+	agentPanes := filterPanesForBatch(panes, opts)
+
+	if len(agentPanes) == 0 {
+		return errors.New("no matching agent panes found in session (check --cc/--cod/--gmi/--tag filters)")
+	}
+
+	// Set up signal handling for graceful Ctrl+C
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		cancel()
+	}()
+	defer signal.Stop(sigCh)
+
+	// Show batch info
+	if !jsonOutput {
+		fmt.Printf("Batch contains %d prompts\n", total)
+		fmt.Printf("Target agents: %d panes\n", len(agentPanes))
+		if opts.BatchDelay > 0 {
+			fmt.Printf("Delay between prompts: %v\n", opts.BatchDelay)
+		}
+		if opts.BatchBroadcast {
+			fmt.Println("Mode: broadcast (same prompt to all agents)")
+		} else if opts.BatchAgentIndex >= 0 {
+			fmt.Printf("Mode: single agent (pane %d)\n", opts.BatchAgentIndex)
+		} else {
+			fmt.Println("Mode: round-robin across agents")
+		}
+		fmt.Println()
+	}
+
+	// Track results
+	results := make([]BatchPromptResult, 0, total)
+	var delivered, failed, skipped int
+	currentAgent := 0
+	interrupted := false
+
+	// Process each prompt
+	for i, promptText := range prompts {
+		// Check for interrupt
+		select {
+		case <-ctx.Done():
+			interrupted = true
+			if !jsonOutput {
+				fmt.Printf("\n\nInterrupted at prompt %d/%d\n", i+1, total)
+			}
+			// Skip remaining prompts
+			for j := i; j < total; j++ {
+				results = append(results, BatchPromptResult{
+					Index:         j,
+					PromptPreview: truncateForPreview(prompts[j], 60),
+					Skipped:       true,
+				})
+				skipped++
+			}
+			goto summary
+		default:
+		}
+
+		preview := truncateForPreview(promptText, 60)
+		result := BatchPromptResult{
+			Index:         i,
+			PromptPreview: preview,
+		}
+
+		// Handle --confirm-each
+		if opts.BatchConfirm && !jsonOutput {
+			fmt.Printf("Prompt %d/%d: %s\n", i+1, total, preview)
+			if !confirm("Send this prompt?") {
+				fmt.Println("Skipped.")
+				result.Skipped = true
+				skipped++
+				results = append(results, result)
+				continue
+			}
+		} else if !jsonOutput {
+			fmt.Printf("Sending prompt %d/%d: %s... ", i+1, total, preview)
+		}
+
+		// Determine target panes
+		var targetPanes []int
+		if opts.BatchBroadcast {
+			// Send to all agent panes
+			for _, p := range agentPanes {
+				targetPanes = append(targetPanes, p.Index)
+			}
+		} else if opts.BatchAgentIndex >= 0 {
+			// Send to specific pane
+			targetPanes = []int{opts.BatchAgentIndex}
+		} else {
+			// Round-robin: cycle through agents
+			targetPanes = []int{agentPanes[currentAgent%len(agentPanes)].Index}
+			currentAgent++
+		}
+
+		// Send to each target pane
+		var paneDelivered, paneFailed int
+		var sendErr error
+		for _, paneIdx := range targetPanes {
+			paneID := fmt.Sprintf("%s:%d", opts.Session, paneIdx)
+			if err := tmux.PasteKeys(paneID, promptText, true); err != nil {
+				paneFailed++
+				sendErr = err
+			} else {
+				paneDelivered++
+			}
+		}
+
+		result.Targets = targetPanes
+		result.Delivered = paneDelivered
+
+		if paneFailed > 0 {
+			result.Success = false
+			result.Error = sendErr.Error()
+			failed++
+			if !jsonOutput {
+				fmt.Printf("error (%d/%d delivered)\n", paneDelivered, len(targetPanes))
+			}
+
+			// Handle error: either stop on error, prompt user, or continue
+			if opts.BatchStopOnErr {
+				if !jsonOutput {
+					fmt.Printf("\nBatch stopped on error at prompt %d/%d\n", i+1, total)
+				}
+				results = append(results, result)
+				break
+			} else if !jsonOutput {
+				// Interactive error handling: ask user what to do
+				action := promptBatchAction("Send failed. Continue?")
+				switch action {
+				case batchSkip:
+					// Already counted as failed, just continue
+					fmt.Println("Continuing to next prompt...")
+				case batchAbort:
+					fmt.Printf("\nBatch aborted at prompt %d/%d\n", i+1, total)
+					results = append(results, result)
+					goto summary
+				default:
+					// Continue - just move on
+				}
+			}
+		} else {
+			result.Success = true
+			delivered++
+			if !jsonOutput {
+				fmt.Println("done")
+			}
+		}
+
+		results = append(results, result)
+
+		// Apply delay before next prompt (except after last)
+		if opts.BatchDelay > 0 && i < total-1 {
+			select {
+			case <-ctx.Done():
+				interrupted = true
+				if !jsonOutput {
+					fmt.Printf("\n\nInterrupted during delay after prompt %d/%d\n", i+1, total)
+				}
+				goto summary
+			case <-time.After(opts.BatchDelay):
+			}
+		}
+	}
+
+summary:
+	// Output results
+	if jsonOutput {
+		batchResult := BatchResult{
+			Success:   failed == 0 && !interrupted,
+			Session:   opts.Session,
+			Total:     total,
+			Delivered: delivered,
+			Failed:    failed,
+			Skipped:   skipped,
+			Results:   results,
+		}
+		if interrupted {
+			batchResult.Error = "interrupted by user"
+		}
+		return json.NewEncoder(os.Stdout).Encode(batchResult)
+	}
+
+	// Summary
+	fmt.Println()
+	if interrupted {
+		fmt.Printf("Batch interrupted: %d delivered, %d failed, %d skipped (of %d total)\n",
+			delivered, failed, skipped, total)
+	} else if failed == 0 && skipped == 0 {
+		fmt.Printf("✓ Successfully sent %d/%d prompts\n", delivered, total)
+	} else {
+		fmt.Printf("Batch complete: %d delivered, %d failed, %d skipped (of %d total)\n",
+			delivered, failed, skipped, total)
 	}
 
 	return nil

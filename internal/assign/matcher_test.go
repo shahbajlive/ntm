@@ -383,3 +383,373 @@ func TestMatcher_WithCustomMatrix(t *testing.T) {
 		t.Errorf("Expected Gemini (boosted score), got %s", result[0].Agent.AgentType)
 	}
 }
+
+// Round-robin strategy tests
+
+func TestParseStrategy_RoundRobin(t *testing.T) {
+	tests := []struct {
+		input string
+		want  Strategy
+	}{
+		{"round-robin", StrategyRoundRobin},
+		{"roundrobin", StrategyRoundRobin},
+		{"rr", StrategyRoundRobin},
+		{"ROUND-ROBIN", StrategyRoundRobin},
+		{"RR", StrategyRoundRobin},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			got := ParseStrategy(tc.input)
+			if got != tc.want {
+				t.Errorf("ParseStrategy(%q) = %v, want %v", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestMatcher_Strategy_RoundRobin_EvenDistribution(t *testing.T) {
+	m := NewMatcher()
+
+	// 12 beads / 4 agents = 3, 3, 3, 3
+	beads := make([]Bead, 12)
+	for i := range beads {
+		beads[i] = Bead{ID: string(rune('a'+i)), Title: "Task", TaskType: TaskFeature, Priority: 2}
+	}
+
+	agents := []Agent{
+		{ID: "1", AgentType: tmux.AgentClaude, Idle: true},
+		{ID: "2", AgentType: tmux.AgentCodex, Idle: true},
+		{ID: "3", AgentType: tmux.AgentGemini, Idle: true},
+		{ID: "4", AgentType: tmux.AgentClaude, Idle: true},
+	}
+
+	result := m.AssignTasks(beads, agents, StrategyRoundRobin)
+
+	if len(result) != 12 {
+		t.Fatalf("Expected 12 assignments, got %d", len(result))
+	}
+
+	// Count assignments per agent
+	counts := make(map[string]int)
+	for _, a := range result {
+		counts[a.Agent.ID]++
+	}
+
+	// Each agent should have exactly 3 assignments
+	for agentID, count := range counts {
+		if count != 3 {
+			t.Errorf("Agent %s expected 3 assignments, got %d", agentID, count)
+		}
+	}
+}
+
+func TestMatcher_Strategy_RoundRobin_UnevenDistribution(t *testing.T) {
+	m := NewMatcher()
+
+	// 13 beads / 4 agents = 4, 3, 3, 3 (first agent gets +1)
+	beads := make([]Bead, 13)
+	for i := range beads {
+		beads[i] = Bead{ID: string(rune('a'+i)), Title: "Task", TaskType: TaskFeature, Priority: 2}
+	}
+
+	agents := []Agent{
+		{ID: "1", AgentType: tmux.AgentClaude, Idle: true},
+		{ID: "2", AgentType: tmux.AgentCodex, Idle: true},
+		{ID: "3", AgentType: tmux.AgentGemini, Idle: true},
+		{ID: "4", AgentType: tmux.AgentClaude, Idle: true},
+	}
+
+	result := m.AssignTasks(beads, agents, StrategyRoundRobin)
+
+	if len(result) != 13 {
+		t.Fatalf("Expected 13 assignments, got %d", len(result))
+	}
+
+	// Count assignments per agent
+	counts := make(map[string]int)
+	for _, a := range result {
+		counts[a.Agent.ID]++
+	}
+
+	// Agent 1: 4 (gets +1), others: 3 each
+	if counts["1"] != 4 {
+		t.Errorf("Agent 1 expected 4 assignments (uneven), got %d", counts["1"])
+	}
+	for _, id := range []string{"2", "3", "4"} {
+		if counts[id] != 3 {
+			t.Errorf("Agent %s expected 3 assignments, got %d", id, counts[id])
+		}
+	}
+}
+
+func TestMatcher_Strategy_RoundRobin_MoreAgentsThanBeads(t *testing.T) {
+	m := NewMatcher()
+
+	// 3 beads / 5 agents = 1, 1, 1, 0, 0
+	beads := []Bead{
+		{ID: "b1", Title: "Task 1", TaskType: TaskFeature, Priority: 2},
+		{ID: "b2", Title: "Task 2", TaskType: TaskBug, Priority: 2},
+		{ID: "b3", Title: "Task 3", TaskType: TaskDocs, Priority: 2},
+	}
+
+	agents := []Agent{
+		{ID: "1", AgentType: tmux.AgentClaude, Idle: true},
+		{ID: "2", AgentType: tmux.AgentCodex, Idle: true},
+		{ID: "3", AgentType: tmux.AgentGemini, Idle: true},
+		{ID: "4", AgentType: tmux.AgentClaude, Idle: true},
+		{ID: "5", AgentType: tmux.AgentCodex, Idle: true},
+	}
+
+	result := m.AssignTasks(beads, agents, StrategyRoundRobin)
+
+	if len(result) != 3 {
+		t.Fatalf("Expected 3 assignments, got %d", len(result))
+	}
+
+	// Count assignments per agent
+	counts := make(map[string]int)
+	for _, a := range result {
+		counts[a.Agent.ID]++
+	}
+
+	// First 3 agents get 1 each, last 2 get 0
+	for _, id := range []string{"1", "2", "3"} {
+		if counts[id] != 1 {
+			t.Errorf("Agent %s expected 1 assignment, got %d", id, counts[id])
+		}
+	}
+	for _, id := range []string{"4", "5"} {
+		if counts[id] != 0 {
+			t.Errorf("Agent %s expected 0 assignments, got %d", id, counts[id])
+		}
+	}
+}
+
+func TestMatcher_Strategy_RoundRobin_SingleBead(t *testing.T) {
+	m := NewMatcher()
+
+	// 1 bead / 4 agents = 1, 0, 0, 0
+	beads := []Bead{
+		{ID: "b1", Title: "Single task", TaskType: TaskFeature, Priority: 1},
+	}
+
+	agents := []Agent{
+		{ID: "1", AgentType: tmux.AgentClaude, Idle: true},
+		{ID: "2", AgentType: tmux.AgentCodex, Idle: true},
+		{ID: "3", AgentType: tmux.AgentGemini, Idle: true},
+		{ID: "4", AgentType: tmux.AgentClaude, Idle: true},
+	}
+
+	result := m.AssignTasks(beads, agents, StrategyRoundRobin)
+
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 assignment, got %d", len(result))
+	}
+
+	// Should be assigned to first agent
+	if result[0].Agent.ID != "1" {
+		t.Errorf("Expected agent 1 to get single bead, got agent %s", result[0].Agent.ID)
+	}
+}
+
+func TestMatcher_Strategy_RoundRobin_EmptyAgents(t *testing.T) {
+	m := NewMatcher()
+
+	beads := []Bead{
+		{ID: "b1", Title: "Task", TaskType: TaskFeature, Priority: 2},
+	}
+
+	result := m.AssignTasks(beads, []Agent{}, StrategyRoundRobin)
+
+	if result != nil {
+		t.Errorf("Expected nil for empty agents, got %v", result)
+	}
+}
+
+func TestMatcher_Strategy_RoundRobin_EmptyBeads(t *testing.T) {
+	m := NewMatcher()
+
+	agents := []Agent{
+		{ID: "1", AgentType: tmux.AgentClaude, Idle: true},
+	}
+
+	result := m.AssignTasks([]Bead{}, agents, StrategyRoundRobin)
+
+	if result != nil {
+		t.Errorf("Expected nil for empty beads, got %v", result)
+	}
+}
+
+func TestMatcher_Strategy_RoundRobin_ScoreIsOne(t *testing.T) {
+	m := NewMatcher()
+
+	beads := []Bead{
+		{ID: "b1", Title: "Task 1", TaskType: TaskFeature, Priority: 1},
+		{ID: "b2", Title: "Task 2", TaskType: TaskBug, Priority: 2},
+		{ID: "b3", Title: "Task 3", TaskType: TaskDocs, Priority: 3},
+	}
+
+	agents := []Agent{
+		{ID: "1", AgentType: tmux.AgentClaude, Idle: true},
+		{ID: "2", AgentType: tmux.AgentCodex, Idle: true},
+	}
+
+	result := m.AssignTasks(beads, agents, StrategyRoundRobin)
+
+	// All assignments should have score 1.0
+	for _, a := range result {
+		if a.Score != 1.0 {
+			t.Errorf("Round-robin score should be 1.0, got %f for bead %s", a.Score, a.Bead.ID)
+		}
+		if a.Confidence != 1.0 {
+			t.Errorf("Round-robin confidence should be 1.0, got %f for bead %s", a.Confidence, a.Bead.ID)
+		}
+	}
+}
+
+func TestMatcher_Strategy_RoundRobin_Deterministic(t *testing.T) {
+	m := NewMatcher()
+
+	beads := []Bead{
+		{ID: "b1", Title: "Task 1", TaskType: TaskFeature, Priority: 1},
+		{ID: "b2", Title: "Task 2", TaskType: TaskBug, Priority: 2},
+		{ID: "b3", Title: "Task 3", TaskType: TaskDocs, Priority: 3},
+		{ID: "b4", Title: "Task 4", TaskType: TaskRefactor, Priority: 2},
+	}
+
+	agents := []Agent{
+		{ID: "1", AgentType: tmux.AgentClaude, Idle: true},
+		{ID: "2", AgentType: tmux.AgentCodex, Idle: true},
+	}
+
+	// Run multiple times and verify same result
+	result1 := m.AssignTasks(beads, agents, StrategyRoundRobin)
+	result2 := m.AssignTasks(beads, agents, StrategyRoundRobin)
+	result3 := m.AssignTasks(beads, agents, StrategyRoundRobin)
+
+	if len(result1) != len(result2) || len(result2) != len(result3) {
+		t.Fatal("Results should have same length")
+	}
+
+	for i := range result1 {
+		if result1[i].Bead.ID != result2[i].Bead.ID || result2[i].Bead.ID != result3[i].Bead.ID {
+			t.Errorf("Bead order not deterministic at index %d", i)
+		}
+		if result1[i].Agent.ID != result2[i].Agent.ID || result2[i].Agent.ID != result3[i].Agent.ID {
+			t.Errorf("Agent assignment not deterministic at index %d", i)
+		}
+	}
+}
+
+func TestMatcher_Strategy_RoundRobin_ReasonFormat(t *testing.T) {
+	m := NewMatcher()
+
+	beads := []Bead{
+		{ID: "b1", Title: "Task 1", TaskType: TaskFeature, Priority: 2},
+		{ID: "b2", Title: "Task 2", TaskType: TaskBug, Priority: 2},
+	}
+
+	agents := []Agent{
+		{ID: "1", AgentType: tmux.AgentClaude, Idle: true},
+		{ID: "2", AgentType: tmux.AgentCodex, Idle: true},
+	}
+
+	result := m.AssignTasks(beads, agents, StrategyRoundRobin)
+
+	for i, a := range result {
+		if a.Reason == "" {
+			t.Errorf("Expected non-empty reason at index %d", i)
+		}
+		// Reason should contain "round-robin"
+		if !contains(a.Reason, "round-robin") {
+			t.Errorf("Reason should mention round-robin: %s", a.Reason)
+		}
+	}
+}
+
+func TestMatcher_Strategy_RoundRobin_BeadOrdering(t *testing.T) {
+	m := NewMatcher()
+
+	// Beads with different priorities - should be sorted by priority first
+	beads := []Bead{
+		{ID: "b3", Title: "P3 Task", TaskType: TaskFeature, Priority: 3},
+		{ID: "b1", Title: "P1 Task", TaskType: TaskBug, Priority: 1},
+		{ID: "b2", Title: "P2 Task", TaskType: TaskDocs, Priority: 2},
+	}
+
+	agents := []Agent{
+		{ID: "1", AgentType: tmux.AgentClaude, Idle: true},
+		{ID: "2", AgentType: tmux.AgentCodex, Idle: true},
+		{ID: "3", AgentType: tmux.AgentGemini, Idle: true},
+	}
+
+	result := m.AssignTasks(beads, agents, StrategyRoundRobin)
+
+	if len(result) != 3 {
+		t.Fatalf("Expected 3 assignments, got %d", len(result))
+	}
+
+	// Beads should be sorted by priority (P1, P2, P3) before assignment
+	// Agent 1 gets P1 (bead 1), Agent 2 gets P2 (bead 2), Agent 3 gets P3 (bead 3)
+	expectedBeadOrder := []string{"b1", "b2", "b3"}
+	expectedAgentOrder := []string{"1", "2", "3"}
+
+	for i, a := range result {
+		if a.Bead.ID != expectedBeadOrder[i] {
+			t.Errorf("Position %d: expected bead %s, got %s", i, expectedBeadOrder[i], a.Bead.ID)
+		}
+		if a.Agent.ID != expectedAgentOrder[i] {
+			t.Errorf("Position %d: expected agent %s, got %s", i, expectedAgentOrder[i], a.Agent.ID)
+		}
+	}
+}
+
+func TestMatcher_Strategy_RoundRobin_FiltersUnavailableAgents(t *testing.T) {
+	m := NewMatcher()
+
+	beads := []Bead{
+		{ID: "b1", Title: "Task 1", TaskType: TaskFeature, Priority: 2},
+		{ID: "b2", Title: "Task 2", TaskType: TaskBug, Priority: 2},
+	}
+
+	agents := []Agent{
+		{ID: "1", AgentType: tmux.AgentClaude, Idle: true},
+		{ID: "2", AgentType: tmux.AgentCodex, Idle: false},         // Not idle
+		{ID: "3", AgentType: tmux.AgentGemini, Idle: true, ContextUsage: 0.95}, // Too much context
+		{ID: "4", AgentType: tmux.AgentClaude, Idle: true},
+	}
+
+	result := m.AssignTasks(beads, agents, StrategyRoundRobin)
+
+	if len(result) != 2 {
+		t.Fatalf("Expected 2 assignments, got %d", len(result))
+	}
+
+	// Only agents 1 and 4 should be assigned (2 and 3 are filtered)
+	assignedAgents := make(map[string]bool)
+	for _, a := range result {
+		assignedAgents[a.Agent.ID] = true
+	}
+
+	if !assignedAgents["1"] || !assignedAgents["4"] {
+		t.Errorf("Expected agents 1 and 4 to be assigned, got %v", assignedAgents)
+	}
+	if assignedAgents["2"] || assignedAgents["3"] {
+		t.Errorf("Agents 2 and 3 should be filtered out, got %v", assignedAgents)
+	}
+}
+
+// Helper function
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
+}
+
+func containsHelper(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
