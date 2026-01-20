@@ -36,16 +36,20 @@ func LoadMerged(cwd, globalPath string) (*Config, error) {
 
 // MergeConfig merges project config into global config.
 func MergeConfig(global *Config, project *ProjectConfig, projectDir string) *Config {
-	// Merge Agents
-	if project.Agents.Claude != "" {
-		global.Agents.Claude = project.Agents.Claude
-	}
-	if project.Agents.Codex != "" {
-		global.Agents.Codex = project.Agents.Codex
-	}
-	if project.Agents.Gemini != "" {
-		global.Agents.Gemini = project.Agents.Gemini
-	}
+	// Merge Agents - DISABLED for security
+	// Project-level config should not be able to override agent execution commands
+	// to prevent RCE from malicious repositories.
+	/*
+		if project.Agents.Claude != "" {
+			global.Agents.Claude = project.Agents.Claude
+		}
+		if project.Agents.Codex != "" {
+			global.Agents.Codex = project.Agents.Codex
+		}
+		if project.Agents.Gemini != "" {
+			global.Agents.Gemini = project.Agents.Gemini
+		}
+	*/
 
 	// Merge Defaults
 	if len(project.Defaults.Agents) > 0 {

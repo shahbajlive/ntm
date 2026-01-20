@@ -8,10 +8,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"regexp"
 	"runtime"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -931,29 +929,34 @@ type ntmPaneInfo struct {
 	Variant   string
 }
 
-var ntmPaneTitleRE = regexp.MustCompile(`^.+__([a-zA-Z0-9_-]+)_(\d+)(?:_([A-Za-z0-9._/@:+-]+))?(?:\[[^\]]*\])?$`)
-
 func parseNTMPanes(panes []tmux.Pane) map[string][]ntmPaneInfo {
 	out := make(map[string][]ntmPaneInfo)
 
 	for _, p := range panes {
-		matches := ntmPaneTitleRE.FindStringSubmatch(strings.TrimSpace(p.Title))
-		if matches == nil {
-			continue
-		}
-		idx, err := strconv.Atoi(matches[2])
-		if err != nil {
+		// Use the NTM-specific index parsed by the tmux package
+		// This avoids duplicate regex parsing and ensures consistency
+		idx := p.NTMIndex
+		if idx == 0 && p.Type == "user" {
+			// Skip user pane or panes that didn't parse correctly
+			// Note: parseAgentFromTitle returns 0 if no match.
+			// But for valid NTM panes, index should be > 0 (e.g. cc_1)
+			// User pane might be user_0 or just user?
+			// Let's check tmux.parseAgentFromTitle logic: matches[2] is the index group.
+			// "session__cc_1" -> index 1.
+			// "session__user" -> no match for regex which expects _\d+
+			// So if NTMIndex is 0, it's not a standard numbered agent pane.
 			continue
 		}
 
-		typ := matches[1]
-		variant := matches[3]
+		// Convert AgentType to string for map key
+		typ := string(p.Type)
+		
 		out[typ] = append(out[typ], ntmPaneInfo{
 			Label:     fmt.Sprintf("%s_%d", typ, idx),
 			Type:      typ,
 			Index:     idx,
 			TmuxIndex: p.Index,
-			Variant:   variant,
+			Variant:   p.Variant,
 		})
 	}
 
@@ -4319,9 +4322,10 @@ func PrintForecast(target string) error {
 	if err != nil {
 		output.Error = fmt.Sprintf("failed to get forecast: %v", err)
 		output.Success = false
-	} else {
-		output.Forecast = forecast
+		return encodeJSON(output)
 	}
+
+	output.Forecast = forecast
 
 	return encodeJSON(output)
 }
@@ -4350,9 +4354,10 @@ func PrintSuggest() error {
 	if err != nil {
 		output.Error = fmt.Sprintf("failed to get suggestions: %v", err)
 		output.Success = false
-	} else {
-		output.Suggestions = suggestions
+		return encodeJSON(output)
 	}
+
+	output.Suggestions = suggestions
 
 	return encodeJSON(output)
 }
@@ -4383,9 +4388,10 @@ func PrintImpact(filePath string) error {
 	if err != nil {
 		output.Error = fmt.Sprintf("failed to get impact analysis: %v", err)
 		output.Success = false
-	} else {
-		output.Impact = impact
+		return encodeJSON(output)
 	}
+
+	output.Impact = impact
 
 	return encodeJSON(output)
 }
@@ -4416,9 +4422,10 @@ func PrintSearch(query string) error {
 	if err != nil {
 		output.Error = fmt.Sprintf("failed to perform search: %v", err)
 		output.Success = false
-	} else {
-		output.Results = results
+		return encodeJSON(output)
 	}
+
+	output.Results = results
 
 	return encodeJSON(output)
 }

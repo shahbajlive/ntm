@@ -796,10 +796,9 @@ func sendWorkPrompt(session, paneRef, prompt string) error {
 	// Build the full pane target
 	target := fmt.Sprintf("%s:%s", session, paneRef)
 
-	// Escape the prompt for tmux send-keys
-	// Replace newlines with Enter key presses
-	escapedPrompt := strings.ReplaceAll(prompt, "\n", "\" Enter \"")
-	escapedPrompt = "\"" + escapedPrompt + "\""
-
-	return tmux.SendKeys(target, escapedPrompt, true)
+	// Send the prompt directly.
+	// tmux.SendKeys uses 'send-keys -l' which treats input literally.
+	// Newlines in the prompt string are interpreted by the shell as Enter presses.
+	// The final 'true' argument ensures a trailing Enter is sent to execute the last line.
+	return tmux.SendKeys(target, prompt, true)
 }

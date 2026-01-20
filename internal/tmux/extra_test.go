@@ -162,7 +162,7 @@ func TestParseAgentFromTitle_EdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.title, func(t *testing.T) {
-			gotType, gotVariant, gotTags := parseAgentFromTitle(tt.title)
+			gotType, _, gotVariant, gotTags := parseAgentFromTitle(tt.title)
 			if gotType != tt.wantType {
 				t.Errorf("parseAgentFromTitle() type = %v, want %v", gotType, tt.wantType)
 			}
@@ -179,6 +179,38 @@ func TestParseAgentFromTitle_EdgeCases(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestParseAgentFromTitle(t *testing.T) {
+	tests := []struct {
+		title       string
+		wantType    AgentType
+		wantIndex   int
+		wantVariant string
+		wantTags    []string
+	}{
+		{"myproj__cc_1", AgentClaude, 1, "", nil},
+		{"myproj__cod_2_gpt4", AgentCodex, 2, "gpt4", nil},
+		{"myproj__gmi_3[foo,bar]", AgentGemini, 3, "", []string{"foo", "bar"}},
+		{"myproj__user", AgentUser, 0, "", nil},
+		{"other", AgentUser, 0, "", nil},
+	}
+
+	for _, tt := range tests {
+		gotType, gotIndex, gotVariant, gotTags := parseAgentFromTitle(tt.title)
+		if gotType != tt.wantType {
+			t.Errorf("parseAgentFromTitle(%q) type = %v, want %v", tt.title, gotType, tt.wantType)
+		}
+		if gotIndex != tt.wantIndex {
+			t.Errorf("parseAgentFromTitle(%q) index = %v, want %v", tt.title, gotIndex, tt.wantIndex)
+		}
+		if gotVariant != tt.wantVariant {
+			t.Errorf("parseAgentFromTitle(%q) variant = %v, want %v", tt.title, gotVariant, tt.wantVariant)
+		}
+		if len(gotTags) != len(tt.wantTags) {
+			t.Errorf("parseAgentFromTitle(%q) tags = %v, want %v", tt.title, gotTags, tt.wantTags)
+		}
 	}
 }
 

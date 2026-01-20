@@ -1057,7 +1057,7 @@ func spawnSessionLogic(opts SpawnOptions) error {
 		if len(envVars) > 0 {
 			var envPrefix string
 			for k, v := range envVars {
-				envPrefix += fmt.Sprintf("%s=%q ", k, v)
+				envPrefix += fmt.Sprintf("%s=%s ", k, tmux.ShellQuote(v))
 			}
 			agentCmd = envPrefix + agentCmd
 		}

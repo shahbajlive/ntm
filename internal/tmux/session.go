@@ -20,7 +20,7 @@ import (
 //	session__cc_1
 //	session__cc_1[frontend]
 //	session__cc_1_opus[backend,api]
-var paneNameRegex = regexp.MustCompile(`^.+__([\w-]+)_\d+(?:_([A-Za-z0-9._/@:+-]+))?(?:\[([^\]]*)\])?$`)
+var paneNameRegex = regexp.MustCompile(`^.+__([\w-]+)_(\d+)(?:_([A-Za-z0-9._/@:+-]+))?(?:\[([^\]]*)\])?$`)
 
 // sessionNameRegex validates session names (allowed: a-z, A-Z, 0-9, _, -)
 var sessionNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
@@ -71,17 +71,18 @@ func (a AgentType) ProfileName() string {
 
 // Pane represents a tmux pane
 type Pane struct {
-	ID      string
-	Index   int
-	Title   string
-	Type    AgentType
-	Variant string   // Model alias or persona name (from pane title)
-	Tags    []string // User-defined tags (from pane title, e.g., [frontend,api])
-	Command string
-	Width   int
-	Height  int
-	Active  bool
-	PID     int // Shell PID
+	ID       string
+	Index    int
+	NTMIndex int // The NTM-specific index parsed from the title (e.g., 1 for cc_1)
+	Title    string
+	Type     AgentType
+	Variant  string   // Model alias or persona name (from pane title)
+	Tags     []string // User-defined tags (from pane title, e.g., [frontend,api])
+	Command  string
+	Width    int
+	Height   int
+	Active   bool
+	PID      int // Shell PID
 }
 
 // Session represents a tmux session
@@ -94,31 +95,33 @@ type Session struct {
 	Created   string
 }
 
-// parseAgentFromTitle extracts agent type, variant, and tags from a pane title.
+// parseAgentFromTitle extracts agent type, index, variant, and tags from a pane title.
 // Title format: {session}__{type}_{index}[tags] or {session}__{type}_{index}_{variant}[tags]
-// Returns AgentUser, empty variant, and nil tags if title doesn't match NTM format.
-func parseAgentFromTitle(title string) (AgentType, string, []string) {
+// Returns AgentUser, 0, empty variant, and nil tags if title doesn't match NTM format.
+func parseAgentFromTitle(title string) (AgentType, int, string, []string) {
 	matches := paneNameRegex.FindStringSubmatch(title)
 	if matches == nil {
 		// Not an NTM-formatted title, default to user
-		return AgentUser, "", nil
+		return AgentUser, 0, "", nil
 	}
 
 	// matches[1] = type (cc, cod, gmi, cursor, etc.)
-	// matches[2] = variant (may be empty)
-	// matches[3] = tags string (may be empty, may be absent if regex didn't capture)
+	// matches[2] = index (1, 2, 3...)
+	// matches[3] = variant (may be empty)
+	// matches[4] = tags string (may be empty, may be absent if regex didn't capture)
 	agentType := AgentType(matches[1])
-	variant := matches[2]
+	idx, _ := strconv.Atoi(matches[2])
+	variant := matches[3]
 	var tags []string
-	if len(matches) >= 4 {
-		tags = parseTags(matches[3])
+	if len(matches) >= 5 {
+		tags = parseTags(matches[4])
 	}
 
 	// Allow any non-empty agent type that matched the regex
 	if agentType != "" {
-		return agentType, variant, tags
+		return agentType, idx, variant, tags
 	}
-	return AgentUser, "", nil
+	return AgentUser, 0, "", nil
 }
 
 // parseTags parses a comma-separated tag string into a slice.
@@ -318,9 +321,9 @@ func (c *Client) GetPanesContext(ctx context.Context, session string) ([]Pane, e
 			PID:     pid,
 		}
 
-		// Parse pane title using regex to extract type, variant, and tags
+		// Parse pane title using regex to extract type, index, variant, and tags
 		// Format: {session}__{type}_{index} or {session}__{type}_{index}_{variant}
-		pane.Type, pane.Variant, pane.Tags = parseAgentFromTitle(pane.Title)
+		pane.Type, pane.NTMIndex, pane.Variant, pane.Tags = parseAgentFromTitle(pane.Title)
 
 		panes = append(panes, pane)
 	}
@@ -446,7 +449,7 @@ func (c *Client) GetPaneTags(paneID string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	_, _, tags := parseAgentFromTitle(title)
+	_, _, _, tags := parseAgentFromTitle(title)
 	return tags, nil
 }
 
@@ -988,8 +991,8 @@ func (c *Client) GetPanesWithActivityContext(ctx context.Context, session string
 			PID:     pid,
 		}
 
-		// Parse pane title using regex to extract type, variant, and tags
-		pane.Type, pane.Variant, pane.Tags = parseAgentFromTitle(pane.Title)
+		// Parse pane title using regex to extract type, index, variant, and tags
+		pane.Type, pane.NTMIndex, pane.Variant, pane.Tags = parseAgentFromTitle(pane.Title)
 
 		panes = append(panes, PaneActivity{
 			Pane:         pane,

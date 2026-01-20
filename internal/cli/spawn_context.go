@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"time"
+
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
 // SpawnContext holds information about the spawn batch for agent coordination.
@@ -51,11 +53,11 @@ func (asc *AgentSpawnContext) EnvVars() map[string]string {
 }
 
 // EnvVarPrefix returns a shell command prefix that exports the spawn context.
-// Example: "export NTM_SPAWN_ORDER=2 NTM_SPAWN_TOTAL=4 NTM_SPAWN_BATCH_ID=spawn-abc123; "
+// Example: "NTM_SPAWN_ORDER=2 NTM_SPAWN_TOTAL=4 NTM_SPAWN_BATCH_ID='spawn-abc123' "
 func (asc *AgentSpawnContext) EnvVarPrefix() string {
 	return fmt.Sprintf(
-		"export NTM_SPAWN_ORDER=%d NTM_SPAWN_TOTAL=%d NTM_SPAWN_BATCH_ID=%s; ",
-		asc.Order, asc.TotalAgents, asc.BatchID,
+		"NTM_SPAWN_ORDER=%d NTM_SPAWN_TOTAL=%d NTM_SPAWN_BATCH_ID=%s ",
+		asc.Order, asc.TotalAgents, tmux.ShellQuote(asc.BatchID),
 	)
 }
 
