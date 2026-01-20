@@ -132,9 +132,9 @@ type SpawnOptions struct {
 	StaggerEnabled bool          // True if --stagger flag was provided
 
 	// Assignment configuration for spawn+assign workflow
-	Assign            bool          // Enable auto-assignment after spawn
-	AssignStrategy    string        // Assignment strategy: balanced, speed, quality, dependency, round-robin
-	AssignLimit       int           // Maximum assignments (0 = unlimited)
+	Assign             bool          // Enable auto-assignment after spawn
+	AssignStrategy     string        // Assignment strategy: balanced, speed, quality, dependency, round-robin
+	AssignLimit        int           // Maximum assignments (0 = unlimited)
 	AssignReadyTimeout time.Duration // Timeout waiting for agents to become ready
 }
 
@@ -241,7 +241,7 @@ func newSpawnCmd() *cobra.Command {
 	var safety bool
 
 	// New stagger flags for bd-2wih
-	var staggerMode string        // smart, fixed, or none
+	var staggerMode string         // smart, fixed, or none
 	var staggerDelay time.Duration // delay for fixed mode
 
 	// Assignment flags for spawn+assign workflow (bd-3nde)
@@ -2079,9 +2079,9 @@ func FormatRecoveryPrompt(rc *RecoveryContext) string {
 
 // SpawnAssignResult holds the combined result of spawn+assign workflow.
 type SpawnAssignResult struct {
-	Spawn  *output.SpawnResponse  `json:"spawn"`
-	Init   *SpawnInitResult       `json:"init,omitempty"`
-	Assign *AssignOutputEnhanced  `json:"assign,omitempty"`
+	Spawn  *output.SpawnResponse `json:"spawn"`
+	Init   *SpawnInitResult      `json:"init,omitempty"`
+	Assign *AssignOutputEnhanced `json:"assign,omitempty"`
 }
 
 // SpawnInitResult describes the init phase result.

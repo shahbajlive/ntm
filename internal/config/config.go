@@ -35,9 +35,9 @@ type Config struct {
 	CASS            CASSConfig            `toml:"cass"`             // CASS integration configuration
 	Accounts        AccountsConfig        `toml:"accounts"`         // Multi-account management
 	Rotation        RotationConfig        `toml:"rotation"`         // Account rotation configuration
-	GeminiSetup      GeminiSetupConfig      `toml:"gemini_setup"`      // Gemini post-spawn setup
-	ContextRotation  ContextRotationConfig  `toml:"context_rotation"`  // Context window rotation
-	SessionRecovery  SessionRecoveryConfig  `toml:"recovery"`          // Smart session recovery
+	GeminiSetup     GeminiSetupConfig     `toml:"gemini_setup"`     // Gemini post-spawn setup
+	ContextRotation ContextRotationConfig `toml:"context_rotation"` // Context window rotation
+	SessionRecovery SessionRecoveryConfig `toml:"recovery"`         // Smart session recovery
 
 	// Runtime-only fields (populated by project config merging)
 	ProjectDefaults map[string]int `toml:"-"`
@@ -470,13 +470,13 @@ type SessionRecoveryConfig struct {
 // DefaultSessionRecoveryConfig returns sensible defaults for session recovery.
 func DefaultSessionRecoveryConfig() SessionRecoveryConfig {
 	return SessionRecoveryConfig{
-		Enabled:             true,  // Enabled by default
-		IncludeAgentMail:    true,  // Include Agent Mail messages
-		IncludeCMMemories:   true,  // Include CM procedural memories
-		IncludeBeadsContext: true,  // Include bead/task context
-		MaxRecoveryTokens:   2000,  // Token budget for recovery context
-		AutoInjectOnSpawn:   true,  // Inject on spawn by default
-		StaleThresholdHours: 24,    // Consider context up to 24 hours old
+		Enabled:             true, // Enabled by default
+		IncludeAgentMail:    true, // Include Agent Mail messages
+		IncludeCMMemories:   true, // Include CM procedural memories
+		IncludeBeadsContext: true, // Include bead/task context
+		MaxRecoveryTokens:   2000, // Token budget for recovery context
+		AutoInjectOnSpawn:   true, // Inject on spawn by default
+		StaleThresholdHours: 24,   // Consider context up to 24 hours old
 	}
 }
 

@@ -353,12 +353,12 @@ func TestRecoveryContext_BuildGracefulDegradation(t *testing.T) {
 
 	// Config that enables all services but uses non-existent paths/services
 	recoveryCfg := config.SessionRecoveryConfig{
-		Enabled:            true,
-		IncludeAgentMail:   true,
+		Enabled:             true,
+		IncludeAgentMail:    true,
 		IncludeBeadsContext: true,
-		IncludeCMMemories:  true,
-		MaxRecoveryTokens:  3000,
-		AutoInjectOnSpawn:  true,
+		IncludeCMMemories:   true,
+		MaxRecoveryTokens:   3000,
+		AutoInjectOnSpawn:   true,
 		StaleThresholdHours: 24,
 	}
 

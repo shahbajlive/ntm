@@ -1488,13 +1488,13 @@ type BatchResult struct {
 
 // BatchPromptResult represents the result of sending a single prompt in a batch
 type BatchPromptResult struct {
-	Index        int    `json:"index"`
+	Index         int    `json:"index"`
 	PromptPreview string `json:"prompt_preview"`
-	Success      bool   `json:"success"`
-	Targets      []int  `json:"targets,omitempty"`
-	Delivered    int    `json:"delivered"`
-	Error        string `json:"error,omitempty"`
-	Skipped      bool   `json:"skipped,omitempty"`
+	Success       bool   `json:"success"`
+	Targets       []int  `json:"targets,omitempty"`
+	Delivered     int    `json:"delivered"`
+	Error         string `json:"error,omitempty"`
+	Skipped       bool   `json:"skipped,omitempty"`
 }
 
 // parseBatchFile reads and parses a batch file into individual prompts.

@@ -50,25 +50,25 @@ func (p ProjectType) String() string {
 
 // WizardResult contains the wizard configuration choices
 type WizardResult struct {
-	ProjectType      ProjectType
-	AgentCount       int
-	EnableAgentMail  bool
-	EnableCASS       bool
-	EnableCM         bool
-	AutoFileReserve  bool
-	Cancelled        bool
+	ProjectType     ProjectType
+	AgentCount      int
+	EnableAgentMail bool
+	EnableCASS      bool
+	EnableCM        bool
+	AutoFileReserve bool
+	Cancelled       bool
 }
 
 // InitWizardModel is the Bubble Tea model for the init wizard
 type InitWizardModel struct {
-	step         WizardStep
-	width        int
-	height       int
-	cursor       int
-	result       WizardResult
-	agentInput   textinput.Model
-	theme        theme.Theme
-	err          error
+	step       WizardStep
+	width      int
+	height     int
+	cursor     int
+	result     WizardResult
+	agentInput textinput.Model
+	theme      theme.Theme
+	err        error
 }
 
 // NewInitWizard creates a new init wizard model
@@ -86,12 +86,12 @@ func NewInitWizard() InitWizardModel {
 		agentInput: ti,
 		theme:      theme.Current(),
 		result: WizardResult{
-			ProjectType:      ProjectGo,
-			AgentCount:       3,
-			EnableAgentMail:  true,
-			EnableCASS:       true,
-			EnableCM:         true,
-			AutoFileReserve:  true,
+			ProjectType:     ProjectGo,
+			AgentCount:      3,
+			EnableAgentMail: true,
+			EnableCASS:      true,
+			EnableCM:        true,
+			AutoFileReserve: true,
 		},
 	}
 }

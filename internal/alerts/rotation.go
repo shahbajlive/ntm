@@ -130,16 +130,16 @@ func EmitRotationFailed(data RotationAlertData) {
 // RotationEventOutput provides structured JSON output for rotation events.
 // This is used for robot mode output.
 type RotationEventOutput struct {
-	Type           string  `json:"type"`
-	OldAgent       string  `json:"old_agent"`
-	NewAgent       string  `json:"new_agent,omitempty"`
-	UsagePercent   float64 `json:"usage_percent"`
-	SummaryTokens  int     `json:"summary_tokens,omitempty"`
-	Status         string  `json:"status"` // "started", "completed", "failed"
-	Error          string  `json:"error,omitempty"`
-	DurationMs     int64   `json:"duration_ms,omitempty"`
-	GeneratedAt    string  `json:"generated_at"`
-	SessionName    string  `json:"session_name,omitempty"`
+	Type          string  `json:"type"`
+	OldAgent      string  `json:"old_agent"`
+	NewAgent      string  `json:"new_agent,omitempty"`
+	UsagePercent  float64 `json:"usage_percent"`
+	SummaryTokens int     `json:"summary_tokens,omitempty"`
+	Status        string  `json:"status"` // "started", "completed", "failed"
+	Error         string  `json:"error,omitempty"`
+	DurationMs    int64   `json:"duration_ms,omitempty"`
+	GeneratedAt   string  `json:"generated_at"`
+	SessionName   string  `json:"session_name,omitempty"`
 }
 
 // NewRotationEventOutput creates a RotationEventOutput for robot mode JSON.

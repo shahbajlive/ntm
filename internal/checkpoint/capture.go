@@ -141,7 +141,6 @@ func (c *Capturer) captureSessionState(sessionName string) (SessionState, error)
 	}, nil
 }
 
-
 // captureGitState captures the git repository state.
 func (c *Capturer) captureGitState(workingDir, sessionName, checkpointID string) (GitState, error) {
 	state := GitState{}
@@ -241,7 +240,7 @@ func gitCommand(dir string, args ...string) (string, error) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "git", allArgs...)
-	
+
 	// Capture stderr separately for error reporting
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

@@ -14,9 +14,9 @@ import (
 
 // Common errors returned by the scanner.
 var (
-	ErrNotInstalled = errors.New("ubs is not installed")
-	ErrTimeout      = errors.New("scan timed out")
-	ErrScanFailed   = errors.New("scan failed")
+	ErrNotInstalled   = errors.New("ubs is not installed")
+	ErrTimeout        = errors.New("scan timed out")
+	ErrScanFailed     = errors.New("scan failed")
 	ErrOutputTooLarge = errors.New("scan output exceeded limit")
 )
 
@@ -66,7 +66,7 @@ func (s *Scanner) Scan(ctx context.Context, path string, opts ScanOptions) (*Sca
 	}
 
 	cmd := exec.CommandContext(ctx, s.binaryPath, args...)
-	
+
 	// Capture stderr separately
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

@@ -31,13 +31,13 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/internal/tokens"
 	"github.com/Dicklesworthstone/ntm/internal/tracker"
-	"github.com/Dicklesworthstone/ntm/internal/watcher"
 	"github.com/Dicklesworthstone/ntm/internal/tui/components"
 	"github.com/Dicklesworthstone/ntm/internal/tui/dashboard/panels"
 	"github.com/Dicklesworthstone/ntm/internal/tui/icons"
 	"github.com/Dicklesworthstone/ntm/internal/tui/layout"
 	"github.com/Dicklesworthstone/ntm/internal/tui/styles"
 	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
+	"github.com/Dicklesworthstone/ntm/internal/watcher"
 )
 
 // DashboardTickMsg is sent for animation updates
@@ -333,10 +333,10 @@ type Model struct {
 	// Agent Mail integration
 	agentMailAvailable    bool
 	agentMailConnected    bool
-	agentMailArchiveFound bool // Fallback: archive directory exists
-	agentMailLocks     int                 // Active file reservations
-	agentMailUnread    int                 // Unread message count (requires agent context)
-	agentMailLockInfo  []AgentMailLockInfo // Lock details for display
+	agentMailArchiveFound bool                // Fallback: archive directory exists
+	agentMailLocks        int                 // Active file reservations
+	agentMailUnread       int                 // Unread message count (requires agent context)
+	agentMailLockInfo     []AgentMailLockInfo // Lock details for display
 
 	// Config watcher
 	configSub    chan *config.Config
@@ -354,15 +354,15 @@ type Model struct {
 	showHelp bool
 
 	// Panels
-	beadsPanel   *panels.BeadsPanel
-	alertsPanel  *panels.AlertsPanel
-	metricsPanel *panels.MetricsPanel
-	historyPanel *panels.HistoryPanel
-	cassPanel    *panels.CASSPanel
-	filesPanel   *panels.FilesPanel
-	tickerPanel     *panels.TickerPanel
-	spawnPanel      *panels.SpawnPanel
-	conflictsPanel  *panels.ConflictsPanel
+	beadsPanel     *panels.BeadsPanel
+	alertsPanel    *panels.AlertsPanel
+	metricsPanel   *panels.MetricsPanel
+	historyPanel   *panels.HistoryPanel
+	cassPanel      *panels.CASSPanel
+	filesPanel     *panels.FilesPanel
+	tickerPanel    *panels.TickerPanel
+	spawnPanel     *panels.SpawnPanel
+	conflictsPanel *panels.ConflictsPanel
 
 	// Data for new panels
 	beadsSummary  bv.BeadsSummary
@@ -561,15 +561,15 @@ func New(session, projectDir string) Model {
 				return CassSelectMsg{Hit: hit}
 			}
 		}),
-		beadsPanel:   panels.NewBeadsPanel(),
-		alertsPanel:  panels.NewAlertsPanel(),
-		metricsPanel: panels.NewMetricsPanel(),
-		historyPanel: panels.NewHistoryPanel(),
-		cassPanel:    panels.NewCASSPanel(),
-		filesPanel:   panels.NewFilesPanel(),
-		tickerPanel:     panels.NewTickerPanel(),
-		spawnPanel:      panels.NewSpawnPanel(),
-		conflictsPanel:  panels.NewConflictsPanel(),
+		beadsPanel:     panels.NewBeadsPanel(),
+		alertsPanel:    panels.NewAlertsPanel(),
+		metricsPanel:   panels.NewMetricsPanel(),
+		historyPanel:   panels.NewHistoryPanel(),
+		cassPanel:      panels.NewCASSPanel(),
+		filesPanel:     panels.NewFilesPanel(),
+		tickerPanel:    panels.NewTickerPanel(),
+		spawnPanel:     panels.NewSpawnPanel(),
+		conflictsPanel: panels.NewConflictsPanel(),
 
 		// Init() kicks off these fetches immediately; mark as fetching so the tick loop
 		// doesn't pile on duplicates if the first round is still in flight.

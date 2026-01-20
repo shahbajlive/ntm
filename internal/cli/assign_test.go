@@ -54,10 +54,10 @@ func TestAssignSummaryBlockedCount(t *testing.T) {
 // TestTriageRecommendationToBeadPreviewConversion tests the conversion logic
 func TestTriageRecommendationToBeadPreviewConversion(t *testing.T) {
 	tests := []struct {
-		name           string
-		rec            bv.TriageRecommendation
-		expectBlocked  bool
-		expectedPrio   string
+		name          string
+		rec           bv.TriageRecommendation
+		expectBlocked bool
+		expectedPrio  string
 	}{
 		{
 			name: "actionable bead",

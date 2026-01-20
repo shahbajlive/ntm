@@ -1977,7 +1977,7 @@ func TestCalculateConfidence(t *testing.T) {
 		{"gemini docs", "gemini", bv.BeadPreview{Title: "Update documentation"}, "balanced", 0.85, 0.95},
 
 		// Strategy adjustments
-		{"speed boost", "claude", bv.BeadPreview{Title: "Some task"}, "speed", 0.80, 0.90}, // (0.80 + 0.9) / 2 = 0.85
+		{"speed boost", "claude", bv.BeadPreview{Title: "Some task"}, "speed", 0.80, 0.90},                   // (0.80 + 0.9) / 2 = 0.85
 		{"dependency P1", "claude", bv.BeadPreview{Title: "Task", Priority: "P1"}, "dependency", 0.85, 0.95}, // 0.80 + 0.1 = 0.90
 		{"dependency P0", "claude", bv.BeadPreview{Title: "Task", Priority: "P0"}, "dependency", 0.85, 0.95},
 

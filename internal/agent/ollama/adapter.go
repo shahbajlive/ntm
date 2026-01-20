@@ -25,13 +25,13 @@ const (
 
 // Common errors
 var (
-	ErrNotConnected       = errors.New("not connected to Ollama")
-	ErrConnectionFailed   = errors.New("failed to connect to Ollama")
-	ErrModelNotFound      = errors.New("model not found")
+	ErrNotConnected          = errors.New("not connected to Ollama")
+	ErrConnectionFailed      = errors.New("failed to connect to Ollama")
+	ErrModelNotFound         = errors.New("model not found")
 	ErrContextLengthExceeded = errors.New("context length exceeded")
-	ErrGPUMemoryExhausted = errors.New("GPU memory exhausted")
-	ErrPullFailed         = errors.New("model pull failed")
-	ErrStreamClosed       = errors.New("response stream closed")
+	ErrGPUMemoryExhausted    = errors.New("GPU memory exhausted")
+	ErrPullFailed            = errors.New("model pull failed")
+	ErrStreamClosed          = errors.New("response stream closed")
 )
 
 // AgentBackend defines the interface for LLM agent backends.
@@ -76,10 +76,10 @@ type Token struct {
 
 // Model represents an available Ollama model
 type Model struct {
-	Name       string    `json:"name"`
-	Size       int64     `json:"size"`
-	Digest     string    `json:"digest"`
-	ModifiedAt time.Time `json:"modified_at"`
+	Name       string       `json:"name"`
+	Size       int64        `json:"size"`
+	Digest     string       `json:"digest"`
+	ModifiedAt time.Time    `json:"modified_at"`
 	Details    ModelDetails `json:"details,omitempty"`
 }
 
@@ -94,10 +94,10 @@ type ModelDetails struct {
 
 // Adapter implements AgentBackend for Ollama
 type Adapter struct {
-	mu       sync.RWMutex
-	host     string
-	client   *http.Client
-	model    string // Current model to use
+	mu        sync.RWMutex
+	host      string
+	client    *http.Client
+	model     string // Current model to use
 	connected bool
 }
 
@@ -346,7 +346,7 @@ func (a *Adapter) StreamResponse(ctx context.Context, prompt string) (<-chan Tok
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := a.client.Do(req)
+	resp, err := a.client.Do(req) //nolint:bodyclose // body is closed in goroutine below
 	if err != nil {
 		return nil, a.classifyError(err)
 	}

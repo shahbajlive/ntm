@@ -56,13 +56,13 @@ func (c CoordinationType) IsValid() bool {
 
 // FlowConfig defines the state machine for workflow progression.
 type FlowConfig struct {
-	Initial              string       `toml:"initial"`
-	Stages               []string     `toml:"stages,omitempty"`
-	Transitions          []Transition `toml:"transitions"`
-	RequireApproval      bool         `toml:"require_approval,omitempty"`
-	ApprovalMode         string       `toml:"approval_mode,omitempty"` // any, all, quorum
-	Quorum               int          `toml:"quorum,omitempty"`
-	ParallelWithinStage  bool         `toml:"parallel_within_stage,omitempty"`
+	Initial             string       `toml:"initial"`
+	Stages              []string     `toml:"stages,omitempty"`
+	Transitions         []Transition `toml:"transitions"`
+	RequireApproval     bool         `toml:"require_approval,omitempty"`
+	ApprovalMode        string       `toml:"approval_mode,omitempty"` // any, all, quorum
+	Quorum              int          `toml:"quorum,omitempty"`
+	ParallelWithinStage bool         `toml:"parallel_within_stage,omitempty"`
 }
 
 // Transition defines a state change in the workflow.

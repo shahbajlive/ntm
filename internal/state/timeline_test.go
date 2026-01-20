@@ -537,8 +537,8 @@ func BenchmarkGetEvents(b *testing.B) {
 	// Pre-populate with events
 	for i := 0; i < 1000; i++ {
 		tracker.RecordEvent(AgentEvent{
-			AgentID:   "cc_1",
-			State:     TimelineState([]string{"idle", "working"}[i%2]),
+			AgentID: "cc_1",
+			State:   TimelineState([]string{"idle", "working"}[i%2]),
 		})
 	}
 

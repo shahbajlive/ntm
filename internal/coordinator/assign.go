@@ -43,13 +43,13 @@ type Assignment struct {
 
 // ScoreConfig controls how work assignments are scored.
 type ScoreConfig struct {
-	PreferCriticalPath        bool    // Weight critical path items higher
-	PenalizeFileOverlap       bool    // Avoid assigning overlapping files
-	UseAgentProfiles          bool    // Match work to agent capabilities
-	BudgetAware               bool    // Consider token budgets
-	ContextThreshold          float64 // Max context usage before penalizing (percentage 0-100, default 80)
-	ProfileTagBoostWeight     float64 // Weight for profile tag matches (default 0.15)
-	FocusPatternBoostWeight   float64 // Weight for focus pattern matches (default 0.10)
+	PreferCriticalPath      bool    // Weight critical path items higher
+	PenalizeFileOverlap     bool    // Avoid assigning overlapping files
+	UseAgentProfiles        bool    // Match work to agent capabilities
+	BudgetAware             bool    // Consider token budgets
+	ContextThreshold        float64 // Max context usage before penalizing (percentage 0-100, default 80)
+	ProfileTagBoostWeight   float64 // Weight for profile tag matches (default 0.15)
+	FocusPatternBoostWeight float64 // Weight for focus pattern matches (default 0.10)
 }
 
 // DefaultScoreConfig returns a reasonable default configuration.
@@ -74,13 +74,13 @@ type ScoredAssignment struct {
 
 // AssignmentScoreBreakdown shows how the score was computed.
 type AssignmentScoreBreakdown struct {
-	BaseScore          float64 `json:"base_score"`            // From bv triage score
-	AgentTypeBonus     float64 `json:"agent_type_bonus"`      // Bonus for agent-task match
-	CriticalPathBonus  float64 `json:"critical_path_bonus"`   // Bonus for critical path items
-	FileOverlapPenalty float64 `json:"file_overlap_penalty"`  // Penalty for file conflicts
-	ContextPenalty     float64 `json:"context_penalty"`       // Penalty for high context usage
-	ProfileTagBonus    float64 `json:"profile_tag_bonus"`     // Bonus for profile tag matches
-	FocusPatternBonus  float64 `json:"focus_pattern_bonus"`   // Bonus for focus pattern matches
+	BaseScore          float64 `json:"base_score"`           // From bv triage score
+	AgentTypeBonus     float64 `json:"agent_type_bonus"`     // Bonus for agent-task match
+	CriticalPathBonus  float64 `json:"critical_path_bonus"`  // Bonus for critical path items
+	FileOverlapPenalty float64 `json:"file_overlap_penalty"` // Penalty for file conflicts
+	ContextPenalty     float64 `json:"context_penalty"`      // Penalty for high context usage
+	ProfileTagBonus    float64 `json:"profile_tag_bonus"`    // Bonus for profile tag matches
+	FocusPatternBonus  float64 `json:"focus_pattern_bonus"`  // Bonus for focus pattern matches
 }
 
 // WorkAssignment represents a work assignment to an agent.
@@ -616,14 +616,14 @@ func computeContextPenalty(contextUsage float64, threshold float64) float64 {
 // taskTagKeywords maps keywords to profile tags for task routing.
 var taskTagKeywords = map[string]string{
 	// Testing keywords
-	"test":       "testing",
-	"tests":      "testing",
-	"testing":    "testing",
-	"unittest":   "testing",
-	"unit test":  "testing",
-	"e2e":        "testing",
-	"qa":         "testing",
-	"coverage":   "testing",
+	"test":      "testing",
+	"tests":     "testing",
+	"testing":   "testing",
+	"unittest":  "testing",
+	"unit test": "testing",
+	"e2e":       "testing",
+	"qa":        "testing",
+	"coverage":  "testing",
 
 	// Architecture keywords
 	"refactor":     "architecture",
@@ -642,12 +642,12 @@ var taskTagKeywords = map[string]string{
 	"comment":       "documentation",
 
 	// Implementation keywords
-	"implement":     "implementation",
-	"add":           "implementation",
-	"create":        "implementation",
-	"build":         "implementation",
-	"feature":       "implementation",
-	"develop":       "implementation",
+	"implement": "implementation",
+	"add":       "implementation",
+	"create":    "implementation",
+	"build":     "implementation",
+	"feature":   "implementation",
+	"develop":   "implementation",
 
 	// Review keywords
 	"review":  "review",
@@ -908,7 +908,7 @@ func buildStrategyConfig(strategy AssignmentStrategy) ScoreConfig {
 	case StrategyQuality:
 		// Quality: maximize agent-task matching
 		base.UseAgentProfiles = true
-		base.ProfileTagBoostWeight = 0.25  // Increase profile importance
+		base.ProfileTagBoostWeight = 0.25 // Increase profile importance
 		base.FocusPatternBoostWeight = 0.15
 		base.PreferCriticalPath = true
 

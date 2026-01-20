@@ -19,14 +19,14 @@ type FileReservationManager struct {
 
 // FileReservationResult contains the result of a file reservation attempt.
 type FileReservationResult struct {
-	BeadID          string                        `json:"bead_id"`
-	AgentName       string                        `json:"agent_name"`
-	RequestedPaths  []string                      `json:"requested_paths"`
-	GrantedPaths    []string                      `json:"granted_paths"`
-	Conflicts       []agentmail.ReservationConflict `json:"conflicts,omitempty"`
-	ReservationIDs  []int                         `json:"reservation_ids"`
-	Success         bool                          `json:"success"`
-	Error           string                        `json:"error,omitempty"`
+	BeadID         string                          `json:"bead_id"`
+	AgentName      string                          `json:"agent_name"`
+	RequestedPaths []string                        `json:"requested_paths"`
+	GrantedPaths   []string                        `json:"granted_paths"`
+	Conflicts      []agentmail.ReservationConflict `json:"conflicts,omitempty"`
+	ReservationIDs []int                           `json:"reservation_ids"`
+	Success        bool                            `json:"success"`
+	Error          string                          `json:"error,omitempty"`
 }
 
 // NewFileReservationManager creates a new file reservation manager.

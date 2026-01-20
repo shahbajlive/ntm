@@ -21,11 +21,11 @@ func TestCapabilityMatrix_GetScore(t *testing.T) {
 	m := NewCapabilityMatrix()
 
 	tests := []struct {
-		name     string
-		agent    tmux.AgentType
-		task     TaskType
-		wantMin  float64
-		wantMax  float64
+		name    string
+		agent   tmux.AgentType
+		task    TaskType
+		wantMin float64
+		wantMax float64
 	}{
 		{"claude refactor", tmux.AgentClaude, TaskRefactor, 0.9, 1.0},
 		{"claude analysis", tmux.AgentClaude, TaskAnalysis, 0.85, 0.95},

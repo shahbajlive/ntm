@@ -23,21 +23,21 @@ import (
 )
 
 var (
-	assignAuto           bool
-	assignStrategy       string
-	assignBeads          string
-	assignLimit          int
-	assignAgentType      string // Filter by agent type
-	assignCCOnly         bool   // Alias for --agent=claude
-	assignCodOnly        bool   // Alias for --agent=codex
-	assignGmiOnly        bool   // Alias for --agent=gemini
-	assignTemplate       string // Prompt template: impl, review, custom
-	assignTemplateFile   string // Custom template file path
-	assignVerbose        bool
-	assignQuiet          bool
-	assignTimeout        time.Duration
-	assignDryRun         bool // Alias for no --auto
-	assignReserveFiles   bool // Enable Agent Mail file reservations
+	assignAuto         bool
+	assignStrategy     string
+	assignBeads        string
+	assignLimit        int
+	assignAgentType    string // Filter by agent type
+	assignCCOnly       bool   // Alias for --agent=claude
+	assignCodOnly      bool   // Alias for --agent=codex
+	assignGmiOnly      bool   // Alias for --agent=gemini
+	assignTemplate     string // Prompt template: impl, review, custom
+	assignTemplateFile string // Custom template file path
+	assignVerbose      bool
+	assignQuiet        bool
+	assignTimeout      time.Duration
+	assignDryRun       bool // Alias for no --auto
+	assignReserveFiles bool // Enable Agent Mail file reservations
 
 	// Direct pane assignment flags
 	assignPane       int    // Direct pane assignment (0 = disabled, since pane 0 is valid we use -1 as default)
@@ -286,11 +286,11 @@ type AssignCommandOptions struct {
 
 // AssignOutputEnhanced is the enhanced output structure matching the spec
 type AssignOutputEnhanced struct {
-	Strategy string                       `json:"strategy"`
-	Assigned []AssignedItem               `json:"assigned"`
-	Skipped  []SkippedItem                `json:"skipped"`
-	Summary  AssignSummaryEnhanced        `json:"summary"`
-	Errors   []string                     `json:"errors,omitempty"`
+	Strategy string                `json:"strategy"`
+	Assigned []AssignedItem        `json:"assigned"`
+	Skipped  []SkippedItem         `json:"skipped"`
+	Summary  AssignSummaryEnhanced `json:"summary"`
+	Errors   []string              `json:"errors,omitempty"`
 }
 
 // AssignedItem represents a single assignment
@@ -316,8 +316,8 @@ type SkippedItem struct {
 // AssignSummaryEnhanced contains summary statistics
 type AssignSummaryEnhanced struct {
 	TotalBeads    int `json:"total_beads"`
-	ActionableC   int `json:"actionable"`   // Beads with no blockers
-	BlockedCount  int `json:"blocked"`      // Beads blocked by dependencies
+	ActionableC   int `json:"actionable"` // Beads with no blockers
+	BlockedCount  int `json:"blocked"`    // Beads blocked by dependencies
 	Assigned      int `json:"assigned"`
 	Skipped       int `json:"skipped"`
 	IdleAgents    int `json:"idle_agents"`
@@ -788,7 +788,7 @@ func runAssignJSON(opts *AssignCommandOptions) error {
 		output.TimestampedResponse
 		*AssignOutputEnhanced
 	}{
-		TimestampedResponse: output.NewTimestamped(),
+		TimestampedResponse:  output.NewTimestamped(),
 		AssignOutputEnhanced: assignOutput,
 	}
 
@@ -808,7 +808,6 @@ func getAssignOutputEnhanced(opts *AssignCommandOptions) (*AssignOutputEnhanced,
 	}
 
 	// Build agent info and filter by type if needed
-	var agents []assignAgentInfo
 	var idleAgents []assignAgentInfo
 
 	for _, pane := range panes {
@@ -826,16 +825,13 @@ func getAssignOutputEnhanced(opts *AssignCommandOptions) (*AssignOutputEnhanced,
 		scrollback, _ := tmux.CapturePaneOutput(pane.ID, 10)
 		state := determineAgentState(scrollback, at)
 
-		ai := assignAgentInfo{
-			pane:      pane,
-			agentType: at,
-			model:     model,
-			state:     state,
-		}
-		agents = append(agents, ai)
-
 		if state == "idle" {
-			idleAgents = append(idleAgents, ai)
+			idleAgents = append(idleAgents, assignAgentInfo{
+				pane:      pane,
+				agentType: at,
+				model:     model,
+				state:     state,
+			})
 		}
 	}
 
@@ -1863,7 +1859,7 @@ func reserveFilesForBead(session, beadID, beadTitle, agentType string, verbose b
 	manager := assign.NewFileReservationManager(nil, projectKey)
 
 	// Attempt reservation (will return result even without client)
-	result, err := manager.ReserveForBead(nil, beadID, beadTitle, "", agentName)
+	result, err := manager.ReserveForBead(context.Background(), beadID, beadTitle, "", agentName)
 	if err != nil && verbose {
 		fmt.Fprintf(os.Stderr, "[RESERVE] Warning: %v\n", err)
 	}

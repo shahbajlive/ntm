@@ -46,9 +46,9 @@ func TestStyledStringWidths(t *testing.T) {
 		{"CJK", "日本語", 6},
 		{"CJK_mixed", "中文测试", 8},
 		{"mixed", "Hello 🎉 世界", 13}, // 6 + 2 + 5
-		{"checkmark", "✓", 1},           // Single-width Unicode
-		{"warning", "⚠", 1},              // Single-width symbol
-		{"full_block", "█", 1},           // Block character
+		{"checkmark", "✓", 1},       // Single-width Unicode
+		{"warning", "⚠", 1},         // Single-width symbol
+		{"full_block", "█", 1},      // Block character
 	}
 
 	for _, tc := range cases {
@@ -146,10 +146,10 @@ func TestTableAlignmentWithDoubleWidth(t *testing.T) {
 // TestPadRightWithDoubleWidth verifies padding accounts for double-width characters
 func TestPadRightWithDoubleWidth(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   string
-		width   int
-		wantW   int
+		name  string
+		input string
+		width int
+		wantW int
 	}{
 		{"emoji", "🎉", 10, 10},
 		{"CJK", "日本", 10, 10},

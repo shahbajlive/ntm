@@ -298,7 +298,6 @@ func filterWaitPanes(panes []tmux.Pane, opts WaitOptions) []tmux.Pane {
 	return result
 }
 
-
 // checkWaitConditionMet checks if the wait condition is satisfied.
 // Returns: met (bool), matching agents, pending agents
 func checkWaitConditionMet(activities []*AgentActivity, opts WaitOptions) (bool, []WaitAgentInfo, []string) {

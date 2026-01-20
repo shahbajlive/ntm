@@ -100,8 +100,8 @@ type agentTimeline struct {
 // TimelineTracker accumulates and manages agent state transition events.
 // It is safe for concurrent use.
 type TimelineTracker struct {
-	mu       sync.RWMutex
-	config   TimelineConfig
+	mu        sync.RWMutex
+	config    TimelineConfig
 	timelines map[string]*agentTimeline // keyed by agentID
 	allEvents []AgentEvent              // all events in chronological order
 

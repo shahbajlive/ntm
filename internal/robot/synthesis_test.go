@@ -646,21 +646,21 @@ func TestExtractCodeBlocks(t *testing.T) {
 			want:    nil,
 		},
 		{
-			name: "single code block with language",
+			name:    "single code block with language",
 			content: "Some text\n```go\nfunc main() {}\n```\nMore text",
 			want: []CodeBlock{
 				{Language: "go", Content: "func main() {}", LineStart: 2, LineEnd: 4},
 			},
 		},
 		{
-			name: "code block without language",
+			name:    "code block without language",
 			content: "```\nplain text\n```",
 			want: []CodeBlock{
 				{Language: "", Content: "plain text", LineStart: 1, LineEnd: 3},
 			},
 		},
 		{
-			name: "multiple code blocks",
+			name:    "multiple code blocks",
 			content: "```python\nprint('hello')\n```\nSome text\n```javascript\nconsole.log('hi');\n```",
 			want: []CodeBlock{
 				{Language: "python", Content: "print('hello')", LineStart: 1, LineEnd: 3},
@@ -668,7 +668,7 @@ func TestExtractCodeBlocks(t *testing.T) {
 			},
 		},
 		{
-			name: "multiline code block",
+			name:    "multiline code block",
 			content: "```go\npackage main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n```",
 			want: []CodeBlock{
 				{Language: "go", Content: "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"hello\")\n}", LineStart: 1, LineEnd: 9},

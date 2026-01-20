@@ -264,11 +264,11 @@ Examples:
 			if !result.HasCritical() && !result.HasWarning() {
 				if jsonOutput {
 					return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
-						"notified":   false,
-						"reason":     "no critical or warning findings",
-						"totals":     result.Totals,
-						"success":    true,
-						"timestamp":  time.Now().UTC().Format(time.RFC3339),
+						"notified":  false,
+						"reason":    "no critical or warning findings",
+						"totals":    result.Totals,
+						"success":   true,
+						"timestamp": time.Now().UTC().Format(time.RFC3339),
 					})
 				}
 				fmt.Println("\u2713 No critical or warning findings to notify about")
@@ -404,9 +404,9 @@ Examples:
 const scanCacheFile = ".ntm/scan_cache.json"
 
 type cachedScan struct {
-	Path      string             `json:"path"`
-	Result    *scanner.ScanResult `json:"result"`
-	CachedAt  time.Time          `json:"cached_at"`
+	Path     string              `json:"path"`
+	Result   *scanner.ScanResult `json:"result"`
+	CachedAt time.Time           `json:"cached_at"`
 }
 
 func scanCachePath(projectPath string) string {

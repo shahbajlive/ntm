@@ -197,7 +197,7 @@ func TestExtractEditedFiles(t *testing.T) {
 			expected:  []string{"/src/lib.rs"},
 		},
 		{
-			name:      "multiple files",
+			name: "multiple files",
 			output: `{"file_path": "/src/a.go"}
 			{"file_path": "/src/b.go"}
 			Modified /src/c.go`,
@@ -305,7 +305,7 @@ func TestIsValidFilePathForReservation(t *testing.T) {
 
 		// Invalid paths
 		{"", false},
-		{"/src/config", false},      // no extension
+		{"/src/config", false}, // no extension
 		{"path/without/extension", false},
 		{"/path/with<invalid>.go", false},
 		{"/path/with>invalid.go", false},
@@ -314,13 +314,13 @@ func TestIsValidFilePathForReservation(t *testing.T) {
 		{"/path/with?invalid.go", false},
 		{"/path/with\ninvalid.go", false},
 		{"/path/with\tinvalid.go", false},
-		{"example.com", false},       // domain-like
-		{"localhost.test", false},    // domain-like
-		{"api.v1", false},            // version-like
-		{"v1.0", false},              // version-like
+		{"example.com", false},                  // domain-like
+		{"localhost.test", false},               // domain-like
+		{"api.v1", false},                       // version-like
+		{"v1.0", false},                         // version-like
 		{"/path/file.verylongextension", false}, // extension too long
-		{".", false},                 // just a dot
-		{"file.", false},             // extension empty
+		{".", false},                            // just a dot
+		{"file.", false},                        // extension empty
 	}
 
 	for _, tc := range tests {

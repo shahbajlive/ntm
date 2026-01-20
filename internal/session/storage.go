@@ -3,12 +3,13 @@ package session
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/Dicklesworthstone/ntm/internal/util"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Dicklesworthstone/ntm/internal/util"
 )
 
 const (

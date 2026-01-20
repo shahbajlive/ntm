@@ -51,7 +51,7 @@ func TestMatcher_AssignTasks_NoAvailableAgents(t *testing.T) {
 
 	beads := []Bead{{ID: "b1", Title: "Test", TaskType: TaskFeature}}
 	agents := []Agent{
-		{ID: "1", AgentType: tmux.AgentClaude, Idle: false}, // Not idle
+		{ID: "1", AgentType: tmux.AgentClaude, Idle: false},                   // Not idle
 		{ID: "2", AgentType: tmux.AgentCodex, Idle: true, ContextUsage: 0.95}, // Too much context
 	}
 
@@ -174,9 +174,9 @@ func TestMatcher_Strategy_Quality(t *testing.T) {
 		{ID: "b1", Title: "Refactor code", TaskType: TaskRefactor, Priority: 2},
 	}
 	agents := []Agent{
-		{ID: "1", AgentType: tmux.AgentClaude, Idle: true},   // Excellent at refactor (0.95)
-		{ID: "2", AgentType: tmux.AgentCodex, Idle: true},    // Good at refactor (0.75)
-		{ID: "3", AgentType: tmux.AgentGemini, Idle: true},   // Good at refactor (0.75)
+		{ID: "1", AgentType: tmux.AgentClaude, Idle: true}, // Excellent at refactor (0.95)
+		{ID: "2", AgentType: tmux.AgentCodex, Idle: true},  // Good at refactor (0.75)
+		{ID: "3", AgentType: tmux.AgentGemini, Idle: true}, // Good at refactor (0.75)
 	}
 
 	result := m.AssignTasks(beads, agents, StrategyQuality)
@@ -414,7 +414,7 @@ func TestMatcher_Strategy_RoundRobin_EvenDistribution(t *testing.T) {
 	// 12 beads / 4 agents = 3, 3, 3, 3
 	beads := make([]Bead, 12)
 	for i := range beads {
-		beads[i] = Bead{ID: string(rune('a'+i)), Title: "Task", TaskType: TaskFeature, Priority: 2}
+		beads[i] = Bead{ID: string(rune('a' + i)), Title: "Task", TaskType: TaskFeature, Priority: 2}
 	}
 
 	agents := []Agent{
@@ -450,7 +450,7 @@ func TestMatcher_Strategy_RoundRobin_UnevenDistribution(t *testing.T) {
 	// 13 beads / 4 agents = 4, 3, 3, 3 (first agent gets +1)
 	beads := make([]Bead, 13)
 	for i := range beads {
-		beads[i] = Bead{ID: string(rune('a'+i)), Title: "Task", TaskType: TaskFeature, Priority: 2}
+		beads[i] = Bead{ID: string(rune('a' + i)), Title: "Task", TaskType: TaskFeature, Priority: 2}
 	}
 
 	agents := []Agent{
@@ -715,7 +715,7 @@ func TestMatcher_Strategy_RoundRobin_FiltersUnavailableAgents(t *testing.T) {
 
 	agents := []Agent{
 		{ID: "1", AgentType: tmux.AgentClaude, Idle: true},
-		{ID: "2", AgentType: tmux.AgentCodex, Idle: false},         // Not idle
+		{ID: "2", AgentType: tmux.AgentCodex, Idle: false},                     // Not idle
 		{ID: "3", AgentType: tmux.AgentGemini, Idle: true, ContextUsage: 0.95}, // Too much context
 		{ID: "4", AgentType: tmux.AgentClaude, Idle: true},
 	}

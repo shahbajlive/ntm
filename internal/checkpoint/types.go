@@ -115,10 +115,10 @@ func FromTmuxPane(p tmux.Pane) PaneState {
 type CheckpointOption func(*checkpointOptions)
 
 type checkpointOptions struct {
-	description       string
-	captureGit        bool
-	scrollbackLines   int
-	scrollbackCompress bool
+	description         string
+	captureGit          bool
+	scrollbackLines     int
+	scrollbackCompress  bool
 	scrollbackMaxSizeMB int
 }
 

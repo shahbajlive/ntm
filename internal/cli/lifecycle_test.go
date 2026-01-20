@@ -228,12 +228,12 @@ func TestAgentLifecycleMultipleAgents(t *testing.T) {
 	}
 
 	spawnOpts := SpawnOptions{
-		Session:   sessionName,
-		Agents:    agents,
-		CCCount:   1,
-		CodCount:  1,
-		GmiCount:  1,
-		UserPane:  true,
+		Session:  sessionName,
+		Agents:   agents,
+		CCCount:  1,
+		CodCount: 1,
+		GmiCount: 1,
+		UserPane: true,
 	}
 
 	err = spawnSessionLogic(spawnOpts)

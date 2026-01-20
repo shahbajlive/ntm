@@ -172,10 +172,10 @@ func TestStateTransitions(t *testing.T) {
 	defer os.Unsetenv("XDG_DATA_HOME")
 
 	tests := []struct {
-		name     string
-		from     AssignmentStatus
-		to       AssignmentStatus
-		valid    bool
+		name  string
+		from  AssignmentStatus
+		to    AssignmentStatus
+		valid bool
 	}{
 		{"assigned to working", StatusAssigned, StatusWorking, true},
 		{"assigned to failed", StatusAssigned, StatusFailed, true},

@@ -140,12 +140,12 @@ type CLIClient struct {
 
 // CLIContextResponse matches the JSON output of `cm context --json`
 type CLIContextResponse struct {
-	Success         bool               `json:"success"`
-	Task            string             `json:"task"`
-	RelevantBullets []CLIRule          `json:"relevantBullets"`
-	AntiPatterns    []CLIRule          `json:"antiPatterns"`
-	HistorySnippets []CLIHistorySnip   `json:"historySnippets"`
-	SuggestedQueries []string          `json:"suggestedCassQueries"`
+	Success          bool             `json:"success"`
+	Task             string           `json:"task"`
+	RelevantBullets  []CLIRule        `json:"relevantBullets"`
+	AntiPatterns     []CLIRule        `json:"antiPatterns"`
+	HistorySnippets  []CLIHistorySnip `json:"historySnippets"`
+	SuggestedQueries []string         `json:"suggestedCassQueries"`
 }
 
 // CLIRule represents a rule from CM playbook

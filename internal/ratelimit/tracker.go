@@ -21,9 +21,9 @@ const (
 	MinDelayGoogle    = 2 * time.Second
 
 	// Learning parameters
-	delayIncreaseRate  = 1.5  // Increase by 50% on rate limit
-	delayDecreaseRate  = 0.9  // Decrease by 10% on consecutive successes
-	successesBeforeDecrease = 10 // Number of consecutive successes before decreasing delay
+	delayIncreaseRate       = 1.5 // Increase by 50% on rate limit
+	delayDecreaseRate       = 0.9 // Decrease by 10% on consecutive successes
+	successesBeforeDecrease = 10  // Number of consecutive successes before decreasing delay
 )
 
 // RateLimitEvent represents a rate limit occurrence.
@@ -35,19 +35,19 @@ type RateLimitEvent struct {
 
 // ProviderState tracks the current state for a provider.
 type ProviderState struct {
-	CurrentDelay        time.Duration `json:"current_delay"`
-	ConsecutiveSuccess  int           `json:"consecutive_success"`
-	LastRateLimit       time.Time     `json:"last_rate_limit,omitempty"`
-	TotalRateLimits     int           `json:"total_rate_limits"`
-	TotalSuccesses      int           `json:"total_successes"`
+	CurrentDelay       time.Duration `json:"current_delay"`
+	ConsecutiveSuccess int           `json:"consecutive_success"`
+	LastRateLimit      time.Time     `json:"last_rate_limit,omitempty"`
+	TotalRateLimits    int           `json:"total_rate_limits"`
+	TotalSuccesses     int           `json:"total_successes"`
 }
 
 // RateLimitTracker tracks rate limit events and learns optimal spawn/send timing.
 type RateLimitTracker struct {
-	mu       sync.RWMutex
-	history  map[string][]RateLimitEvent // provider -> recent events
-	state    map[string]*ProviderState   // provider -> current state
-	dataDir  string
+	mu      sync.RWMutex
+	history map[string][]RateLimitEvent // provider -> recent events
+	state   map[string]*ProviderState   // provider -> current state
+	dataDir string
 }
 
 // persistedData is the JSON structure for persistence.

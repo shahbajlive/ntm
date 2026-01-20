@@ -298,27 +298,27 @@ func containsHelper(s, substr string) bool {
 
 func TestExpandMacros(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		contains []string
+		name        string
+		input       string
+		contains    []string
 		notContains []string
 	}{
 		{
-			name:     "underscore syntax",
-			input:    "Please follow @marching_orders",
-			contains: []string{"Marching Orders", "{{BEAD_ID}}"},
+			name:        "underscore syntax",
+			input:       "Please follow @marching_orders",
+			contains:    []string{"Marching Orders", "{{BEAD_ID}}"},
 			notContains: []string{"@marching_orders"},
 		},
 		{
-			name:     "hyphen syntax",
-			input:    "Use @marching-orders for this task",
-			contains: []string{"Marching Orders", "{{BEAD_ID}}"},
+			name:        "hyphen syntax",
+			input:       "Use @marching-orders for this task",
+			contains:    []string{"Marching Orders", "{{BEAD_ID}}"},
 			notContains: []string{"@marching-orders"},
 		},
 		{
-			name:     "self review macro",
-			input:    "Before completing: @self_review",
-			contains: []string{"Self-Review", "Checklist"},
+			name:        "self review macro",
+			input:       "Before completing: @self_review",
+			contains:    []string{"Self-Review", "Checklist"},
 			notContains: []string{"@self_review"},
 		},
 		{
@@ -327,9 +327,9 @@ func TestExpandMacros(t *testing.T) {
 			contains: []string{"Marching Orders", "Self-Review"},
 		},
 		{
-			name:     "code_review macro",
-			input:    "Apply @code_review to this file",
-			contains: []string{"Review the following code"},
+			name:        "code_review macro",
+			input:       "Apply @code_review to this file",
+			contains:    []string{"Review the following code"},
 			notContains: []string{"@code_review"},
 		},
 		{

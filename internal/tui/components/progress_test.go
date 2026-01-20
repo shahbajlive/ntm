@@ -22,7 +22,7 @@ func TestProgressBarRendering(t *testing.T) {
 		{"half", 0.5, 20},
 		{"full", 1.0, 20},
 		{"narrow", 0.5, 5},
-		{"overflow_clamps", 1.5, 20}, // should clamp to 1.0
+		{"overflow_clamps", 1.5, 20},  // should clamp to 1.0
 		{"negative_clamps", -0.5, 20}, // should clamp to 0.0
 	}
 

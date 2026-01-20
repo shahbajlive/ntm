@@ -30,10 +30,10 @@ the authentication bug.`,
 			wantMin: 3,
 		},
 		{
-			name:  "glob pattern",
-			title: "Update all tests",
+			name:        "glob pattern",
+			title:       "Update all tests",
 			description: `Run tests in **/*.test.go and fix failing ones.`,
-			wantMin: 1,
+			wantMin:     1,
 		},
 		{
 			name:        "directory reference",
@@ -68,10 +68,10 @@ Also update internal/api/handler.go`,
 			wantMin: 1, // Should only get handler.go, not the URL
 		},
 		{
-			name:  "version should be excluded",
-			title: "Update dependencies",
+			name:        "version should be excluded",
+			title:       "Update dependencies",
 			description: `Upgrade to version 1.2.3 and modify go.mod`,
-			wantMin: 1, // Should only get go.mod, not 1.2.3
+			wantMin:     1, // Should only get go.mod, not 1.2.3
 		},
 	}
 

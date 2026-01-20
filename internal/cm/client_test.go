@@ -1254,8 +1254,8 @@ func TestCLIContextResponse_Serialization(t *testing.T) {
 		{
 			name: "WithHistorySnippets",
 			result: CLIContextResponse{
-				Success: true,
-				Task:    "test task",
+				Success:         true,
+				Task:            "test task",
 				RelevantBullets: []CLIRule{{ID: "r1", Content: "Rule"}},
 				HistorySnippets: []CLIHistorySnip{
 					{Title: "Past work", Agent: "claude", Snippet: "Did something"},

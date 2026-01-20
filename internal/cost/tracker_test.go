@@ -34,9 +34,9 @@ func TestEstimateTokens(t *testing.T) {
 
 func TestGetModelPricing(t *testing.T) {
 	tests := []struct {
-		model       string
-		wantInput   float64
-		wantOutput  float64
+		model      string
+		wantInput  float64
+		wantOutput float64
 	}{
 		{"claude-opus", 0.015, 0.075},
 		{"claude-sonnet", 0.003, 0.015},

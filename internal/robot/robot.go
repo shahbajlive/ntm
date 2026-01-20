@@ -4007,24 +4007,24 @@ type TriageOptions struct {
 
 // TriageOutput is the robot-triage JSON output structure
 type TriageOutput struct {
-	GeneratedAt     time.Time                   `json:"generated_at"`
-	Available       bool                        `json:"available"`
-	DataHash        string                      `json:"data_hash,omitempty"`
-	Error           string                      `json:"error,omitempty"`
-	QuickRef        *bv.TriageQuickRef          `json:"quick_ref,omitempty"`
-	Recommendations []bv.TriageRecommendation   `json:"recommendations,omitempty"`
-	QuickWins       []bv.TriageRecommendation   `json:"quick_wins,omitempty"`
-	BlockersToClear []bv.BlockerToClear         `json:"blockers_to_clear,omitempty"`
-	ProjectHealth   *bv.ProjectHealth           `json:"project_health,omitempty"`
-	Commands        map[string]string           `json:"commands,omitempty"`
-	CacheInfo       *TriageCacheInfo            `json:"cache_info,omitempty"`
+	GeneratedAt     time.Time                 `json:"generated_at"`
+	Available       bool                      `json:"available"`
+	DataHash        string                    `json:"data_hash,omitempty"`
+	Error           string                    `json:"error,omitempty"`
+	QuickRef        *bv.TriageQuickRef        `json:"quick_ref,omitempty"`
+	Recommendations []bv.TriageRecommendation `json:"recommendations,omitempty"`
+	QuickWins       []bv.TriageRecommendation `json:"quick_wins,omitempty"`
+	BlockersToClear []bv.BlockerToClear       `json:"blockers_to_clear,omitempty"`
+	ProjectHealth   *bv.ProjectHealth         `json:"project_health,omitempty"`
+	Commands        map[string]string         `json:"commands,omitempty"`
+	CacheInfo       *TriageCacheInfo          `json:"cache_info,omitempty"`
 }
 
 // TriageCacheInfo provides cache metadata
 type TriageCacheInfo struct {
-	Cached   bool   `json:"cached"`
-	AgeMs    int64  `json:"age_ms,omitempty"`
-	TTLMs    int64  `json:"ttl_ms"`
+	Cached bool  `json:"cached"`
+	AgeMs  int64 `json:"age_ms,omitempty"`
+	TTLMs  int64 `json:"ttl_ms"`
 }
 
 // PrintTriage outputs bv triage analysis for AI consumption

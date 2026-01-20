@@ -465,10 +465,10 @@ func verifySingleCheckpoint(storage *checkpoint.Storage, session, id string) err
 
 	if jsonOutput {
 		return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
-			"session":    session,
-			"id":         id,
-			"valid":      result.Valid,
-			"checks":     result,
+			"session": session,
+			"id":      id,
+			"valid":   result.Valid,
+			"checks":  result,
 		})
 	}
 
@@ -680,10 +680,10 @@ Examples:
 
 func newCheckpointImportCmd() *cobra.Command {
 	var (
-		targetSession   string
-		targetDir       string
-		skipVerify      bool
-		allowOverwrite  bool
+		targetSession  string
+		targetDir      string
+		skipVerify     bool
+		allowOverwrite bool
 	)
 
 	cmd := &cobra.Command{

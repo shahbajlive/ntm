@@ -32,7 +32,7 @@ type ConflictsPanel struct {
 	PanelBase
 	conflicts      []watcher.FileConflict
 	selectedIndex  int
-	selectedAction int                         // 0=Wait, 1=Request, 2=Force
+	selectedAction int                           // 0=Wait, 1=Request, 2=Force
 	actionHandler  watcher.ConflictActionHandler // Callback to handle actions
 	now            func() time.Time
 }

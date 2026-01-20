@@ -366,13 +366,13 @@ func TestSessionRecoveryConfig_DisabledComponents(t *testing.T) {
 	t.Log("CONFIG_TEST: Individual component disabling")
 
 	testCases := []struct {
-		name           string
-		disableAM      bool
-		disableBV      bool
-		disableCM      bool
-		expectedMsgs   bool
-		expectedBeads  bool
-		expectedCM     bool
+		name          string
+		disableAM     bool
+		disableBV     bool
+		disableCM     bool
+		expectedMsgs  bool
+		expectedBeads bool
+		expectedCM    bool
 	}{
 		{"all enabled", false, false, false, true, true, true},
 		{"AM disabled", true, false, false, false, true, true},

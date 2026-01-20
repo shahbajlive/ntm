@@ -92,15 +92,15 @@ type PendingRotation struct {
 
 // PendingRotationOutput provides robot mode JSON output for pending rotations.
 type PendingRotationOutput struct {
-	Type               string   `json:"type"`
-	AgentID            string   `json:"agent_id"`
-	SessionName        string   `json:"session_name"`
-	ContextPercent     float64  `json:"context_percent"`
-	AwaitingConfirm    bool     `json:"awaiting_confirmation"`
-	TimeoutSeconds     int      `json:"timeout_seconds"`
-	DefaultAction      string   `json:"default_action"`
-	AvailableActions   []string `json:"available_actions"`
-	GeneratedAt        string   `json:"generated_at"`
+	Type             string   `json:"type"`
+	AgentID          string   `json:"agent_id"`
+	SessionName      string   `json:"session_name"`
+	ContextPercent   float64  `json:"context_percent"`
+	AwaitingConfirm  bool     `json:"awaiting_confirmation"`
+	TimeoutSeconds   int      `json:"timeout_seconds"`
+	DefaultAction    string   `json:"default_action"`
+	AvailableActions []string `json:"available_actions"`
+	GeneratedAt      string   `json:"generated_at"`
 }
 
 // NewPendingRotationOutput creates a robot mode output for a pending rotation.
@@ -110,15 +110,15 @@ func NewPendingRotationOutput(p *PendingRotation) PendingRotationOutput {
 		remaining = 0
 	}
 	return PendingRotationOutput{
-		Type:               "rotation_pending",
-		AgentID:            p.AgentID,
-		SessionName:        p.SessionName,
-		ContextPercent:     p.ContextPercent,
-		AwaitingConfirm:    true,
-		TimeoutSeconds:     remaining,
-		DefaultAction:      string(p.DefaultAction),
-		AvailableActions:   []string{"rotate", "compact", "ignore", "postpone"},
-		GeneratedAt:        time.Now().UTC().Format(time.RFC3339),
+		Type:             "rotation_pending",
+		AgentID:          p.AgentID,
+		SessionName:      p.SessionName,
+		ContextPercent:   p.ContextPercent,
+		AwaitingConfirm:  true,
+		TimeoutSeconds:   remaining,
+		DefaultAction:    string(p.DefaultAction),
+		AvailableActions: []string{"rotate", "compact", "ignore", "postpone"},
+		GeneratedAt:      time.Now().UTC().Format(time.RFC3339),
 	}
 }
 

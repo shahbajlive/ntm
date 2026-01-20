@@ -97,7 +97,7 @@ func TestInitWizardModel_IntegrationToggle(t *testing.T) {
 
 	// Navigate to integrations step
 	m.step = StepIntegrations
-	m.cursor = 0  // Agent Mail
+	m.cursor = 0 // Agent Mail
 
 	// Toggle off
 	newModel, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})

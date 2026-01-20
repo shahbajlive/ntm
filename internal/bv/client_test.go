@@ -23,28 +23,28 @@ func TestNewBVClient(t *testing.T) {
 
 func TestNewBVClientWithOptions(t *testing.T) {
 	tests := []struct {
-		name         string
+		name          string
 		workspacePath string
-		cacheTTL     time.Duration
-		timeout      time.Duration
-		wantCacheTTL time.Duration
-		wantTimeout  time.Duration
+		cacheTTL      time.Duration
+		timeout       time.Duration
+		wantCacheTTL  time.Duration
+		wantTimeout   time.Duration
 	}{
 		{
-			name:         "custom values",
+			name:          "custom values",
 			workspacePath: "/custom/path",
-			cacheTTL:     1 * time.Minute,
-			timeout:      5 * time.Second,
-			wantCacheTTL: 1 * time.Minute,
-			wantTimeout:  5 * time.Second,
+			cacheTTL:      1 * time.Minute,
+			timeout:       5 * time.Second,
+			wantCacheTTL:  1 * time.Minute,
+			wantTimeout:   5 * time.Second,
 		},
 		{
-			name:         "zero values use defaults",
+			name:          "zero values use defaults",
 			workspacePath: "",
-			cacheTTL:     0,
-			timeout:      0,
-			wantCacheTTL: DefaultClientCacheTTL,
-			wantTimeout:  DefaultClientTimeout,
+			cacheTTL:      0,
+			timeout:       0,
+			wantCacheTTL:  DefaultClientCacheTTL,
+			wantTimeout:   DefaultClientTimeout,
 		},
 	}
 
@@ -330,27 +330,27 @@ func TestEstimateSize(t *testing.T) {
 		{
 			name: "many unblocks is large",
 			rec: TriageRecommendation{
-				Type:       "task",
+				Type:        "task",
 				UnblocksIDs: []string{"a", "b", "c", "d"},
-				Breakdown:  &ScoreBreakdown{Betweenness: 0.05},
+				Breakdown:   &ScoreBreakdown{Betweenness: 0.05},
 			},
 			expected: "large",
 		},
 		{
 			name: "leaf node with low betweenness is small",
 			rec: TriageRecommendation{
-				Type:       "task",
+				Type:        "task",
 				UnblocksIDs: []string{},
-				Breakdown:  &ScoreBreakdown{Betweenness: 0.01},
+				Breakdown:   &ScoreBreakdown{Betweenness: 0.01},
 			},
 			expected: "small",
 		},
 		{
 			name: "average task is medium",
 			rec: TriageRecommendation{
-				Type:       "task",
+				Type:        "task",
 				UnblocksIDs: []string{"a"},
-				Breakdown:  &ScoreBreakdown{Betweenness: 0.05},
+				Breakdown:   &ScoreBreakdown{Betweenness: 0.05},
 			},
 			expected: "medium",
 		},

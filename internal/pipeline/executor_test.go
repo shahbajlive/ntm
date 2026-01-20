@@ -1892,4 +1892,3 @@ func TestExecutor_Run_DryRun_WithLoop(t *testing.T) {
 		t.Errorf("state.Status = %v, want Completed", state.Status)
 	}
 }
-

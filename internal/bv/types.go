@@ -209,12 +209,12 @@ type TriageRecommendation struct {
 
 // BlockerToClear represents a blocker item from blockers_to_clear response
 type BlockerToClear struct {
-	ID           string   `json:"id"`
-	Title        string   `json:"title"`
-	UnblocksCount int     `json:"unblocks_count"`
-	UnblocksIDs  []string `json:"unblocks_ids,omitempty"`
-	Actionable   bool     `json:"actionable"`
-	BlockedBy    []string `json:"blocked_by,omitempty"`
+	ID            string   `json:"id"`
+	Title         string   `json:"title"`
+	UnblocksCount int      `json:"unblocks_count"`
+	UnblocksIDs   []string `json:"unblocks_ids,omitempty"`
+	Actionable    bool     `json:"actionable"`
+	BlockedBy     []string `json:"blocked_by,omitempty"`
 }
 
 // ScoreBreakdown contains the components of a recommendation score

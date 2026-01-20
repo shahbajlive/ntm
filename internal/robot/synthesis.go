@@ -570,10 +570,10 @@ type CapturedOutput struct {
 	Prompt    string    `json:"prompt,omitempty"`
 
 	// Extracted structures
-	CodeBlocks  []CodeBlock       `json:"code_blocks,omitempty"`
-	JSONOutputs []JSONOutput      `json:"json_outputs,omitempty"`
-	FilePaths   []FileMention     `json:"file_paths,omitempty"`
-	Commands    []CommandMention  `json:"commands,omitempty"`
+	CodeBlocks  []CodeBlock      `json:"code_blocks,omitempty"`
+	JSONOutputs []JSONOutput     `json:"json_outputs,omitempty"`
+	FilePaths   []FileMention    `json:"file_paths,omitempty"`
+	Commands    []CommandMention `json:"commands,omitempty"`
 }
 
 // CodeBlock represents an extracted code block from agent output.
@@ -586,17 +586,17 @@ type CodeBlock struct {
 
 // JSONOutput represents a detected JSON object or array in output.
 type JSONOutput struct {
-	Raw       string `json:"raw"`        // Original JSON string
-	IsArray   bool   `json:"is_array"`   // True if JSON array, false if object
+	Raw       string `json:"raw"`      // Original JSON string
+	IsArray   bool   `json:"is_array"` // True if JSON array, false if object
 	LineStart int    `json:"line_start"`
 	LineEnd   int    `json:"line_end"`
 }
 
 // FileMention represents a file path mentioned in agent output.
 type FileMention struct {
-	Path      string `json:"path"`
-	Action    string `json:"action"` // created, modified, deleted, read
-	LineNum   int    `json:"line_num,omitempty"`
+	Path       string  `json:"path"`
+	Action     string  `json:"action"` // created, modified, deleted, read
+	LineNum    int     `json:"line_num,omitempty"`
 	Confidence float64 `json:"confidence"` // 0.0-1.0 how confident we are about the action
 }
 
@@ -611,9 +611,9 @@ const (
 
 // CommandMention represents a shell command detected in output.
 type CommandMention struct {
-	Command   string `json:"command"`
-	LineNum   int    `json:"line_num"`
-	ExitCode  *int   `json:"exit_code,omitempty"` // nil if not visible
+	Command  string `json:"command"`
+	LineNum  int    `json:"line_num"`
+	ExitCode *int   `json:"exit_code,omitempty"` // nil if not visible
 }
 
 // ExtractCodeBlocks extracts markdown code blocks from output.
@@ -839,34 +839,34 @@ func inferFileAction(line, path string) (string, float64) {
 
 	// High confidence patterns
 	if strings.Contains(lineLower, "created "+path) ||
-	   strings.Contains(lineLower, "creating "+path) ||
-	   strings.Contains(lineLower, "create file") ||
-	   strings.Contains(lineLower, "new file") ||
-	   strings.Contains(lineLower, "write to "+strings.ToLower(path)) {
+		strings.Contains(lineLower, "creating "+path) ||
+		strings.Contains(lineLower, "create file") ||
+		strings.Contains(lineLower, "new file") ||
+		strings.Contains(lineLower, "write to "+strings.ToLower(path)) {
 		return FileActionCreated, 0.9
 	}
 
 	if strings.Contains(lineLower, "modified "+path) ||
-	   strings.Contains(lineLower, "modifying "+path) ||
-	   strings.Contains(lineLower, "updated "+path) ||
-	   strings.Contains(lineLower, "updating "+path) ||
-	   strings.Contains(lineLower, "edited "+path) ||
-	   strings.Contains(lineLower, "editing "+path) ||
-	   strings.Contains(lineLower, "changed "+path) {
+		strings.Contains(lineLower, "modifying "+path) ||
+		strings.Contains(lineLower, "updated "+path) ||
+		strings.Contains(lineLower, "updating "+path) ||
+		strings.Contains(lineLower, "edited "+path) ||
+		strings.Contains(lineLower, "editing "+path) ||
+		strings.Contains(lineLower, "changed "+path) {
 		return FileActionModified, 0.9
 	}
 
 	if strings.Contains(lineLower, "deleted "+path) ||
-	   strings.Contains(lineLower, "deleting "+path) ||
-	   strings.Contains(lineLower, "removed "+path) ||
-	   strings.Contains(lineLower, "removing "+path) {
+		strings.Contains(lineLower, "deleting "+path) ||
+		strings.Contains(lineLower, "removed "+path) ||
+		strings.Contains(lineLower, "removing "+path) {
 		return FileActionDeleted, 0.9
 	}
 
 	if strings.Contains(lineLower, "reading "+path) ||
-	   strings.Contains(lineLower, "read "+path) ||
-	   strings.Contains(lineLower, "opened "+path) ||
-	   strings.Contains(lineLower, "loading "+path) {
+		strings.Contains(lineLower, "read "+path) ||
+		strings.Contains(lineLower, "opened "+path) ||
+		strings.Contains(lineLower, "loading "+path) {
 		return FileActionRead, 0.9
 	}
 
@@ -875,14 +875,14 @@ func inferFileAction(line, path string) (string, float64) {
 		return FileActionCreated, 0.6
 	}
 	if strings.Contains(lineLower, "modif") || strings.Contains(lineLower, "edit") ||
-	   strings.Contains(lineLower, "updat") || strings.Contains(lineLower, "chang") {
+		strings.Contains(lineLower, "updat") || strings.Contains(lineLower, "chang") {
 		return FileActionModified, 0.6
 	}
 	if strings.Contains(lineLower, "delet") || strings.Contains(lineLower, "remov") {
 		return FileActionDeleted, 0.6
 	}
 	if strings.Contains(lineLower, "read") || strings.Contains(lineLower, "open") ||
-	   strings.Contains(lineLower, "load") || strings.Contains(lineLower, "view") {
+		strings.Contains(lineLower, "load") || strings.Contains(lineLower, "view") {
 		return FileActionRead, 0.6
 	}
 
@@ -1162,12 +1162,12 @@ func (oc *OutputCapture) Stats() OutputCaptureStats {
 
 // OutputCaptureStats provides statistics about the capture store.
 type OutputCaptureStats struct {
-	PaneCount      int               `json:"pane_count"`
-	TotalCaptures  int               `json:"total_captures"`
-	OldestCapture  time.Time         `json:"oldest_capture,omitempty"`
-	NewestCapture  time.Time         `json:"newest_capture,omitempty"`
-	CaptureCounts  []PaneCaptureCount `json:"capture_counts,omitempty"`
-	Timestamp      time.Time         `json:"timestamp"`
+	PaneCount     int                `json:"pane_count"`
+	TotalCaptures int                `json:"total_captures"`
+	OldestCapture time.Time          `json:"oldest_capture,omitempty"`
+	NewestCapture time.Time          `json:"newest_capture,omitempty"`
+	CaptureCounts []PaneCaptureCount `json:"capture_counts,omitempty"`
+	Timestamp     time.Time          `json:"timestamp"`
 }
 
 // PaneCaptureCount shows capture count for a single pane.
@@ -1179,8 +1179,8 @@ type PaneCaptureCount struct {
 // OutputCaptureResponse is the robot command response for output capture info.
 type OutputCaptureResponse struct {
 	RobotResponse
-	Stats   *OutputCaptureStats `json:"stats,omitempty"`
-	Panes   []string            `json:"panes,omitempty"`
+	Stats *OutputCaptureStats `json:"stats,omitempty"`
+	Panes []string            `json:"panes,omitempty"`
 }
 
 // NewOutputCaptureResponse creates a response with capture statistics.
@@ -1197,13 +1197,13 @@ func NewOutputCaptureResponse(stats OutputCaptureStats) *OutputCaptureResponse {
 
 // SessionSummary provides an overview of agent activity in a session.
 type SessionSummary struct {
-	Session     string              `json:"session"`
-	TimeRange   SummaryTimeRange    `json:"time_range"`
+	Session     string               `json:"session"`
+	TimeRange   SummaryTimeRange     `json:"time_range"`
 	Agents      []AgentOutputSummary `json:"agents"`
-	TotalFiles  int                 `json:"total_files"`
-	TotalOutput int                 `json:"total_output_lines"`
-	Conflicts   []FileConflict      `json:"conflicts,omitempty"`
-	Timestamp   string              `json:"timestamp"`
+	TotalFiles  int                  `json:"total_files"`
+	TotalOutput int                  `json:"total_output_lines"`
+	Conflicts   []FileConflict       `json:"conflicts,omitempty"`
+	Timestamp   string               `json:"timestamp"`
 }
 
 // SummaryTimeRange represents a time period for the summary.
@@ -1220,8 +1220,8 @@ type AgentOutputSummary struct {
 	AgentType string `json:"agent_type"`
 
 	// Activity metrics
-	ActiveTime  time.Duration `json:"active_time"`   // Time in generating state
-	IdleTime    time.Duration `json:"idle_time"`     // Time in waiting state
+	ActiveTime  time.Duration `json:"active_time"` // Time in generating state
+	IdleTime    time.Duration `json:"idle_time"`   // Time in waiting state
 	OutputLines int           `json:"output_lines"`
 	OutputChars int           `json:"output_chars"`
 
