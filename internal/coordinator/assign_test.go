@@ -1353,3 +1353,243 @@ func TestBuildAssignmentReason(t *testing.T) {
 		})
 	}
 }
+
+// Tests for selectBalanced with assignment tracking (bd-1g5t8)
+
+func TestSelectBalancedFewerAssignmentsFirst(t *testing.T) {
+	// Agent 1 has 3 active assignments, Agent 2 has 0
+	// Agent 2 should be preferred despite same score
+	agents := []*AgentState{
+		{PaneID: "%1", AgentType: "cc", Status: robot.StateWaiting, Assignments: 3},
+		{PaneID: "%2", AgentType: "cc", Status: robot.StateWaiting, Assignments: 0},
+	}
+
+	beads := []*bv.TriageRecommendation{
+		{ID: "ntm-001", Title: "Task 1", Type: "task", Status: "open", Score: 0.5},
+	}
+
+	// Build pairs with same score
+	pairs := []scoredPair{
+		{agent: agents[0], bead: beads[0], score: 1.0},
+		{agent: agents[1], bead: beads[0], score: 1.0},
+	}
+
+	selected := selectBalanced(pairs, 2, 1)
+
+	if len(selected) != 1 {
+		t.Fatalf("expected 1 selection, got %d", len(selected))
+	}
+
+	// Agent 2 (fewer assignments) should win
+	if selected[0].agent.PaneID != "%2" {
+		t.Errorf("expected agent %%2 (fewer assignments) to be selected, got %s", selected[0].agent.PaneID)
+	}
+}
+
+func TestSelectBalancedIdleStatusTieBreaker(t *testing.T) {
+	// Same assignment count, but agent 1 is idle, agent 2 is generating
+	agents := []*AgentState{
+		{PaneID: "%1", AgentType: "cc", Status: robot.StateWaiting, Assignments: 1},
+		{PaneID: "%2", AgentType: "cc", Status: robot.StateGenerating, Assignments: 1},
+	}
+
+	beads := []*bv.TriageRecommendation{
+		{ID: "ntm-001", Title: "Task 1", Type: "task", Status: "open", Score: 0.5},
+	}
+
+	pairs := []scoredPair{
+		{agent: agents[0], bead: beads[0], score: 1.0},
+		{agent: agents[1], bead: beads[0], score: 1.0},
+	}
+
+	selected := selectBalanced(pairs, 2, 1)
+
+	if len(selected) != 1 {
+		t.Fatalf("expected 1 selection, got %d", len(selected))
+	}
+
+	// Agent 1 (idle) should win
+	if selected[0].agent.PaneID != "%1" {
+		t.Errorf("expected agent %%1 (idle) to be selected, got %s", selected[0].agent.PaneID)
+	}
+}
+
+func TestSelectBalancedLastAssignedTimeTieBreaker(t *testing.T) {
+	now := time.Now()
+	// Same assignments and status, but agent 2 was assigned work more recently
+	agents := []*AgentState{
+		{PaneID: "%1", AgentType: "cc", Status: robot.StateWaiting, Assignments: 1, LastAssignedAt: now.Add(-1 * time.Hour)},
+		{PaneID: "%2", AgentType: "cc", Status: robot.StateWaiting, Assignments: 1, LastAssignedAt: now.Add(-5 * time.Minute)},
+	}
+
+	beads := []*bv.TriageRecommendation{
+		{ID: "ntm-001", Title: "Task 1", Type: "task", Status: "open", Score: 0.5},
+	}
+
+	pairs := []scoredPair{
+		{agent: agents[0], bead: beads[0], score: 1.0},
+		{agent: agents[1], bead: beads[0], score: 1.0},
+	}
+
+	selected := selectBalanced(pairs, 2, 1)
+
+	if len(selected) != 1 {
+		t.Fatalf("expected 1 selection, got %d", len(selected))
+	}
+
+	// Agent 1 (earlier LastAssignedAt) should win
+	if selected[0].agent.PaneID != "%1" {
+		t.Errorf("expected agent %%1 (least recently assigned) to be selected, got %s", selected[0].agent.PaneID)
+	}
+}
+
+func TestSelectBalancedScoreTieBreaker(t *testing.T) {
+	// Same assignments, status, and timestamp - higher score wins
+	agents := []*AgentState{
+		{PaneID: "%1", AgentType: "cc", Status: robot.StateWaiting, Assignments: 1},
+		{PaneID: "%2", AgentType: "cc", Status: robot.StateWaiting, Assignments: 1},
+	}
+
+	beads := []*bv.TriageRecommendation{
+		{ID: "ntm-001", Title: "Task 1", Type: "task", Status: "open", Score: 0.5},
+	}
+
+	pairs := []scoredPair{
+		{agent: agents[0], bead: beads[0], score: 0.8},
+		{agent: agents[1], bead: beads[0], score: 1.2},
+	}
+
+	selected := selectBalanced(pairs, 2, 1)
+
+	if len(selected) != 1 {
+		t.Fatalf("expected 1 selection, got %d", len(selected))
+	}
+
+	// Agent 2 (higher score) should win
+	if selected[0].agent.PaneID != "%2" {
+		t.Errorf("expected agent %%2 (higher score) to be selected, got %s", selected[0].agent.PaneID)
+	}
+}
+
+func TestSelectBalancedDeterministicOrdering(t *testing.T) {
+	// All tie-breakers equal - should use PaneID for deterministic ordering
+	agents := []*AgentState{
+		{PaneID: "%2", AgentType: "cc", Status: robot.StateWaiting, Assignments: 1},
+		{PaneID: "%1", AgentType: "cc", Status: robot.StateWaiting, Assignments: 1},
+	}
+
+	beads := []*bv.TriageRecommendation{
+		{ID: "ntm-001", Title: "Task 1", Type: "task", Status: "open", Score: 0.5},
+	}
+
+	pairs := []scoredPair{
+		{agent: agents[0], bead: beads[0], score: 1.0},
+		{agent: agents[1], bead: beads[0], score: 1.0},
+	}
+
+	// Run multiple times to verify determinism
+	for i := 0; i < 5; i++ {
+		selected := selectBalanced(pairs, 2, 1)
+
+		if len(selected) != 1 {
+			t.Fatalf("run %d: expected 1 selection, got %d", i, len(selected))
+		}
+
+		// Agent %1 should always win (lower PaneID)
+		if selected[0].agent.PaneID != "%1" {
+			t.Errorf("run %d: expected agent %%1 (deterministic by PaneID) to be selected, got %s", i, selected[0].agent.PaneID)
+		}
+	}
+}
+
+func TestSelectBalancedFallbackWhenTrackingUnavailable(t *testing.T) {
+	// Assignments = -1 means tracking unavailable, should fall back to 0
+	agents := []*AgentState{
+		{PaneID: "%1", AgentType: "cc", Status: robot.StateWaiting, Assignments: -1},
+		{PaneID: "%2", AgentType: "cc", Status: robot.StateWaiting, Assignments: -1},
+	}
+
+	beads := []*bv.TriageRecommendation{
+		{ID: "ntm-001", Title: "Task 1", Type: "task", Status: "open", Score: 0.5},
+		{ID: "ntm-002", Title: "Task 2", Type: "task", Status: "open", Score: 0.6},
+	}
+
+	pairs := []scoredPair{
+		{agent: agents[0], bead: beads[0], score: 1.0},
+		{agent: agents[1], bead: beads[0], score: 1.0},
+		{agent: agents[0], bead: beads[1], score: 1.0},
+		{agent: agents[1], bead: beads[1], score: 1.0},
+	}
+
+	// Should not panic and should select based on other tie-breakers
+	selected := selectBalanced(pairs, 2, 2)
+
+	if len(selected) != 2 {
+		t.Fatalf("expected 2 selections, got %d", len(selected))
+	}
+
+	// Both agents should get one task each
+	agentCounts := make(map[string]int)
+	for _, s := range selected {
+		agentCounts[s.agent.PaneID]++
+	}
+
+	if agentCounts["%1"] != 1 || agentCounts["%2"] != 1 {
+		t.Errorf("expected balanced distribution, got %v", agentCounts)
+	}
+}
+
+func TestSelectBalancedMultipleBeads(t *testing.T) {
+	// Test that balanced selection spreads work evenly
+	now := time.Now()
+	agents := []*AgentState{
+		{PaneID: "%1", AgentType: "cc", Status: robot.StateWaiting, Assignments: 0, LastAssignedAt: now.Add(-1 * time.Hour)},
+		{PaneID: "%2", AgentType: "cc", Status: robot.StateWaiting, Assignments: 2, LastAssignedAt: now.Add(-30 * time.Minute)},
+		{PaneID: "%3", AgentType: "cc", Status: robot.StateWaiting, Assignments: 1, LastAssignedAt: now.Add(-45 * time.Minute)},
+	}
+
+	beads := []*bv.TriageRecommendation{
+		{ID: "ntm-001", Title: "Task 1", Type: "task", Status: "open", Score: 0.5},
+		{ID: "ntm-002", Title: "Task 2", Type: "task", Status: "open", Score: 0.6},
+		{ID: "ntm-003", Title: "Task 3", Type: "task", Status: "open", Score: 0.7},
+	}
+
+	// Create all combinations
+	var pairs []scoredPair
+	for _, agent := range agents {
+		for _, bead := range beads {
+			pairs = append(pairs, scoredPair{agent: agent, bead: bead, score: 1.0})
+		}
+	}
+
+	selected := selectBalanced(pairs, 3, 3)
+
+	if len(selected) != 3 {
+		t.Fatalf("expected 3 selections, got %d", len(selected))
+	}
+
+	// Each agent should get exactly one task
+	agentCounts := make(map[string]int)
+	beadCounts := make(map[string]int)
+	for _, s := range selected {
+		agentCounts[s.agent.PaneID]++
+		beadCounts[s.bead.ID]++
+	}
+
+	for id, count := range agentCounts {
+		if count != 1 {
+			t.Errorf("agent %s got %d tasks, expected 1", id, count)
+		}
+	}
+
+	for id, count := range beadCounts {
+		if count != 1 {
+			t.Errorf("bead %s assigned %d times, expected 1", id, count)
+		}
+	}
+
+	// First selected should be agent %1 (fewest assignments)
+	if selected[0].agent.PaneID != "%1" {
+		t.Errorf("expected first selection to be agent %%1 (0 assignments), got %s", selected[0].agent.PaneID)
+	}
+}

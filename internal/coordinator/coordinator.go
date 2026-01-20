@@ -58,6 +58,12 @@ type AgentState struct {
 	Reservations  []string         `json:"reservations,omitempty"`
 	Healthy       bool             `json:"healthy"`
 	Profile       *persona.Persona `json:"profile,omitempty"` // Agent's assigned profile for routing
+
+	// Assignment tracking (from bd-1g5t8)
+	// Assignments is the count of active assignments for this agent.
+	// A value of -1 indicates tracking data is unavailable (fallback mode).
+	Assignments    int       `json:"assignments"`
+	LastAssignedAt time.Time `json:"last_assigned_at,omitempty"` // When this agent was last assigned work
 }
 
 // CoordinatorConfig holds configuration for the coordinator.

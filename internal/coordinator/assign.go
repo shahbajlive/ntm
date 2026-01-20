@@ -1014,16 +1014,62 @@ func selectGreedy(pairs []scoredPair, numAgents, numBeads int) []scoredPair {
 }
 
 // selectBalanced spreads work evenly, avoiding heavily loaded agents.
+// It uses live assignment tracking data from AgentState.Assignments when available
+// and applies tie-breakers: (1) fewer active assignments, (2) idle status,
+// (3) least-recent assignment timestamp, (4) best capability score.
+// Falls back to local tracking when assignment data is unavailable (Assignments == -1).
 func selectBalanced(pairs []scoredPair, numAgents, numBeads int) []scoredPair {
-	// Track current workload per agent
+	// Track workload per agent during this selection round.
+	// Initialize from live assignment counts if available.
 	agentLoad := make(map[string]int)
+	for _, p := range pairs {
+		if _, seen := agentLoad[p.agent.PaneID]; !seen {
+			if p.agent.Assignments >= 0 {
+				// Use live assignment count
+				agentLoad[p.agent.PaneID] = p.agent.Assignments
+			} else {
+				// Fallback: tracking unavailable, start at 0
+				agentLoad[p.agent.PaneID] = 0
+			}
+		}
+	}
 
-	// Sort by score, but we'll also consider agent load
-	sort.Slice(pairs, func(i, j int) bool {
-		// Penalize score by agent's current load
-		loadPenaltyI := float64(agentLoad[pairs[i].agent.PaneID]) * 0.1
-		loadPenaltyJ := float64(agentLoad[pairs[j].agent.PaneID]) * 0.1
-		return (pairs[i].score - loadPenaltyI) > (pairs[j].score - loadPenaltyJ)
+	// Sort using stable sort for deterministic ordering with multi-level tie-breakers:
+	// 1. Fewer active assignments (lower load first)
+	// 2. Idle agents first (Status == Idle)
+	// 3. Least-recent assignment timestamp (earlier LastAssignedAt first)
+	// 4. Higher capability score
+	// 5. PaneID as final deterministic tie-breaker
+	sort.SliceStable(pairs, func(i, j int) bool {
+		ai, aj := pairs[i].agent, pairs[j].agent
+		loadI := agentLoad[ai.PaneID]
+		loadJ := agentLoad[aj.PaneID]
+
+		// Tie-breaker 1: Fewer assignments first
+		if loadI != loadJ {
+			return loadI < loadJ
+		}
+
+		// Tie-breaker 2: Idle agents first (StateWaiting = idle/ready for input)
+		idleI := ai.Status == robot.StateWaiting
+		idleJ := aj.Status == robot.StateWaiting
+		if idleI != idleJ {
+			return idleI
+		}
+
+		// Tie-breaker 3: Least-recent assignment timestamp first
+		// (zero time means never assigned, treated as oldest)
+		if !ai.LastAssignedAt.Equal(aj.LastAssignedAt) {
+			return ai.LastAssignedAt.Before(aj.LastAssignedAt)
+		}
+
+		// Tie-breaker 4: Higher score first
+		if pairs[i].score != pairs[j].score {
+			return pairs[i].score > pairs[j].score
+		}
+
+		// Tie-breaker 5: Deterministic by PaneID for consistent ordering
+		return ai.PaneID < aj.PaneID
 	})
 
 	var selected []scoredPair
