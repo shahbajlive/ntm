@@ -13,7 +13,6 @@ Spawn, manage, and coordinate Claude Code, OpenAI Codex, and Google Gemini CLI a
 <div align="center">
 
 ```bash
-# One-line install
 curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/install.sh?$(date +%s)" | bash -s -- --easy-mode
 ```
 
