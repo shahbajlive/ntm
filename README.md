@@ -3532,6 +3532,158 @@ Additional context: {{context}}
 
 ---
 
+## Workflow Templates
+
+Workflow templates define multi-agent coordination patterns for common development workflows. They specify which agents to spawn, how they interact, and when to transition between workflow stages.
+
+### Built-in Templates
+
+| Template | Coordination | Agents | Description |
+|----------|--------------|--------|-------------|
+| `red-green` | ping-pong | tester, implementer | TDD workflow: write failing tests, then make them pass |
+| `review-pipeline` | review-gate | implementer, 2× reviewer | Code with mandatory review before finalization |
+| `specialist-team` | pipeline | architect, 2× implementer, tester | Design → Build → QA pipeline |
+| `parallel-explore` | parallel | 3× explorer | Multiple agents explore different approaches simultaneously |
+
+### Template Commands
+
+```bash
+ntm workflows list                  # List all available templates
+ntm workflows show red-green        # Show detailed template info
+ntm workflows list --json           # JSON output for scripts
+```
+
+### Template Sources
+
+Templates are loaded from three locations (later sources override earlier):
+
+1. **Built-in**: Compiled into NTM (lowest priority)
+2. **User**: `~/.config/ntm/workflows/` (overrides built-in)
+3. **Project**: `.ntm/workflows/` (highest priority)
+
+### Coordination Types
+
+| Type | Icon | Description |
+|------|------|-------------|
+| `ping-pong` | ⇄ | Alternating work between agents (e.g., TDD red-green) |
+| `pipeline` | → | Sequential stages with handoff (e.g., design → build → qa) |
+| `parallel` | ≡ | Simultaneous independent work |
+| `review-gate` | ✓ | Work with approval gates |
+
+### Creating Custom Templates
+
+Create `~/.config/ntm/workflows/my-workflow.toml` or `.ntm/workflows/my-workflow.toml`:
+
+```toml
+[[workflows]]
+name = "my-workflow"
+description = "Custom workflow description"
+coordination = "ping-pong"
+
+[[workflows.agents]]
+profile = "implementer"
+role = "coder"
+description = "Writes the implementation"
+
+[[workflows.agents]]
+profile = "reviewer"
+role = "checker"
+description = "Reviews and suggests improvements"
+
+[workflows.flow]
+initial = "coder"
+
+[[workflows.flow.transitions]]
+from = "coder"
+to = "checker"
+[workflows.flow.transitions.trigger]
+type = "manual"
+label = "Ready for review"
+
+[[workflows.flow.transitions]]
+from = "checker"
+to = "coder"
+[workflows.flow.transitions.trigger]
+type = "agent_says"
+pattern = "changes requested"
+role = "checker"
+```
+
+### Trigger Types
+
+Transitions between workflow stages can be triggered by:
+
+| Trigger | Parameters | Description |
+|---------|------------|-------------|
+| `file_created` | `pattern` | File matching glob pattern is created |
+| `file_modified` | `pattern` | File matching glob pattern is modified |
+| `command_success` | `command` | Shell command exits successfully |
+| `command_failure` | `command` | Shell command fails |
+| `agent_says` | `pattern`, `role` | Agent output matches regex pattern |
+| `all_agents_idle` | `idle_minutes` | All agents idle for specified time |
+| `manual` | `label` | Manual trigger via UI or command |
+| `time_elapsed` | `minutes` | Fixed time delay |
+
+### Error Handling
+
+Configure how the workflow responds to errors:
+
+```toml
+[workflows.error_handling]
+on_agent_crash = "restart_agent"    # restart_agent, pause, skip_stage, abort, notify
+on_agent_error = "pause"
+on_timeout = "notify"
+stage_timeout_minutes = 30
+max_retries_per_stage = 2
+```
+
+### Example: Red-Green TDD Workflow
+
+```toml
+[[workflows]]
+name = "red-green"
+description = "Test-Driven Development: write failing tests, then make them pass"
+coordination = "ping-pong"
+
+[[workflows.agents]]
+profile = "tester"
+role = "red"
+description = "Writes failing tests that define expected behavior"
+
+[[workflows.agents]]
+profile = "implementer"
+role = "green"
+description = "Implements code to make tests pass"
+
+[workflows.flow]
+initial = "red"
+
+[[workflows.flow.transitions]]
+from = "red"
+to = "green"
+[workflows.flow.transitions.trigger]
+type = "file_created"
+pattern = "*_test.go"
+
+[[workflows.flow.transitions]]
+from = "green"
+to = "red"
+[workflows.flow.transitions.trigger]
+type = "command_success"
+command = "go test ./..."
+
+[[workflows.prompts]]
+key = "feature"
+question = "What feature are you implementing?"
+required = true
+
+[workflows.error_handling]
+on_agent_error = "pause"
+stage_timeout_minutes = 30
+```
+
+---
+
 ## Agent Resilience
 
 NTM monitors agent health and can automatically recover from crashes, rate limits, and other failures.
