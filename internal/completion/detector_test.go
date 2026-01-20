@@ -2,6 +2,8 @@ package completion
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -338,5 +340,102 @@ func TestBrAvailableCaching(t *testing.T) {
 	defer d.mu.RUnlock()
 	if d.brAvailable == nil {
 		t.Error("brAvailable cache should be set after first call")
+	}
+}
+
+// TestConcurrentDedup tests concurrent access to the deduplication mechanism
+// to verify thread-safety under race conditions. Run with: go test -race
+func TestConcurrentDedup(t *testing.T) {
+	d := New("test-session", nil)
+	d.Config.DedupWindow = 100 * time.Millisecond
+
+	var wg sync.WaitGroup
+	numGoroutines := 10
+	eventsPerGoroutine := 20
+
+	// Concurrent writes to recentEvents
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(goroutineID int) {
+			defer wg.Done()
+			for j := 0; j < eventsPerGoroutine; j++ {
+				beadID := fmt.Sprintf("bd-%d-%d", goroutineID, j)
+				d.mu.Lock()
+				d.recentEvents[beadID] = time.Now()
+				d.mu.Unlock()
+
+				// Also do some concurrent reads
+				d.mu.RLock()
+				_ = d.recentEvents[beadID]
+				d.mu.RUnlock()
+			}
+		}(i)
+	}
+
+	// Concurrent reads
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < eventsPerGoroutine; j++ {
+				d.mu.RLock()
+				_ = len(d.recentEvents)
+				d.mu.RUnlock()
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// Verify all events were recorded
+	d.mu.RLock()
+	expectedCount := numGoroutines * eventsPerGoroutine
+	actualCount := len(d.recentEvents)
+	d.mu.RUnlock()
+
+	if actualCount != expectedCount {
+		t.Errorf("expected %d events, got %d", expectedCount, actualCount)
+	}
+}
+
+// TestConcurrentActivityTracking tests concurrent access to activity tracker
+func TestConcurrentActivityTracking(t *testing.T) {
+	d := New("test-session", nil)
+
+	var wg sync.WaitGroup
+	numGoroutines := 10
+	operationsPerGoroutine := 20
+
+	// Concurrent activity tracker updates
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(pane int) {
+			defer wg.Done()
+			for j := 0; j < operationsPerGoroutine; j++ {
+				d.mu.Lock()
+				if d.activityTracker[pane] == nil {
+					d.activityTracker[pane] = &activityState{}
+				}
+				d.activityTracker[pane].lastOutputTime = time.Now()
+				d.activityTracker[pane].lastOutput = fmt.Sprintf("output-%d", j)
+				d.mu.Unlock()
+
+				// Concurrent read
+				d.mu.RLock()
+				_ = d.activityTracker[pane]
+				d.mu.RUnlock()
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Verify all panes were tracked
+	d.mu.RLock()
+	actualPanes := len(d.activityTracker)
+	d.mu.RUnlock()
+
+	if actualPanes != numGoroutines {
+		t.Errorf("expected %d panes tracked, got %d", numGoroutines, actualPanes)
 	}
 }

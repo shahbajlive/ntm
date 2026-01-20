@@ -30,7 +30,7 @@ func TestE2EAgentMailReservationFlow(t *testing.T) {
 		t.Fatalf("create project dir: %v", err)
 	}
 
-	configPath := writeTestConfig(t, projectsBase)
+	configPath := writeAgentMailTestConfig(t, projectsBase)
 
 	runCmd(t, projectDir, "br", "init")
 	beadID := createBead(t, projectDir, "Update internal/cli/send.go")
@@ -86,7 +86,7 @@ func TestE2EAgentMailReservationConflict(t *testing.T) {
 		t.Fatalf("create project dir: %v", err)
 	}
 
-	configPath := writeTestConfig(t, projectsBase)
+	configPath := writeAgentMailTestConfig(t, projectsBase)
 
 	runCmd(t, projectDir, "br", "init")
 	beadOne := createBead(t, projectDir, "Test conflict internal/cli/send.go")
@@ -153,7 +153,7 @@ func ensureBDShim(t *testing.T) {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-func writeTestConfig(t *testing.T, projectsBase string) string {
+func writeAgentMailTestConfig(t *testing.T, projectsBase string) string {
 	t.Helper()
 	configDir := t.TempDir()
 	configPath := filepath.Join(configDir, "config.toml")

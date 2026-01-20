@@ -753,3 +753,531 @@ func containsHelper(s, substr string) bool {
 	}
 	return false
 }
+
+// ============================================================================
+// Additional tests for bd-3nson: strategy selection and bead-agent matching
+// ============================================================================
+
+func TestDefaultMatcherConfig_Values(t *testing.T) {
+	config := DefaultMatcherConfig()
+
+	if config.MaxContextUsage != 0.9 {
+		t.Errorf("DefaultMatcherConfig MaxContextUsage = %f, want 0.9", config.MaxContextUsage)
+	}
+	if config.MinConfidence != 0.3 {
+		t.Errorf("DefaultMatcherConfig MinConfidence = %f, want 0.3", config.MinConfidence)
+	}
+}
+
+func TestMatcher_ContextUsageBoundary_Exactly0_9(t *testing.T) {
+	m := NewMatcher()
+
+	beads := []Bead{{ID: "b1", Title: "Test", TaskType: TaskFeature, Priority: 2}}
+
+	// Agent with exactly 0.9 context (at boundary - should be available per default config)
+	agentAt09 := []Agent{{ID: "1", AgentType: tmux.AgentClaude, Idle: true, ContextUsage: 0.9}}
+	result := m.AssignTasks(beads, agentAt09, StrategyBalanced)
+	if len(result) != 1 {
+		t.Errorf("Agent at 0.9 context should be available (<=), got %d assignments", len(result))
+	}
+
+	// Agent at 0.91 - should be filtered
+	agentOver09 := []Agent{{ID: "2", AgentType: tmux.AgentClaude, Idle: true, ContextUsage: 0.91}}
+	result = m.AssignTasks(beads, agentOver09, StrategyBalanced)
+	if len(result) != 0 {
+		t.Errorf("Agent at 0.91 context should be filtered, got %d assignments", len(result))
+	}
+}
+
+func TestMatcher_ContextUsage_ZeroUsage(t *testing.T) {
+	m := NewMatcher()
+
+	beads := []Bead{{ID: "b1", Title: "Test", TaskType: TaskBug, Priority: 1}}
+	agents := []Agent{{ID: "1", AgentType: tmux.AgentCodex, Idle: true, ContextUsage: 0.0}}
+
+	result := m.AssignTasks(beads, agents, StrategyQuality)
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 assignment, got %d", len(result))
+	}
+
+	// With 0.0 context usage, score = capability * (1 - 0.0) = capability
+	// Codex + Bug = 0.90
+	expectedScore := 0.90
+	if result[0].Score != expectedScore {
+		t.Errorf("With 0.0 context usage, score should be %f, got %f", expectedScore, result[0].Score)
+	}
+}
+
+func TestMatcher_MinConfidenceThreshold_Boundary(t *testing.T) {
+	m := NewMatcher()
+
+	beads := []Bead{{ID: "b1", Title: "Test", TaskType: TaskTask, Priority: 2}}
+
+	// Agent with context usage that puts score exactly at MinConfidence
+	// TaskTask for Claude = 0.80, need score = 0.3
+	// 0.80 * (1 - context) = 0.3 => context = 0.625
+	agentAtThreshold := []Agent{{ID: "1", AgentType: tmux.AgentClaude, Idle: true, ContextUsage: 0.625}}
+	result := m.AssignTasks(beads, agentAtThreshold, StrategyQuality)
+	if len(result) != 1 {
+		t.Errorf("Agent at MinConfidence threshold should be included, got %d", len(result))
+	}
+
+	// Agent just below threshold (context 0.63 => score = 0.80 * 0.37 = 0.296 < 0.3)
+	agentBelowThreshold := []Agent{{ID: "2", AgentType: tmux.AgentClaude, Idle: true, ContextUsage: 0.63}}
+	result = m.AssignTasks(beads, agentBelowThreshold, StrategyQuality)
+	if len(result) != 0 {
+		t.Errorf("Agent below MinConfidence threshold should be filtered, got %d", len(result))
+	}
+}
+
+func TestMatcher_AllTaskTypes_AllStrategies(t *testing.T) {
+	m := NewMatcher()
+
+	taskTypes := []TaskType{
+		TaskRefactor, TaskAnalysis, TaskDocs, TaskDocumentation,
+		TaskBug, TaskFeature, TaskTesting, TaskTask, TaskChore, TaskEpic,
+	}
+
+	strategies := []Strategy{
+		StrategyBalanced, StrategySpeed, StrategyQuality, StrategyDependency, StrategyRoundRobin,
+	}
+
+	agents := []Agent{
+		{ID: "1", AgentType: tmux.AgentClaude, Idle: true},
+		{ID: "2", AgentType: tmux.AgentCodex, Idle: true},
+		{ID: "3", AgentType: tmux.AgentGemini, Idle: true},
+	}
+
+	for _, taskType := range taskTypes {
+		for _, strategy := range strategies {
+			t.Run(string(taskType)+"/"+string(strategy), func(t *testing.T) {
+				beads := []Bead{{ID: "b1", Title: "Test", TaskType: taskType, Priority: 2}}
+				result := m.AssignTasks(beads, agents, strategy)
+
+				if len(result) != 1 {
+					t.Errorf("TaskType %s with strategy %s should produce 1 assignment, got %d",
+						taskType, strategy, len(result))
+				}
+			})
+		}
+	}
+}
+
+func TestMatcher_ScoreCalculation_Verification(t *testing.T) {
+	m := NewMatcher()
+
+	tests := []struct {
+		name         string
+		agentType    tmux.AgentType
+		taskType     TaskType
+		contextUsage float64
+		wantScore    float64
+	}{
+		// Score = capability * (1 - contextUsage)
+		{"Claude/Refactor/0.0", tmux.AgentClaude, TaskRefactor, 0.0, 0.95},
+		{"Claude/Refactor/0.5", tmux.AgentClaude, TaskRefactor, 0.5, 0.475},
+		{"Codex/Bug/0.0", tmux.AgentCodex, TaskBug, 0.0, 0.90},
+		{"Codex/Bug/0.2", tmux.AgentCodex, TaskBug, 0.2, 0.72},
+		{"Gemini/Docs/0.0", tmux.AgentGemini, TaskDocs, 0.0, 0.90},
+		{"Gemini/Docs/0.3", tmux.AgentGemini, TaskDocs, 0.3, 0.63},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			beads := []Bead{{ID: "b1", TaskType: tc.taskType, Priority: 2}}
+			agents := []Agent{{ID: "1", AgentType: tc.agentType, Idle: true, ContextUsage: tc.contextUsage}}
+
+			result := m.AssignTasks(beads, agents, StrategyQuality)
+			if len(result) != 1 {
+				t.Fatalf("Expected 1 assignment, got %d", len(result))
+			}
+
+			// Allow small floating point tolerance
+			if diff := result[0].Score - tc.wantScore; diff > 0.001 || diff < -0.001 {
+				t.Errorf("Score = %f, want %f (diff: %f)", result[0].Score, tc.wantScore, diff)
+			}
+		})
+	}
+}
+
+func TestMatcher_PriorityEdgeCases(t *testing.T) {
+	m := NewMatcher()
+
+	agents := []Agent{{ID: "1", AgentType: tmux.AgentClaude, Idle: true}}
+
+	// Test various priority values including edge cases
+	priorities := []int{0, 1, 2, 3, 4, 5, 10, 100, -1}
+
+	for _, p := range priorities {
+		t.Run(string(rune('P')+rune(p)), func(t *testing.T) {
+			beads := []Bead{{ID: "b1", Title: "Test", TaskType: TaskFeature, Priority: p}}
+			result := m.AssignTasks(beads, agents, StrategyBalanced)
+
+			if len(result) != 1 {
+				t.Errorf("Priority %d should still produce assignment, got %d", p, len(result))
+			}
+		})
+	}
+}
+
+func TestMatcher_BeadLabels_NoEffectOnMatching(t *testing.T) {
+	m := NewMatcher()
+
+	// Labels exist in Bead struct but don't affect matching
+	beadsWithLabels := []Bead{{
+		ID:       "b1",
+		Title:    "Test",
+		TaskType: TaskFeature,
+		Priority: 2,
+		Labels:   []string{"urgent", "frontend", "v2.0"},
+	}}
+	beadsWithoutLabels := []Bead{{
+		ID:       "b2",
+		Title:    "Test",
+		TaskType: TaskFeature,
+		Priority: 2,
+		Labels:   nil,
+	}}
+
+	agents := []Agent{{ID: "1", AgentType: tmux.AgentClaude, Idle: true}}
+
+	resultWith := m.AssignTasks(beadsWithLabels, agents, StrategyQuality)
+	resultWithout := m.AssignTasks(beadsWithoutLabels, agents, StrategyQuality)
+
+	// Scores should be identical since labels don't affect matching
+	if resultWith[0].Score != resultWithout[0].Score {
+		t.Errorf("Labels should not affect score: with=%f, without=%f",
+			resultWith[0].Score, resultWithout[0].Score)
+	}
+}
+
+func TestMatcher_AgentModel_NoEffectOnMatching(t *testing.T) {
+	m := NewMatcher()
+
+	beads := []Bead{{ID: "b1", TaskType: TaskFeature, Priority: 2}}
+
+	// Agent with model specified
+	agentWithModel := []Agent{{
+		ID:           "1",
+		AgentType:    tmux.AgentClaude,
+		Model:        "claude-3-opus",
+		Idle:         true,
+		ContextUsage: 0.2,
+	}}
+	// Agent without model
+	agentWithoutModel := []Agent{{
+		ID:           "2",
+		AgentType:    tmux.AgentClaude,
+		Model:        "",
+		Idle:         true,
+		ContextUsage: 0.2,
+	}}
+
+	resultWith := m.AssignTasks(beads, agentWithModel, StrategyQuality)
+	resultWithout := m.AssignTasks(beads, agentWithoutModel, StrategyQuality)
+
+	// Model doesn't affect score in current implementation
+	if resultWith[0].Score != resultWithout[0].Score {
+		t.Errorf("Model should not affect score: with=%f, without=%f",
+			resultWith[0].Score, resultWithout[0].Score)
+	}
+}
+
+func TestMatcher_UnblocksIDs_OnlyAffectsDependencyStrategy(t *testing.T) {
+	m := NewMatcher()
+
+	beadWithUnblocks := Bead{
+		ID:          "b1",
+		Title:       "Blocker",
+		TaskType:    TaskBug,
+		Priority:    2,
+		UnblocksIDs: []string{"b2", "b3", "b4"},
+	}
+	beadWithoutUnblocks := Bead{
+		ID:       "b2",
+		Title:    "Regular",
+		TaskType: TaskBug,
+		Priority: 2,
+	}
+
+	agents := []Agent{{ID: "1", AgentType: tmux.AgentCodex, Idle: true}}
+
+	// For non-dependency strategies, UnblocksIDs shouldn't affect assignment
+	nonDepStrategies := []Strategy{StrategyBalanced, StrategySpeed, StrategyQuality, StrategyRoundRobin}
+
+	for _, strategy := range nonDepStrategies {
+		t.Run(string(strategy), func(t *testing.T) {
+			result1 := m.AssignTasks([]Bead{beadWithUnblocks}, agents, strategy)
+			result2 := m.AssignTasks([]Bead{beadWithoutUnblocks}, agents, strategy)
+
+			if len(result1) != 1 || len(result2) != 1 {
+				t.Fatal("Expected 1 assignment each")
+			}
+
+			// Scores should be equal for non-dependency strategies
+			if result1[0].Score != result2[0].Score {
+				t.Errorf("UnblocksIDs should not affect %s strategy: with=%f, without=%f",
+					strategy, result1[0].Score, result2[0].Score)
+			}
+		})
+	}
+
+	// For dependency strategy, UnblocksIDs SHOULD boost score
+	t.Run("dependency", func(t *testing.T) {
+		result1 := m.AssignTasks([]Bead{beadWithUnblocks}, agents, StrategyDependency)
+		result2 := m.AssignTasks([]Bead{beadWithoutUnblocks}, agents, StrategyDependency)
+
+		if len(result1) != 1 || len(result2) != 1 {
+			t.Fatal("Expected 1 assignment each")
+		}
+
+		// With unblocks should have higher score
+		if result1[0].Score <= result2[0].Score {
+			t.Errorf("UnblocksIDs should boost dependency strategy score: with=%f, without=%f",
+				result1[0].Score, result2[0].Score)
+		}
+	})
+}
+
+func TestMatcher_MultipleBeadsSamePriority_Ordering(t *testing.T) {
+	m := NewMatcher()
+
+	// Multiple beads with same priority - order should be stable
+	beads := []Bead{
+		{ID: "b1", Title: "First", TaskType: TaskFeature, Priority: 2},
+		{ID: "b2", Title: "Second", TaskType: TaskBug, Priority: 2},
+		{ID: "b3", Title: "Third", TaskType: TaskDocs, Priority: 2},
+	}
+
+	agents := []Agent{
+		{ID: "1", AgentType: tmux.AgentClaude, Idle: true},
+		{ID: "2", AgentType: tmux.AgentCodex, Idle: true},
+		{ID: "3", AgentType: tmux.AgentGemini, Idle: true},
+	}
+
+	// Run multiple times to verify determinism
+	for i := 0; i < 5; i++ {
+		result := m.AssignTasks(beads, agents, StrategyRoundRobin)
+
+		if len(result) != 3 {
+			t.Fatalf("Expected 3 assignments, got %d", len(result))
+		}
+
+		// Round-robin should maintain input order for same-priority beads
+		expectedOrder := []string{"b1", "b2", "b3"}
+		for j, a := range result {
+			if a.Bead.ID != expectedOrder[j] {
+				t.Errorf("Iteration %d: position %d expected %s, got %s",
+					i, j, expectedOrder[j], a.Bead.ID)
+			}
+		}
+	}
+}
+
+func TestMatcher_Strategy_Speed_LowerThreshold(t *testing.T) {
+	m := NewMatcher()
+
+	beads := []Bead{{ID: "b1", TaskType: TaskTask, Priority: 2}}
+
+	// Speed strategy uses MinConfidence * 0.5 threshold
+	// Normal MinConfidence = 0.3, Speed threshold = 0.15
+	// TaskTask for Codex = 0.85, context needed for score = 0.15
+	// 0.85 * (1 - context) = 0.15 => context = 0.824
+
+	// Agent with very high context that would fail normal threshold
+	agent := []Agent{{ID: "1", AgentType: tmux.AgentCodex, Idle: true, ContextUsage: 0.75}}
+
+	result := m.AssignTasks(beads, agent, StrategySpeed)
+	// Score = 0.85 * 0.25 = 0.2125 > 0.15 threshold
+	if len(result) != 1 {
+		t.Errorf("Speed strategy should accept lower scores, got %d assignments", len(result))
+	}
+}
+
+func TestMatcher_Strategy_Quality_PicksBestCapability(t *testing.T) {
+	m := NewMatcher()
+
+	// Test that quality strategy picks the agent with best capability for each task type
+	tests := []struct {
+		taskType    TaskType
+		expectedBest tmux.AgentType
+	}{
+		{TaskRefactor, tmux.AgentClaude},  // 0.95
+		{TaskBug, tmux.AgentCodex},         // 0.90
+		{TaskDocs, tmux.AgentGemini},       // 0.90
+		{TaskFeature, tmux.AgentCodex},     // 0.90
+		{TaskAnalysis, tmux.AgentClaude},   // 0.90
+		{TaskTesting, tmux.AgentCodex},     // 0.85
+		{TaskEpic, tmux.AgentClaude},       // 0.90
+	}
+
+	agents := []Agent{
+		{ID: "1", AgentType: tmux.AgentClaude, Idle: true},
+		{ID: "2", AgentType: tmux.AgentCodex, Idle: true},
+		{ID: "3", AgentType: tmux.AgentGemini, Idle: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(string(tc.taskType), func(t *testing.T) {
+			beads := []Bead{{ID: "b1", TaskType: tc.taskType, Priority: 2}}
+			result := m.AssignTasks(beads, agents, StrategyQuality)
+
+			if len(result) != 1 {
+				t.Fatalf("Expected 1 assignment, got %d", len(result))
+			}
+
+			if result[0].Agent.AgentType != tc.expectedBest {
+				t.Errorf("Quality strategy for %s should pick %s, got %s",
+					tc.taskType, tc.expectedBest, result[0].Agent.AgentType)
+			}
+		})
+	}
+}
+
+func TestMatcher_AgentCurrentTask_DoesNotAffectAssignment(t *testing.T) {
+	m := NewMatcher()
+
+	beads := []Bead{{ID: "b1", TaskType: TaskFeature, Priority: 2}}
+
+	// Agent with CurrentTask set but Idle=true (unusual but possible)
+	agent := []Agent{{
+		ID:          "1",
+		AgentType:   tmux.AgentClaude,
+		Idle:        true,
+		CurrentTask: "some-previous-task",
+	}}
+
+	result := m.AssignTasks(beads, agent, StrategyBalanced)
+
+	// Should still be assigned since Idle=true
+	if len(result) != 1 {
+		t.Errorf("Agent with CurrentTask but Idle=true should be assignable, got %d", len(result))
+	}
+}
+
+func TestMatcher_AgentAssignments_AffectsBalancedStrategy(t *testing.T) {
+	m := NewMatcher()
+
+	beads := []Bead{{ID: "b1", TaskType: TaskFeature, Priority: 2}}
+
+	agents := []Agent{
+		{ID: "1", AgentType: tmux.AgentClaude, Idle: true, Assignments: 5},
+		{ID: "2", AgentType: tmux.AgentClaude, Idle: true, Assignments: 0},
+	}
+
+	result := m.AssignTasks(beads, agents, StrategyBalanced)
+
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 assignment, got %d", len(result))
+	}
+
+	// Balanced strategy should prefer agent with fewer assignments
+	if result[0].Agent.ID != "2" {
+		t.Errorf("Balanced strategy should prefer agent with fewer assignments, got agent %s", result[0].Agent.ID)
+	}
+}
+
+func TestNewMatcherWithMatrix_UsesProvidedMatrix(t *testing.T) {
+	matrix := NewCapabilityMatrix()
+
+	// Override all agents to have very low score for TaskBug
+	matrix.SetOverride(tmux.AgentClaude, TaskBug, 0.1)
+	matrix.SetOverride(tmux.AgentCodex, TaskBug, 0.1)
+	matrix.SetOverride(tmux.AgentGemini, TaskBug, 0.99) // Only Gemini is good
+
+	m := NewMatcherWithMatrix(matrix)
+
+	beads := []Bead{{ID: "b1", TaskType: TaskBug, Priority: 2}}
+	agents := []Agent{
+		{ID: "1", AgentType: tmux.AgentClaude, Idle: true},
+		{ID: "2", AgentType: tmux.AgentCodex, Idle: true},
+		{ID: "3", AgentType: tmux.AgentGemini, Idle: true},
+	}
+
+	result := m.AssignTasks(beads, agents, StrategyQuality)
+
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 assignment, got %d", len(result))
+	}
+
+	// Custom matrix should cause Gemini to be picked
+	if result[0].Agent.AgentType != tmux.AgentGemini {
+		t.Errorf("Custom matrix should pick Gemini, got %s", result[0].Agent.AgentType)
+	}
+}
+
+func TestMatcher_WithConfig_MinConfidenceFiltering(t *testing.T) {
+	// Test that MinConfidence properly filters low-score matches
+	config := MatcherConfig{
+		MaxContextUsage: 0.9,
+		MinConfidence:   0.8, // Very high threshold
+	}
+	m := NewMatcher().WithConfig(config)
+
+	beads := []Bead{{ID: "b1", TaskType: TaskChore, Priority: 2}}
+	// Claude has 0.70 for TaskChore, so with 0.0 context, score = 0.70 < 0.8 threshold
+	agents := []Agent{{ID: "1", AgentType: tmux.AgentClaude, Idle: true, ContextUsage: 0.0}}
+
+	result := m.AssignTasks(beads, agents, StrategyQuality)
+
+	if len(result) != 0 {
+		t.Errorf("High MinConfidence should filter low-capability matches, got %d", len(result))
+	}
+}
+
+func TestMatcher_ReasonFormat_VariousScenarios(t *testing.T) {
+	m := NewMatcher()
+
+	tests := []struct {
+		name              string
+		bead              Bead
+		agent             Agent
+		strategy          Strategy
+		expectContains    []string
+	}{
+		{
+			name:           "critical priority",
+			bead:           Bead{ID: "b1", TaskType: TaskBug, Priority: 0},
+			agent:          Agent{ID: "1", AgentType: tmux.AgentCodex, Idle: true},
+			strategy:       StrategyQuality,
+			expectContains: []string{"critical priority"},
+		},
+		{
+			name:           "high priority",
+			bead:           Bead{ID: "b1", TaskType: TaskBug, Priority: 1},
+			agent:          Agent{ID: "1", AgentType: tmux.AgentCodex, Idle: true},
+			strategy:       StrategyQuality,
+			expectContains: []string{"high priority"},
+		},
+		{
+			name:           "high context usage",
+			bead:           Bead{ID: "b1", TaskType: TaskBug, Priority: 2},
+			agent:          Agent{ID: "1", AgentType: tmux.AgentCodex, Idle: true, ContextUsage: 0.6},
+			strategy:       StrategyQuality,
+			expectContains: []string{"context", "60%"},
+		},
+		{
+			name:           "excels capability",
+			bead:           Bead{ID: "b1", TaskType: TaskRefactor, Priority: 2},
+			agent:          Agent{ID: "1", AgentType: tmux.AgentClaude, Idle: true},
+			strategy:       StrategyQuality,
+			expectContains: []string{"excels", "95%"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := m.AssignTasks([]Bead{tc.bead}, []Agent{tc.agent}, tc.strategy)
+			if len(result) != 1 {
+				t.Fatalf("Expected 1 assignment, got %d", len(result))
+			}
+
+			reason := result[0].Reason
+			for _, expected := range tc.expectContains {
+				if !contains(reason, expected) {
+					t.Errorf("Reason %q should contain %q", reason, expected)
+				}
+			}
+		})
+	}
+}

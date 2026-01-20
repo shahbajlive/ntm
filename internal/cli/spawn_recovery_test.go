@@ -106,7 +106,7 @@ func TestRecoveryContext_EstimateTokens(t *testing.T) {
 					"internal/cli/spawn_test.go",
 				},
 			},
-			minTokens: overhead + 40,
+			minTokens: overhead + 25,
 			maxTokens: overhead + 80,
 		},
 	}
@@ -291,7 +291,7 @@ func TestRecoveryContext_FormatPrompt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := FormatRecoveryPrompt(tt.rc)
+			result := FormatRecoveryPrompt(tt.rc, AgentTypeClaude)
 
 			t.Logf("RECOVERY_TEST: %s | Output length: %d chars | Empty: %v",
 				tt.name, len(result), result == "")

@@ -52,6 +52,135 @@ func withFakeTools(t *testing.T) func() {
 	}
 }
 
+// TestJFPAdapterVersionParsing tests JFP version string parsing
+func TestJFPAdapterVersionParsing(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    Version
+		wantErr bool
+	}{
+		{
+			input: "jfp/1.0.0 linux-x64 node-v24.3.0",
+			want:  Version{Major: 1, Minor: 0, Patch: 0, Raw: "jfp/1.0.0 linux-x64 node-v24.3.0"},
+		},
+		{
+			input: "jfp/2.1.3 darwin-arm64 node-v22.0.0",
+			want:  Version{Major: 2, Minor: 1, Patch: 3, Raw: "jfp/2.1.3 darwin-arm64 node-v22.0.0"},
+		},
+		{
+			input: "jfp/0.9.12",
+			want:  Version{Major: 0, Minor: 9, Patch: 12, Raw: "jfp/0.9.12"},
+		},
+		{
+			input: "no version",
+			want:  Version{Raw: "no version"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got, err := parseJFPVersion(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("parseJFPVersion() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got.Major != tt.want.Major || got.Minor != tt.want.Minor || got.Patch != tt.want.Patch {
+				t.Errorf("parseJFPVersion() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestJFPAdapterWithFakeTools tests the JFP adapter with fake tools
+func TestJFPAdapterWithFakeTools(t *testing.T) {
+	cleanup := withFakeTools(t)
+	defer cleanup()
+
+	adapter := NewJFPAdapter()
+	ctx := context.Background()
+
+	// Test Detect
+	path, installed := adapter.Detect()
+	if !installed {
+		t.Fatal("Detect() should find fake jfp")
+	}
+	if path == "" {
+		t.Error("Detect() returned empty path")
+	}
+
+	// Test Version
+	version, err := adapter.Version(ctx)
+	if err != nil {
+		t.Fatalf("Version() error: %v", err)
+	}
+	if version.Major != 1 || version.Minor != 0 {
+		t.Errorf("Version() = %+v, want 1.0.x", version)
+	}
+
+	// Test Capabilities
+	caps, err := adapter.Capabilities(ctx)
+	if err != nil {
+		t.Fatalf("Capabilities() error: %v", err)
+	}
+	if len(caps) == 0 {
+		t.Error("Capabilities() returned empty")
+	}
+
+	// Test Health
+	health, err := adapter.Health(ctx)
+	if err != nil {
+		t.Fatalf("Health() error: %v", err)
+	}
+	if !health.Healthy {
+		t.Errorf("Health() = unhealthy: %s", health.Message)
+	}
+
+	// Test Info
+	info, err := adapter.Info(ctx)
+	if err != nil {
+		t.Fatalf("Info() error: %v", err)
+	}
+	if !info.Installed {
+		t.Error("Info() shows not installed")
+	}
+}
+
+// TestJFPAdapterMethods tests JFP-specific adapter methods
+func TestJFPAdapterMethods(t *testing.T) {
+	cleanup := withFakeTools(t)
+	defer cleanup()
+
+	adapter := NewJFPAdapter()
+	ctx := context.Background()
+
+	// Test List
+	result, err := adapter.List(ctx)
+	if err != nil {
+		t.Fatalf("List() error: %v", err)
+	}
+	if !json.Valid(result) {
+		t.Error("List() returned invalid JSON")
+	}
+
+	// Test Status
+	result, err = adapter.Status(ctx)
+	if err != nil {
+		t.Fatalf("Status() error: %v", err)
+	}
+	if !json.Valid(result) {
+		t.Error("Status() returned invalid JSON")
+	}
+
+	// Test Search
+	result, err = adapter.Search(ctx, "test")
+	if err != nil {
+		t.Fatalf("Search() error: %v", err)
+	}
+	if !json.Valid(result) {
+		t.Error("Search() returned invalid JSON")
+	}
+}
+
 // TestBVAdapterVersionParsing tests version string parsing
 func TestBVAdapterVersionParsing(t *testing.T) {
 	tests := []struct {
@@ -372,6 +501,7 @@ func TestAllAdaptersHaveConsistentInterface(t *testing.T) {
 		{"cm", NewCMAdapter()},
 		{"s2p", NewS2PAdapter()},
 		{"am", NewAMAdapter()},
+		{"jfp", NewJFPAdapter()},
 	}
 
 	ctx := context.Background()
@@ -493,6 +623,21 @@ func TestRealToolsIfAvailable(t *testing.T) {
 				return
 			}
 			t.Logf("Real bd version: %s", info.Version.String())
+		})
+	}
+
+	// Check for real jfp
+	if _, err := exec.LookPath("jfp"); err == nil {
+		t.Run("real_jfp", func(t *testing.T) {
+			adapter := NewJFPAdapter()
+			info, err := adapter.Info(ctx)
+			if err != nil {
+				t.Logf("Info() error (tool may be misconfigured): %v", err)
+				return
+			}
+			t.Logf("Real jfp version: %s", info.Version.String())
+			t.Logf("Real jfp capabilities: %v", info.Capabilities)
+			t.Logf("Real jfp health: %v", info.Health.Message)
 		})
 	}
 }
