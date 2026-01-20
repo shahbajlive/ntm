@@ -85,6 +85,80 @@ func TestViewFitsHeightAndFooterOnce(t *testing.T) {
 	}
 }
 
+func TestRenderHeaderHandoffLine(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(120)
+	m.handoffGoal = "Implemented auth tokens"
+	m.handoffNow = "Add refresh token rotation"
+	m.handoffAge = 2 * time.Hour
+	m.handoffStatus = "complete"
+
+	line := m.renderHeaderHandoffLine(m.width)
+	plain := status.StripANSI(line)
+
+	if !strings.Contains(plain, "handoff") {
+		t.Fatalf("expected handoff line to include label, got %q", plain)
+	}
+	if !strings.Contains(plain, "goal:") {
+		t.Fatalf("expected handoff line to include goal, got %q", plain)
+	}
+	if !strings.Contains(plain, "now:") {
+		t.Fatalf("expected handoff line to include now, got %q", plain)
+	}
+	if !strings.Contains(plain, "ago") {
+		t.Fatalf("expected handoff line to include age, got %q", plain)
+	}
+}
+
+func TestRenderHeaderContextWarningLine(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(140)
+	m.panes = []tmux.Pane{
+		{ID: "%1", Index: 1, Title: "test__cc_1", Type: tmux.AgentClaude},
+		{ID: "%2", Index: 2, Title: "test__cod_1", Type: tmux.AgentCodex},
+	}
+	m.paneStatus[1] = PaneStatus{
+		ContextPercent: 72,
+		ContextLimit:   1000,
+		ContextModel:   "claude-sonnet-4-20250514",
+	}
+	m.paneStatus[2] = PaneStatus{
+		ContextPercent: 86,
+		ContextLimit:   1000,
+		ContextModel:   "gpt-4",
+	}
+
+	line := m.renderHeaderContextWarningLine(m.width)
+	plain := status.StripANSI(line)
+
+	if !strings.Contains(plain, "context") {
+		t.Fatalf("expected context warning line, got %q", plain)
+	}
+	if !strings.Contains(plain, "72%") || !strings.Contains(plain, "86%") {
+		t.Fatalf("expected warning line to include percentages, got %q", plain)
+	}
+	if !strings.Contains(plain, "claude") || !strings.Contains(plain, "gpt-4") {
+		t.Fatalf("expected warning line to include model names, got %q", plain)
+	}
+
+	m.paneStatus[1] = PaneStatus{
+		ContextPercent: 60,
+		ContextLimit:   1000,
+		ContextModel:   "claude-sonnet-4-20250514",
+	}
+	m.paneStatus[2] = PaneStatus{
+		ContextPercent: 65,
+		ContextLimit:   1000,
+		ContextModel:   "gpt-4",
+	}
+	line = m.renderHeaderContextWarningLine(m.width)
+	if line != "" {
+		t.Fatalf("expected no warning line below threshold, got %q", status.StripANSI(line))
+	}
+}
+
 // TestViewFitsHeightWithManyPanes tests that the dashboard correctly truncates content
 // when there are many panes (e.g., 17) that would otherwise overflow the terminal height.
 // This is the scenario from bd-1xoe where the status bar was being duplicated.

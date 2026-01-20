@@ -6,37 +6,70 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Dicklesworthstone/ntm/internal/bv"
 	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/Dicklesworthstone/ntm/internal/handoff"
+	"github.com/Dicklesworthstone/ntm/internal/recovery"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
 // SpawnOptions configures the robot-spawn operation.
 type SpawnOptions struct {
-	Session      string
-	CCCount      int    // Claude agents
-	CodCount     int    // Codex agents
-	GmiCount     int    // Gemini agents
-	Preset       string // Recipe/preset name
-	NoUserPane   bool   // Don't create user pane
-	WorkingDir   string // Override working directory
-	WaitReady    bool   // Wait for agents to be ready
-	ReadyTimeout int    // Timeout in seconds for ready detection
-	DryRun       bool   // Preview mode: show what would happen without executing
-	Safety       bool   // Fail if session already exists
+	Session        string
+	CCCount        int    // Claude agents
+	CodCount       int    // Codex agents
+	GmiCount       int    // Gemini agents
+	Preset         string // Recipe/preset name
+	NoUserPane     bool   // Don't create user pane
+	WorkingDir     string // Override working directory
+	WaitReady      bool   // Wait for agents to be ready
+	ReadyTimeout   int    // Timeout in seconds for ready detection
+	DryRun         bool   // Preview mode: show what would happen without executing
+	Safety         bool   // Fail if session already exists
+	AssignWork     bool   // Enable orchestrator work assignment mode
+	AssignStrategy string // Assignment strategy: top-n, diverse, dependency-aware, skill-matched
 }
 
 // SpawnOutput is the structured output for --robot-spawn.
 type SpawnOutput struct {
-	Session        string         `json:"session"`
-	CreatedAt      string         `json:"created_at"`
-	PresetUsed     string         `json:"preset_used,omitempty"`
-	WorkingDir     string         `json:"working_dir"`
-	Agents         []SpawnedAgent `json:"agents"`
-	Layout         string         `json:"layout"`
-	TotalStartupMs int64          `json:"total_startup_ms"`
-	Error          string         `json:"error,omitempty"`
-	DryRun         bool           `json:"dry_run,omitempty"`
-	WouldCreate    []SpawnedAgent `json:"would_create,omitempty"`
+	Session        string            `json:"session"`
+	CreatedAt      string            `json:"created_at"`
+	PresetUsed     string            `json:"preset_used,omitempty"`
+	WorkingDir     string            `json:"working_dir"`
+	Agents         []SpawnedAgent    `json:"agents"`
+	Layout         string            `json:"layout"`
+	TotalStartupMs int64             `json:"total_startup_ms"`
+	Error          string            `json:"error,omitempty"`
+	DryRun         bool              `json:"dry_run,omitempty"`
+	WouldCreate    []SpawnedAgent    `json:"would_create,omitempty"`
+	Mode           string            `json:"mode,omitempty"`           // "orchestrator" when AssignWork is enabled
+	Assignments    []SpawnAssignment `json:"assignments,omitempty"`    // Work assignments when AssignWork is enabled
+	AssignStrategy string            `json:"assign_strategy,omitempty"` // Strategy used for assignments
+	Recovery       *SpawnRecovery    `json:"recovery,omitempty"`        // Session recovery context from handoff
+}
+
+// SpawnRecovery contains session recovery context loaded from handoff.
+type SpawnRecovery struct {
+	HandoffPath  string `json:"handoff_path,omitempty"`  // Path to handoff file
+	HandoffAge   string `json:"handoff_age,omitempty"`   // Human-readable age
+	Goal         string `json:"goal,omitempty"`          // What previous session achieved
+	Now          string `json:"now,omitempty"`           // What this session should do
+	Status       string `json:"status,omitempty"`        // Previous session status
+	Outcome      string `json:"outcome,omitempty"`       // Previous session outcome
+	InjectedText string `json:"injected_text,omitempty"` // Formatted text injected into agents
+}
+
+// SpawnAssignment represents a work assignment to a spawned agent.
+type SpawnAssignment struct {
+	Pane        string `json:"pane"`         // Pane reference (e.g., "0.1")
+	AgentType   string `json:"agent_type"`   // claude, codex, gemini
+	BeadID      string `json:"bead_id"`      // Assigned bead ID
+	BeadTitle   string `json:"bead_title"`   // Bead title for context
+	Priority    string `json:"priority"`     // Bead priority (P0-P4)
+	Claimed     bool   `json:"claimed"`      // Whether bead was successfully claimed (marked in_progress)
+	PromptSent  bool   `json:"prompt_sent"`  // Whether the work prompt was sent to the agent
+	ClaimError  string `json:"claim_error,omitempty"`  // Error during claim, if any
+	PromptError string `json:"prompt_error,omitempty"` // Error sending prompt, if any
 }
 
 // SpawnedAgent represents an agent created during spawn.
@@ -94,6 +127,14 @@ func PrintSpawn(opts SpawnOptions, cfg *config.Config) error {
 		}
 	}
 	output.WorkingDir = dir
+
+	// Load handoff context for session recovery (non-fatal if not found)
+	spawnRecovery, handoffCtx := loadLatestHandoff(dir, opts.Session)
+	if spawnRecovery != nil {
+		output.Recovery = spawnRecovery
+	}
+	// handoffCtx is available for use in work prompts below
+	_ = handoffCtx // silence unused warning when not in orchestrator mode
 
 	// Ensure directory exists
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -247,6 +288,14 @@ func PrintSpawn(opts SpawnOptions, cfg *config.Config) error {
 			timeout = 30 // default 30 seconds
 		}
 		waitForAgentsReady(&output, time.Duration(timeout)*time.Second)
+	}
+
+	// Orchestrator work assignment mode
+	if opts.AssignWork {
+		output.Mode = "orchestrator"
+		output.AssignStrategy = normalizeAssignStrategy(opts.AssignStrategy)
+		assignments := assignWorkToAgents(&output, dir, opts.Session, output.AssignStrategy)
+		output.Assignments = assignments
 	}
 
 	output.TotalStartupMs = time.Since(startTime).Milliseconds()
@@ -437,4 +486,320 @@ func getAgentCommands(cfg *config.Config) map[string]string {
 	}
 
 	return defaults
+}
+
+// loadLatestHandoff loads the most recent handoff for a session and returns recovery context.
+// Returns nil if no handoff is found or an error occurs (non-fatal).
+func loadLatestHandoff(workDir, sessionName string) (*SpawnRecovery, *recovery.HandoffContext) {
+	reader := handoff.NewReader(workDir)
+	h, path, err := reader.FindLatest(sessionName)
+	if err != nil || h == nil {
+		return nil, nil
+	}
+
+	// Convert to recovery context
+	ctx := recovery.HandoffContextFromHandoff(h, path)
+	if ctx == nil {
+		return nil, nil
+	}
+
+	// Format the injection text for fresh spawn
+	injectedText := recovery.GetInjectionForType(recovery.SessionFreshSpawn, ctx, nil)
+
+	// Build spawn recovery info
+	spawnRecovery := &SpawnRecovery{
+		HandoffPath:  path,
+		HandoffAge:   recovery.HumanizeDuration(ctx.Age),
+		Goal:         ctx.Goal,
+		Now:          ctx.Now,
+		Status:       ctx.Status,
+		Outcome:      ctx.Outcome,
+		InjectedText: injectedText,
+	}
+
+	return spawnRecovery, ctx
+}
+
+// normalizeAssignStrategy validates and normalizes the assignment strategy.
+func normalizeAssignStrategy(strategy string) string {
+	s := strings.ToLower(strings.TrimSpace(strategy))
+	switch s {
+	case "top-n", "topn":
+		return "top-n"
+	case "diverse":
+		return "diverse"
+	case "dependency-aware", "dependency":
+		return "dependency-aware"
+	case "skill-matched", "skill":
+		return "skill-matched"
+	default:
+		return "top-n" // Default strategy
+	}
+}
+
+// assignWorkToAgents gets triage recommendations, claims beads, and sends work prompts.
+func assignWorkToAgents(output *SpawnOutput, workDir, session, strategy string) []SpawnAssignment {
+	var assignments []SpawnAssignment
+
+	// Get non-user agents that are ready
+	var readyAgents []SpawnedAgent
+	for _, agent := range output.Agents {
+		if agent.Type == "user" {
+			continue
+		}
+		// Include agents even if not marked ready (best effort)
+		readyAgents = append(readyAgents, agent)
+	}
+
+	if len(readyAgents) == 0 {
+		return assignments
+	}
+
+	// Get triage recommendations from bv
+	triage, err := bv.GetTriage(workDir)
+	if err != nil || triage == nil {
+		return assignments
+	}
+
+	// Get work items based on strategy
+	workItems := getWorkItemsForStrategy(triage, strategy, len(readyAgents))
+	if len(workItems) == 0 {
+		return assignments
+	}
+
+	// Assign work to agents
+	for i, agent := range readyAgents {
+		if i >= len(workItems) {
+			break
+		}
+
+		item := workItems[i]
+		assignment := SpawnAssignment{
+			Pane:      agent.Pane,
+			AgentType: agent.Type,
+			BeadID:    item.ID,
+			BeadTitle: item.Title,
+			Priority:  fmt.Sprintf("P%d", item.Priority),
+		}
+
+		// Claim the bead (mark as in_progress)
+		if err := claimBead(workDir, item.ID); err != nil {
+			assignment.ClaimError = err.Error()
+		} else {
+			assignment.Claimed = true
+		}
+
+		// Send work prompt to the agent (only if claimed or best effort)
+		if assignment.Claimed {
+			prompt := generateWorkPrompt(item)
+			if err := sendWorkPrompt(session, agent.Pane, prompt); err != nil {
+				assignment.PromptError = err.Error()
+			} else {
+				assignment.PromptSent = true
+			}
+		}
+
+		assignments = append(assignments, assignment)
+	}
+
+	return assignments
+}
+
+// workItem represents a work item from triage for assignment.
+type workItem struct {
+	ID       string
+	Title    string
+	Priority int
+	Score    float64
+	Type     string
+	Reasons  []string
+}
+
+// getWorkItemsForStrategy returns work items based on the selected strategy.
+func getWorkItemsForStrategy(triage *bv.TriageResponse, strategy string, count int) []workItem {
+	var items []workItem
+
+	switch strategy {
+	case "diverse":
+		// Get a mix of different task types
+		items = getDiverseWorkItems(triage, count)
+	case "dependency-aware":
+		// Prioritize items that unblock others
+		items = getDependencyAwareItems(triage, count)
+	case "skill-matched":
+		// This would ideally match agent types to task types
+		// For now, fall through to top-n
+		fallthrough
+	case "top-n":
+		fallthrough
+	default:
+		// Get top N recommendations by score
+		items = getTopNWorkItems(triage, count)
+	}
+
+	return items
+}
+
+// getTopNWorkItems returns the top N recommendations by score.
+func getTopNWorkItems(triage *bv.TriageResponse, count int) []workItem {
+	var items []workItem
+
+	for i, rec := range triage.Triage.Recommendations {
+		if i >= count {
+			break
+		}
+		items = append(items, workItem{
+			ID:       rec.ID,
+			Title:    rec.Title,
+			Priority: rec.Priority,
+			Score:    rec.Score,
+			Type:     rec.Type,
+			Reasons:  rec.Reasons,
+		})
+	}
+
+	return items
+}
+
+// getDiverseWorkItems returns a diverse set of work items by type.
+func getDiverseWorkItems(triage *bv.TriageResponse, count int) []workItem {
+	var items []workItem
+	seenTypes := make(map[string]bool)
+
+	// First pass: get one of each type
+	for _, rec := range triage.Triage.Recommendations {
+		if len(items) >= count {
+			break
+		}
+		if !seenTypes[rec.Type] {
+			items = append(items, workItem{
+				ID:       rec.ID,
+				Title:    rec.Title,
+				Priority: rec.Priority,
+				Score:    rec.Score,
+				Type:     rec.Type,
+				Reasons:  rec.Reasons,
+			})
+			seenTypes[rec.Type] = true
+		}
+	}
+
+	// Second pass: fill remaining slots with top items
+	if len(items) < count {
+		for _, rec := range triage.Triage.Recommendations {
+			if len(items) >= count {
+				break
+			}
+			// Check if already included
+			found := false
+			for _, existing := range items {
+				if existing.ID == rec.ID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				items = append(items, workItem{
+					ID:       rec.ID,
+					Title:    rec.Title,
+					Priority: rec.Priority,
+					Score:    rec.Score,
+					Type:     rec.Type,
+					Reasons:  rec.Reasons,
+				})
+			}
+		}
+	}
+
+	return items
+}
+
+// getDependencyAwareItems prioritizes items that unblock the most work.
+func getDependencyAwareItems(triage *bv.TriageResponse, count int) []workItem {
+	var items []workItem
+
+	// First, add blockers to clear (these unblock other work)
+	for _, blocker := range triage.Triage.BlockersToClear {
+		if len(items) >= count {
+			break
+		}
+		if blocker.Actionable {
+			items = append(items, workItem{
+				ID:       blocker.ID,
+				Title:    blocker.Title,
+				Priority: 0, // Blockers get high priority
+				Score:    float64(blocker.UnblocksCount),
+				Type:     "blocker",
+				Reasons:  []string{fmt.Sprintf("Unblocks %d items", blocker.UnblocksCount)},
+			})
+		}
+	}
+
+	// Then fill with top recommendations
+	if len(items) < count {
+		for _, rec := range triage.Triage.Recommendations {
+			if len(items) >= count {
+				break
+			}
+			// Check if already included
+			found := false
+			for _, existing := range items {
+				if existing.ID == rec.ID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				items = append(items, workItem{
+					ID:       rec.ID,
+					Title:    rec.Title,
+					Priority: rec.Priority,
+					Score:    rec.Score,
+					Type:     rec.Type,
+					Reasons:  rec.Reasons,
+				})
+			}
+		}
+	}
+
+	return items
+}
+
+// claimBead marks a bead as in_progress using bd CLI.
+func claimBead(workDir, beadID string) error {
+	_, err := bv.RunBd(workDir, "update", beadID, "--status", "in_progress")
+	return err
+}
+
+// generateWorkPrompt creates a prompt for an agent to work on a bead.
+func generateWorkPrompt(item workItem) string {
+	var sb strings.Builder
+
+	sb.WriteString(fmt.Sprintf("Work on bead %s: %s\n\n", item.ID, item.Title))
+	sb.WriteString("Use `br show " + item.ID + "` to see full details.\n")
+	sb.WriteString("This bead has been marked as in_progress.\n")
+
+	if len(item.Reasons) > 0 {
+		sb.WriteString("\nContext:\n")
+		for _, reason := range item.Reasons {
+			sb.WriteString("- " + reason + "\n")
+		}
+	}
+
+	sb.WriteString("\nWhen done, mark it completed with: `br update " + item.ID + " --status done`")
+
+	return sb.String()
+}
+
+// sendWorkPrompt sends a work prompt to an agent via tmux.
+func sendWorkPrompt(session, paneRef, prompt string) error {
+	// Build the full pane target
+	target := fmt.Sprintf("%s:%s", session, paneRef)
+
+	// Escape the prompt for tmux send-keys
+	// Replace newlines with Enter key presses
+	escapedPrompt := strings.ReplaceAll(prompt, "\n", "\" Enter \"")
+	escapedPrompt = "\"" + escapedPrompt + "\""
+
+	return tmux.SendKeys(target, escapedPrompt, true)
 }

@@ -8,6 +8,7 @@ func TestEstimateTokens(t *testing.T) {
 		want  int
 	}{
 		{"", 0},
+		{"a", 1},                    // 1 char -> 1 token (min 1)
 		{"hello world", 3},          // 11 chars * 10 / 35 = 3
 		{"short", 1},                // 5 * 10 / 35 = 1
 		{"longer sentence here", 5}, // 20 * 10 / 35 = 200 / 35 = 5 (integer division)
@@ -37,6 +38,11 @@ func TestEstimateTokensWithLanguageHint(t *testing.T) {
 	// Unknown: 32 / 3.5 = 9.1 -> 9
 	if got := EstimateTokensWithLanguageHint(text, ContentUnknown); got != 9 {
 		t.Errorf("ContentUnknown: got %d, want 9", got)
+	}
+
+	// Minimum 1 token check
+	if got := EstimateTokensWithLanguageHint("a", ContentCode); got != 1 {
+		t.Errorf("ContentCode min 1: got %d, want 1", got)
 	}
 }
 
@@ -91,8 +97,9 @@ func TestDetectContentType(t *testing.T) {
 		{`{"key": "value"}`, ContentJSON},
 		{"# Markdown Title\n- Item", ContentMarkdown},
 		{"func main() { fmt.Println() }", ContentCode},
-		{"Just some regular text.", ContentProse},
+		{"Just some regular text.", ContentUnknown}, // Now unknown, as it's not clearly code/json/md
 		{"Short", ContentUnknown},
+		{"Some ambiguous content that is not clearly any specific type but is longer than 10 chars.", ContentUnknown},
 	}
 
 	for _, tt := range tests {
@@ -105,8 +112,8 @@ func TestDetectContentType(t *testing.T) {
 
 func TestGetUsageInfo(t *testing.T) {
 	info := GetUsageInfo("hello world", "gpt-4")
-	if info.EstimatedTokens != 2 {
-		t.Errorf("EstimatedTokens = %d, want 2", info.EstimatedTokens)
+	if info.EstimatedTokens != 3 {
+		t.Errorf("EstimatedTokens = %d, want 3", info.EstimatedTokens)
 	}
 	if info.ContextLimit != 128000 {
 		t.Errorf("ContextLimit = %d, want 128000", info.ContextLimit)

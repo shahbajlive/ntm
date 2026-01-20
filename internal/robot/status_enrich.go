@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/Dicklesworthstone/ntm/internal/tokens"
 )
 
 // Output tracking state
@@ -33,7 +34,7 @@ var rateLimitPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`resets \d+[ap]m`),
 }
 
-func enrichAgentStatus(agent *Agent, sessionName string) {
+func enrichAgentStatus(agent *Agent, sessionName, modelName string) {
 	// 1. PID is already populated from tmux
 	if agent.PID == 0 {
 		return // Cannot do much without PID
@@ -67,9 +68,14 @@ func enrichAgentStatus(agent *Agent, sessionName string) {
 	}
 
 	// 5. Output analysis
-	// Capture last 50 lines for rate limit detection and activity
+	// Capture output for rate limit detection, activity, and context usage
 	// We use agent.Pane which is the pane ID (e.g. %3)
-	content, err := tmux.CapturePaneOutput(agent.Pane, 50)
+	captureFn := tmux.CaptureForStatusDetection
+	if modelName != "" {
+		captureFn = tmux.CaptureForFullContext
+		agent.ContextModel = modelName
+	}
+	content, err := captureFn(agent.Pane)
 	if err == nil {
 		// Rate limit
 		detected, match := detectRateLimit(content)
@@ -79,12 +85,22 @@ func enrichAgentStatus(agent *Agent, sessionName string) {
 		// Output activity
 		updateActivity(agent.Pane, content)
 		agent.LastOutputTS = getLastOutput(agent.Pane)
-		
+
 		// For output_lines_since_last, we would need total line count which is expensive.
 		// We'll skip precise line counting for now to avoid performance hit.
-		
+
 		if !agent.LastOutputTS.IsZero() {
 			agent.SecondsSinceOutput = int(time.Since(agent.LastOutputTS).Seconds())
+		}
+
+		if modelName != "" {
+			usage := tokens.GetUsageInfo(content, modelName)
+			if usage != nil {
+				agent.ContextTokens = usage.EstimatedTokens
+				agent.ContextLimit = usage.ContextLimit
+				agent.ContextPercent = usage.UsagePercent
+				agent.ContextModel = usage.Model
+			}
 		}
 	}
 }

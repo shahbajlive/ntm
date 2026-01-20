@@ -22,7 +22,11 @@ func EstimateTokens(text string) int {
 		return 0
 	}
 	// ~3.5 chars per token for typical English text/code
-	return int(float64(len(text)) / 3.5)
+	count := int(float64(len(text)) / 3.5)
+	if count == 0 {
+		return 1
+	}
+	return count
 }
 
 // EstimateTokensWithLanguageHint provides a more accurate estimate based on content type.
@@ -50,7 +54,11 @@ func EstimateTokensWithLanguageHint(text string, hint ContentType) int {
 		charsPerToken = 3.5 // General default
 	}
 
-	return int(float64(len(text)) / charsPerToken)
+	count := int(float64(len(text)) / charsPerToken)
+	if count == 0 {
+		return 1
+	}
+	return count
 }
 
 // ContentType hints at the type of content for better estimation
@@ -252,7 +260,7 @@ func DetectContentType(text string) ContentType {
 		return ContentCode
 	}
 
-	return ContentProse
+	return ContentUnknown
 }
 
 // SmartEstimate uses content type detection to provide a better estimate.

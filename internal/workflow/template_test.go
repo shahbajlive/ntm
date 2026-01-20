@@ -275,6 +275,15 @@ func TestWorkflowTemplate_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "valid name with underscore",
+			tmpl: WorkflowTemplate{
+				Name:         "my_workflow",
+				Agents:       []WorkflowAgent{validAgent},
+				Coordination: CoordParallel,
+			},
+			wantErr: false,
+		},
+		{
 			name:    "missing name",
 			tmpl:    WorkflowTemplate{Agents: []WorkflowAgent{validAgent}, Coordination: CoordParallel},
 			wantErr: true,

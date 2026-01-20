@@ -179,6 +179,17 @@ type CheckpointUpdateMsg struct {
 	Gen       uint64
 }
 
+// HandoffUpdateMsg is sent when handoff status is fetched
+type HandoffUpdateMsg struct {
+	Goal   string
+	Now    string
+	Age    time.Duration
+	Path   string
+	Status string
+	Err    error
+	Gen    uint64
+}
+
 // CheckpointCreatedMsg is sent when a new checkpoint is created
 type CheckpointCreatedMsg struct {
 	Checkpoint *checkpoint.Checkpoint
@@ -233,6 +244,7 @@ const (
 	refreshCass
 	refreshScan
 	refreshCheckpoint
+	refreshHandoff
 	refreshSpawn
 	refreshAgentMail
 	refreshAgentMailInbox
@@ -292,6 +304,7 @@ type Model struct {
 	lastBeadsFetch       time.Time
 	lastCassContextFetch time.Time
 	lastScanFetch        time.Time
+	lastHandoffFetch     time.Time
 
 	// Fetch state tracking to prevent pile-up
 	fetchingSession     bool
@@ -304,6 +317,7 @@ type Model struct {
 	fetchingHistory     bool
 	fetchingFileChanges bool
 	fetchingScan        bool
+	fetchingHandoff     bool
 	scanDisabled        bool // User toggled UBS scanning off
 	fetchingSpawn       bool
 	spawnActive         bool // Whether a spawn is currently active (for adaptive polling)
@@ -326,6 +340,7 @@ type Model struct {
 	cassContextRefreshInterval time.Duration
 	scanRefreshInterval        time.Duration
 	checkpointRefreshInterval  time.Duration
+	handoffRefreshInterval     time.Duration
 	spawnRefreshInterval       time.Duration // How often to poll spawn state (faster when active)
 
 	// Pane output capture budgeting/caching
@@ -349,20 +364,20 @@ type Model struct {
 	tier layout.Tier
 
 	// Agent Mail integration
-	agentMailAvailable    bool
-	agentMailConnected    bool
-	agentMailArchiveFound bool                // Fallback: archive directory exists
-	agentMailLocks        int                 // Active file reservations
-	agentMailUnread       int                 // Unread message count (requires agent context)
-	agentMailUrgent       int                 // Urgent unread count (subset of unread)
-	agentMailLockInfo     []AgentMailLockInfo // Lock details for display
-	agentMailInbox        map[string][]agentmail.InboxMessage
-	agentMailInboxErrors  map[string]error
-	agentMailAgents       map[string]string // paneID -> agent name
-	fetchingMailInbox     bool
-	lastMailInboxFetch    time.Time
+	agentMailAvailable       bool
+	agentMailConnected       bool
+	agentMailArchiveFound    bool                // Fallback: archive directory exists
+	agentMailLocks           int                 // Active file reservations
+	agentMailUnread          int                 // Unread message count (requires agent context)
+	agentMailUrgent          int                 // Urgent unread count (subset of unread)
+	agentMailLockInfo        []AgentMailLockInfo // Lock details for display
+	agentMailInbox           map[string][]agentmail.InboxMessage
+	agentMailInboxErrors     map[string]error
+	agentMailAgents          map[string]string // paneID -> agent name
+	fetchingMailInbox        bool
+	lastMailInboxFetch       time.Time
 	mailInboxRefreshInterval time.Duration
-	showInboxDetails      bool
+	showInboxDetails         bool
 
 	// Config watcher
 	configSub    chan *config.Config
@@ -410,6 +425,14 @@ type Model struct {
 	fetchingCheckpoint  bool
 	checkpointError     error
 	lastSpawnFetch      time.Time
+
+	// Handoff status
+	handoffGoal   string
+	handoffNow    string
+	handoffAge    time.Duration
+	handoffPath   string
+	handoffStatus string
+	handoffError  error
 
 	// UBS bug scanner status
 	bugsCritical int  // Critical bugs from last scan
@@ -510,6 +533,7 @@ const (
 	CassContextRefreshInterval = 15 * time.Minute
 	ScanRefreshInterval        = 1 * time.Minute
 	CheckpointRefreshInterval  = 30 * time.Second
+	HandoffRefreshInterval     = 30 * time.Second
 	SpawnActiveRefreshInterval = 500 * time.Millisecond // Poll frequently when spawn is active
 	SpawnIdleRefreshInterval   = 2 * time.Second        // Poll slowly when no spawn is active
 	MailInboxRefreshInterval   = 30 * time.Second
@@ -581,6 +605,7 @@ func New(session, projectDir string) Model {
 		cassContextRefreshInterval: CassContextRefreshInterval,
 		scanRefreshInterval:        ScanRefreshInterval,
 		checkpointRefreshInterval:  CheckpointRefreshInterval,
+		handoffRefreshInterval:     HandoffRefreshInterval,
 		spawnRefreshInterval:       SpawnIdleRefreshInterval,
 		mailInboxRefreshInterval:   MailInboxRefreshInterval,
 		paneOutputLines:            50,
@@ -620,6 +645,7 @@ func New(session, projectDir string) Model {
 		fetchingHistory:     true,
 		fetchingFileChanges: true,
 		fetchingCheckpoint:  true,
+		fetchingHandoff:     true,
 		fetchingMailInbox:   true,
 	}
 
@@ -632,6 +658,7 @@ func New(session, projectDir string) Model {
 	m.lastCassContextFetch = now
 	m.lastScanFetch = now
 	m.lastCheckpointFetch = now
+	m.lastHandoffFetch = now
 	m.lastSpawnFetch = now
 	m.lastMailInboxFetch = now
 
@@ -693,6 +720,7 @@ func (m Model) Init() tea.Cmd {
 		m.fetchFileChangesCmd(),
 		m.fetchCASSContextCmd(),
 		m.fetchCheckpointStatus(),
+		m.fetchHandoffCmd(),
 		m.subscribeToConfig(),
 	)
 }
@@ -1033,9 +1061,9 @@ func (m *Model) fetchAgentMailInboxes() tea.Cmd {
 			agentName string
 		}
 		type result struct {
-			paneID  string
-			inbox   []agentmail.InboxMessage
-			err     error
+			paneID string
+			inbox  []agentmail.InboxMessage
+			err    error
 		}
 
 		inboxes := make(map[string][]agentmail.InboxMessage, len(agentMap))
@@ -1378,6 +1406,11 @@ func (m *Model) fullRefresh(cancelInFlight bool) []tea.Cmd {
 		m.fetchingCheckpoint = true
 		m.lastCheckpointFetch = now
 		cmds = append(cmds, m.fetchCheckpointStatus())
+	}
+	if !m.fetchingHandoff {
+		m.fetchingHandoff = true
+		m.lastHandoffFetch = now
+		cmds = append(cmds, m.fetchHandoffCmd())
 	}
 	if !m.fetchingSpawn {
 		m.fetchingSpawn = true
@@ -2230,6 +2263,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case HandoffUpdateMsg:
+		if !m.acceptUpdate(refreshHandoff, msg.Gen) {
+			return m, nil
+		}
+		m.fetchingHandoff = false
+		m.lastHandoffFetch = time.Now()
+		m.handoffError = msg.Err
+		m.handoffGoal = msg.Goal
+		m.handoffNow = msg.Now
+		m.handoffAge = msg.Age
+		m.handoffPath = msg.Path
+		m.handoffStatus = msg.Status
+		if msg.Err == nil {
+			m.markUpdated(refreshHandoff, time.Now())
+		}
+		return m, nil
+
 	case CheckpointCreatedMsg:
 		if msg.Err != nil {
 			m.checkpointError = msg.Err
@@ -2608,6 +2658,12 @@ func (m Model) renderHeaderSection() string {
 	b.WriteString(center.Render(animatedSession) + "\n")
 	if contextLine := m.renderHeaderContextLine(m.width); contextLine != "" {
 		b.WriteString(center.Render(contextLine) + "\n")
+	}
+	if handoffLine := m.renderHeaderHandoffLine(m.width); handoffLine != "" {
+		b.WriteString(center.Render(handoffLine) + "\n")
+	}
+	if contextWarnLine := m.renderHeaderContextWarningLine(m.width); contextWarnLine != "" {
+		b.WriteString(center.Render(contextWarnLine) + "\n")
 	}
 	b.WriteString(styles.GradientDivider(m.width,
 		string(t.Blue), string(t.Mauve)) + "\n\n")
@@ -3565,6 +3621,145 @@ func (m Model) renderHeaderContextLine(width int) string {
 		Render(line)
 }
 
+func (m Model) renderHeaderHandoffLine(width int) string {
+	if width < 20 {
+		return ""
+	}
+
+	goal := strings.TrimSpace(m.handoffGoal)
+	now := strings.TrimSpace(m.handoffNow)
+	status := strings.TrimSpace(m.handoffStatus)
+
+	if goal == "" && now == "" && status == "" {
+		return ""
+	}
+
+	var parts []string
+	if goal != "" {
+		parts = append(parts, "goal: "+layout.TruncateWidthDefault(goal, 60))
+	}
+	if now != "" {
+		parts = append(parts, "now: "+layout.TruncateWidthDefault(now, 40))
+	}
+	if m.handoffAge > 0 {
+		parts = append(parts, formatRelativeTime(m.handoffAge))
+	}
+	if status != "" {
+		parts = append(parts, status)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+
+	line := "handoff · " + strings.Join(parts, " · ")
+	line = layout.TruncateWidthDefault(line, width-4)
+
+	return lipgloss.NewStyle().
+		Foreground(m.theme.Subtext).
+		Render(line)
+}
+
+func (m Model) renderHeaderContextWarningLine(width int) string {
+	if width < 20 {
+		return ""
+	}
+
+	type contextAlert struct {
+		label   string
+		percent float64
+		model   string
+	}
+
+	paneByIndex := make(map[int]tmux.Pane, len(m.panes))
+	for _, pane := range m.panes {
+		paneByIndex[pane.Index] = pane
+	}
+
+	var alerts []contextAlert
+	for idx, ps := range m.paneStatus {
+		if ps.ContextLimit <= 0 || ps.ContextPercent < 70 {
+			continue
+		}
+		pane, ok := paneByIndex[idx]
+		if !ok {
+			continue
+		}
+		model := ps.ContextModel
+		if model == "" {
+			model = pane.Variant
+		}
+		if model == "" {
+			model = "unknown"
+		}
+		model = layout.TruncateWidthDefault(model, 24)
+		label := formatPaneLabel(m.session, pane)
+		label = layout.TruncateWidthDefault(label, 12)
+		alerts = append(alerts, contextAlert{
+			label:   label,
+			percent: ps.ContextPercent,
+			model:   model,
+		})
+	}
+
+	if len(alerts) == 0 {
+		return ""
+	}
+
+	sort.Slice(alerts, func(i, j int) bool {
+		return alerts[i].percent > alerts[j].percent
+	})
+
+	t := m.theme
+	prefix := "context"
+	if m.icons.Warning != "" {
+		prefix = m.icons.Warning + " " + prefix
+	}
+
+	warnStyle := lipgloss.NewStyle().Foreground(t.Warning)
+	criticalStyle := lipgloss.NewStyle().Foreground(t.Error).Bold(true)
+
+	sep := " · "
+	sepWidth := lipgloss.Width(sep)
+	maxWidth := width - 4
+
+	prefixText := prefix + ":"
+	rendered := []string{warnStyle.Render(prefixText)}
+	currentWidth := lipgloss.Width(prefixText)
+
+	for _, alert := range alerts {
+		segmentText := fmt.Sprintf("%s %.0f%% of %s context", alert.label, alert.percent, alert.model)
+		segmentWidth := lipgloss.Width(segmentText)
+		if currentWidth+sepWidth+segmentWidth > maxWidth {
+			break
+		}
+
+		style := warnStyle
+		if alert.percent >= 85 {
+			style = criticalStyle
+		}
+		rendered = append(rendered, style.Render(segmentText))
+		currentWidth += sepWidth + segmentWidth
+	}
+
+	if len(rendered) == 1 {
+		return ""
+	}
+
+	return strings.Join(rendered, sep)
+}
+
+func formatPaneLabel(session string, pane tmux.Pane) string {
+	label := strings.TrimSpace(pane.Title)
+	prefix := session + "__"
+	if strings.HasPrefix(label, prefix) {
+		label = strings.TrimPrefix(label, prefix)
+	}
+	if label == "" {
+		label = fmt.Sprintf("pane %d", pane.Index)
+	}
+	return label
+}
+
 func formatRelativeTime(d time.Duration) string {
 	if d < 0 {
 		d = 0
@@ -3911,6 +4106,12 @@ func (m *Model) scheduleRefreshes(now time.Time) []tea.Cmd {
 		m.fetchingCheckpoint = true
 		m.lastCheckpointFetch = now
 		cmds = append(cmds, m.fetchCheckpointStatus())
+	}
+
+	if refreshDue(m.lastHandoffFetch, m.handoffRefreshInterval) && !m.fetchingHandoff {
+		m.fetchingHandoff = true
+		m.lastHandoffFetch = now
+		cmds = append(cmds, m.fetchHandoffCmd())
 	}
 
 	return cmds
@@ -4776,18 +4977,18 @@ func (m Model) executeReplay(entry history.HistoryEntry) tea.Cmd {
 			log.Printf("[Replay] Failed to append replay entry to history: %v", err)
 			replayEntry.SetError(err)
 		} else {
-			                       // Execute the replay using tmux client
-			                       client := tmux.DefaultClient
-			
-                       // Parse targets - for now, replay to the same targets as the original entry
-                       // In the future, we could show a dialog to let user choose new targets
-                       for _, targetStr := range entry.Targets {
-                               target := fmt.Sprintf("%s:%s", m.session, targetStr)
-                               if err := client.SendKeys(target, entry.Prompt, true); err != nil {
-                                       log.Printf("[Replay] Failed to send to target %s: %v", targetStr, err)
-                                       replayEntry.SetError(fmt.Errorf("failed to send to target %s: %w", targetStr, err))
-                               }
-                       }
+			// Execute the replay using tmux client
+			client := tmux.DefaultClient
+
+			// Parse targets - for now, replay to the same targets as the original entry
+			// In the future, we could show a dialog to let user choose new targets
+			for _, targetStr := range entry.Targets {
+				target := fmt.Sprintf("%s:%s", m.session, targetStr)
+				if err := client.SendKeys(target, entry.Prompt, true); err != nil {
+					log.Printf("[Replay] Failed to send to target %s: %v", targetStr, err)
+					replayEntry.SetError(fmt.Errorf("failed to send to target %s: %w", targetStr, err))
+				}
+			}
 
 			// If no errors occurred, mark as successful
 			if replayEntry.Error == "" {

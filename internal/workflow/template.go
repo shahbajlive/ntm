@@ -139,7 +139,7 @@ type ErrorConfig struct {
 }
 
 // namePattern validates workflow template names.
-var namePattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+var namePattern = regexp.MustCompile(`^[a-z][a-z0-9-_]*$`)
 
 // Validate checks that the workflow template is valid.
 func (t *WorkflowTemplate) Validate() error {
@@ -147,7 +147,7 @@ func (t *WorkflowTemplate) Validate() error {
 		return fmt.Errorf("workflow name is required")
 	}
 	if !namePattern.MatchString(t.Name) {
-		return fmt.Errorf("workflow name must be lowercase alphanumeric with hyphens: %q", t.Name)
+		return fmt.Errorf("workflow name must be lowercase alphanumeric with hyphens or underscores: %q", t.Name)
 	}
 
 	if len(t.Agents) == 0 {

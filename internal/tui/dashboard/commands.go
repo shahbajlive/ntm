@@ -13,6 +13,7 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/alerts"
 	"github.com/Dicklesworthstone/ntm/internal/bv"
 	"github.com/Dicklesworthstone/ntm/internal/cass"
+	"github.com/Dicklesworthstone/ntm/internal/handoff"
 	"github.com/Dicklesworthstone/ntm/internal/history"
 	"github.com/Dicklesworthstone/ntm/internal/robot"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
@@ -172,6 +173,38 @@ func (m *Model) fetchCASSContextCmd() tea.Cmd {
 		}
 
 		return CASSContextMsg{Hits: resp.Hits, Gen: gen}
+	}
+}
+
+// fetchHandoffCmd fetches the latest handoff goal/now + metadata for the session.
+func (m *Model) fetchHandoffCmd() tea.Cmd {
+	gen := m.nextGen(refreshHandoff)
+	session := m.session
+	projectDir := m.projectDir
+
+	return func() tea.Msg {
+		reader := handoff.NewReader(projectDir)
+		goal, now, err := reader.ExtractGoalNow(session)
+		if err != nil {
+			return HandoffUpdateMsg{Goal: goal, Now: now, Err: err, Gen: gen}
+		}
+
+		h, path, err := reader.FindLatest(session)
+		if err != nil {
+			return HandoffUpdateMsg{Goal: goal, Now: now, Path: path, Err: err, Gen: gen}
+		}
+
+		msg := HandoffUpdateMsg{
+			Goal: goal,
+			Now:  now,
+			Path: path,
+			Gen:  gen,
+		}
+		if h != nil {
+			msg.Age = time.Since(h.CreatedAt)
+			msg.Status = h.Status
+		}
+		return msg
 	}
 }
 

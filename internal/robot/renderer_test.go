@@ -220,7 +220,7 @@ func TestJSONRendererFormat(t *testing.T) {
 }
 
 // =============================================================================
-// TOON Renderer Tests (Stub)
+// TOON Renderer Tests
 // =============================================================================
 
 func TestNewTOONRenderer(t *testing.T) {
@@ -233,22 +233,121 @@ func TestNewTOONRenderer(t *testing.T) {
 	}
 }
 
-func TestTOONRendererRenderReturnsError(t *testing.T) {
+func TestTOONRendererRenderSimpleObject(t *testing.T) {
 	r := NewTOONRenderer()
 	payload := map[string]string{"key": "value"}
 
-	_, err := r.Render(payload)
-	if err == nil {
-		t.Error("TOON Render() should return error (not yet implemented)")
+	output, err := r.Render(payload)
+	if err != nil {
+		t.Fatalf("TOON Render() error: %v", err)
 	}
 
-	// Error should mention bd-4xgr6 and suggest using JSON
-	errMsg := err.Error()
-	if !strings.Contains(errMsg, "bd-4xgr6") {
-		t.Errorf("error should reference bd-4xgr6, got: %v", err)
+	// Output should contain the key-value pair
+	if !strings.Contains(output, "key:") || !strings.Contains(output, "value") {
+		t.Errorf("TOON output missing expected content: %q", output)
 	}
-	if !strings.Contains(errMsg, "json") {
-		t.Errorf("error should suggest using JSON, got: %v", err)
+}
+
+func TestTOONRendererRenderArray(t *testing.T) {
+	r := NewTOONRenderer()
+
+	t.Run("array of objects", func(t *testing.T) {
+		payload := []map[string]interface{}{
+			{"id": 1, "name": "Alice"},
+			{"id": 2, "name": "Bob"},
+		}
+		output, err := r.Render(payload)
+		if err != nil {
+			t.Fatalf("TOON Render() error: %v", err)
+		}
+		// Should have tabular header with field names
+		if !strings.Contains(output, "[2]{") {
+			t.Errorf("TOON output missing array header: %q", output)
+		}
+		// Should contain field names (alphabetically sorted)
+		if !strings.Contains(output, "id") || !strings.Contains(output, "name") {
+			t.Errorf("TOON output missing field names: %q", output)
+		}
+	})
+
+	t.Run("primitive array", func(t *testing.T) {
+		payload := []int{1, 2, 3}
+		output, err := r.Render(payload)
+		if err != nil {
+			t.Fatalf("TOON Render() error: %v", err)
+		}
+		// Should have inline format
+		if !strings.Contains(output, "[3]:") {
+			t.Errorf("TOON output missing array inline format: %q", output)
+		}
+	})
+
+	t.Run("empty array", func(t *testing.T) {
+		payload := []string{}
+		output, err := r.Render(payload)
+		if err != nil {
+			t.Fatalf("TOON Render() error: %v", err)
+		}
+		if strings.TrimSpace(output) != "[]" {
+			t.Errorf("TOON empty array output = %q, want %q", output, "[]")
+		}
+	})
+}
+
+func TestTOONRendererRenderPrimitives(t *testing.T) {
+	r := NewTOONRenderer()
+
+	tests := []struct {
+		name     string
+		payload  interface{}
+		expected string
+	}{
+		{"nil", nil, "null\n"},
+		{"true", true, "true\n"},
+		{"false", false, "false\n"},
+		{"int", 42, "42\n"},
+		{"float", 3.14, "3.14\n"},
+		{"string identifier", "hello", "hello\n"},
+		{"string with spaces", "hello world", "\"hello world\"\n"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			output, err := r.Render(tc.payload)
+			if err != nil {
+				t.Fatalf("TOON Render() error: %v", err)
+			}
+			if output != tc.expected {
+				t.Errorf("TOON Render(%v) = %q, want %q", tc.payload, output, tc.expected)
+			}
+		})
+	}
+}
+
+func TestTOONRendererDeterministicOrder(t *testing.T) {
+	r := NewTOONRenderer()
+	payload := map[string]int{
+		"zebra":  1,
+		"apple":  2,
+		"banana": 3,
+	}
+
+	// Render multiple times to verify deterministic output
+	output1, _ := r.Render(payload)
+	output2, _ := r.Render(payload)
+	output3, _ := r.Render(payload)
+
+	if output1 != output2 || output2 != output3 {
+		t.Errorf("TOON output not deterministic:\n%s\nvs\n%s", output1, output2)
+	}
+
+	// Fields should be alphabetically sorted
+	appleIdx := strings.Index(output1, "apple")
+	bananaIdx := strings.Index(output1, "banana")
+	zebraIdx := strings.Index(output1, "zebra")
+
+	if appleIdx > bananaIdx || bananaIdx > zebraIdx {
+		t.Errorf("TOON fields not alphabetically sorted: %s", output1)
 	}
 }
 
@@ -294,10 +393,14 @@ func TestRender(t *testing.T) {
 		}
 	})
 
-	t.Run("FormatTOON returns error", func(t *testing.T) {
-		_, err := Render(payload, FormatTOON)
-		if err == nil {
-			t.Error("Render() with TOON should return error")
+	t.Run("FormatTOON renders successfully", func(t *testing.T) {
+		output, err := Render(payload, FormatTOON)
+		if err != nil {
+			t.Fatalf("Render() with TOON error: %v", err)
+		}
+		// TOON output should contain the message field
+		if !strings.Contains(output, "message") || !strings.Contains(output, "hello") {
+			t.Errorf("TOON output missing expected content: %q", output)
 		}
 	})
 
@@ -394,11 +497,18 @@ func TestOutputTo(t *testing.T) {
 		}
 	})
 
-	t.Run("TOON returns error", func(t *testing.T) {
+	t.Run("TOON writes to buffer", func(t *testing.T) {
 		var buf bytes.Buffer
 		err := OutputTo(&buf, payload, FormatTOON)
-		if err == nil {
-			t.Error("OutputTo() with TOON should return error")
+		if err != nil {
+			t.Fatalf("OutputTo() with TOON error: %v", err)
+		}
+		output := buf.String()
+		if output == "" {
+			t.Error("expected non-empty output")
+		}
+		if !strings.Contains(output, "count") {
+			t.Errorf("TOON output missing expected content: %q", output)
 		}
 	})
 }
@@ -437,10 +547,22 @@ func TestRenderWithMeta(t *testing.T) {
 		}
 	})
 
-	t.Run("TOON format returns error", func(t *testing.T) {
-		_, err := RenderWithMeta(payload, FormatTOON)
-		if err == nil {
-			t.Error("RenderWithMeta() with TOON should return error")
+	t.Run("TOON format", func(t *testing.T) {
+		result, err := RenderWithMeta(payload, FormatTOON)
+		if err != nil {
+			t.Fatalf("RenderWithMeta() with TOON error: %v", err)
+		}
+		if result.Output == "" {
+			t.Error("expected non-empty output")
+		}
+		if result.ContentType != "text/x-toon" {
+			t.Errorf("ContentType = %q, want %q", result.ContentType, "text/x-toon")
+		}
+		if result.Format != FormatTOON {
+			t.Errorf("Format = %q, want %q", result.Format, FormatTOON)
+		}
+		if !strings.Contains(result.Output, "data") {
+			t.Errorf("TOON output missing expected content: %q", result.Output)
 		}
 	})
 }

@@ -253,6 +253,7 @@ func runHandoffCreate(cmd *cobra.Command, sessionName, goal, now, fromFile strin
 	if err != nil {
 		return fmt.Errorf("failed to write handoff: %w", err)
 	}
+	reader.InvalidateCache()
 
 	slog.Info("handoff created",
 		"path", path,

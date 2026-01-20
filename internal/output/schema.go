@@ -65,16 +65,20 @@ type SessionResponse struct {
 
 // PaneResponse is the standard format for pane-related output
 type PaneResponse struct {
-	Index         int    `json:"index"`
-	Title         string `json:"title"`
-	Type          string `json:"type"`              // claude, codex, gemini, user
-	Variant       string `json:"variant,omitempty"` // model alias or persona name
-	Active        bool   `json:"active,omitempty"`
-	Width         int    `json:"width,omitempty"`
-	Height        int    `json:"height,omitempty"`
-	Command       string `json:"command,omitempty"`
-	Status        string `json:"status,omitempty"`          // idle, working, error
-	PromptDelayMs int64  `json:"prompt_delay_ms,omitempty"` // Stagger delay in milliseconds
+	Index          int     `json:"index"`
+	Title          string  `json:"title"`
+	Type           string  `json:"type"`              // claude, codex, gemini, user
+	Variant        string  `json:"variant,omitempty"` // model alias or persona name
+	Active         bool    `json:"active,omitempty"`
+	Width          int     `json:"width,omitempty"`
+	Height         int     `json:"height,omitempty"`
+	Command        string  `json:"command,omitempty"`
+	Status         string  `json:"status,omitempty"`          // idle, working, error
+	PromptDelayMs  int64   `json:"prompt_delay_ms,omitempty"` // Stagger delay in milliseconds
+	ContextTokens  int     `json:"context_tokens,omitempty"`
+	ContextLimit   int     `json:"context_limit,omitempty"`
+	ContextPercent float64 `json:"context_percent,omitempty"`
+	ContextModel   string  `json:"context_model,omitempty"`
 }
 
 // AgentCountsResponse is the standard format for agent counts
@@ -166,17 +170,28 @@ type SessionListItem struct {
 // StatusResponse is the output format for status command
 type StatusResponse struct {
 	TimestampedResponse
-	Session             string               `json:"session"`
-	Exists              bool                 `json:"exists"`
-	Attached            bool                 `json:"attached"`
-	WorkingDirectory    string               `json:"working_directory"`
-	Panes               []PaneResponse       `json:"panes"`
-	AgentCounts         AgentCountsResponse  `json:"agent_counts"`
-	AgentMail           *AgentMailStatus     `json:"agent_mail,omitempty"`
-	Assignments         []AssignmentResponse `json:"assignments,omitempty"`
-	AssignmentStats     *AssignmentStats     `json:"assignment_stats,omitempty"`
-	AssignmentFilters   *AssignmentFilters   `json:"assignment_filters,omitempty"`
-	AssignmentSummary   *AssignmentSummary   `json:"assignment_summary,omitempty"`
+	Session           string               `json:"session"`
+	Exists            bool                 `json:"exists"`
+	Attached          bool                 `json:"attached"`
+	WorkingDirectory  string               `json:"working_directory"`
+	Panes             []PaneResponse       `json:"panes"`
+	AgentCounts       AgentCountsResponse  `json:"agent_counts"`
+	AgentMail         *AgentMailStatus     `json:"agent_mail,omitempty"`
+	Handoff           *HandoffStatus       `json:"handoff,omitempty"`
+	Assignments       []AssignmentResponse `json:"assignments,omitempty"`
+	AssignmentStats   *AssignmentStats     `json:"assignment_stats,omitempty"`
+	AssignmentFilters *AssignmentFilters   `json:"assignment_filters,omitempty"`
+	AssignmentSummary *AssignmentSummary   `json:"assignment_summary,omitempty"`
+}
+
+// HandoffStatus represents the latest handoff for a session.
+type HandoffStatus struct {
+	Session    string `json:"session,omitempty"`
+	Goal       string `json:"goal,omitempty"`
+	Now        string `json:"now,omitempty"`
+	Path       string `json:"path,omitempty"`
+	AgeSeconds int64  `json:"age_seconds,omitempty"`
+	Status     string `json:"status,omitempty"`
 }
 
 // AgentMailStatus represents Agent Mail integration status for a session

@@ -21,6 +21,8 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/cass"
 	"github.com/Dicklesworthstone/ntm/internal/config"
 	ntmctx "github.com/Dicklesworthstone/ntm/internal/context"
+	"github.com/Dicklesworthstone/ntm/internal/git"
+	"github.com/Dicklesworthstone/ntm/internal/handoff"
 	"github.com/Dicklesworthstone/ntm/internal/recipe"
 	"github.com/Dicklesworthstone/ntm/internal/status"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
@@ -31,7 +33,7 @@ import (
 type CASSStatusOutput struct {
 	CASSAvailable bool           `json:"cass_available"`
 	Healthy       bool           `json:"healthy"`
-		Index         CASSIndexStats `json:"index"`
+	Index         CASSIndexStats `json:"index"`
 }
 
 // CASSIndexStats holds index statistics
@@ -248,6 +250,11 @@ var (
 	BuiltBy = "unknown"
 )
 
+// OutputFormat controls the output serialization format for robot commands.
+// Set this from CLI flags, environment variables, or config before calling Print* functions.
+// Default is FormatAuto which currently resolves to JSON.
+var OutputFormat RobotFormat = FormatAuto
+
 // Global state tracker for delta snapshots
 var stateTracker = tracker.New()
 
@@ -282,6 +289,10 @@ type Agent struct {
 	ProcessStateName     string    `json:"process_state_name,omitempty"`      // running, sleeping, etc.
 	MemoryMB             int       `json:"memory_mb,omitempty"`               // Resident memory in MB
 	OutputLinesSinceLast int       `json:"output_lines_since_last,omitempty"` // Lines since last check
+	ContextTokens        int       `json:"context_tokens,omitempty"`          // Estimated tokens used
+	ContextLimit         int       `json:"context_limit,omitempty"`           // Model context limit
+	ContextPercent       float64   `json:"context_percent,omitempty"`         // Usage percentage (0-100+)
+	ContextModel         string    `json:"context_model,omitempty"`           // Model name for context limit lookup
 }
 
 // SystemInfo contains system and runtime information
@@ -304,6 +315,8 @@ type StatusOutput struct {
 	Beads        *bv.BeadsSummary   `json:"beads,omitempty"`
 	GraphMetrics *GraphMetrics      `json:"graph_metrics,omitempty"`
 	AgentMail    *AgentMailSummary  `json:"agent_mail,omitempty"`
+	Handoff      *HandoffSummary    `json:"handoff,omitempty"`
+	Alerts       []StatusAlert      `json:"alerts,omitempty"`
 	FileChanges  []FileChangeInfo   `json:"file_changes,omitempty"`
 	Conflicts    []tracker.Conflict `json:"conflicts,omitempty"`
 }
@@ -317,6 +330,27 @@ type AgentMailSummary struct {
 	UrgentMessages     int    `json:"urgent_messages,omitempty"`
 	TotalLocks         int    `json:"total_locks,omitempty"`
 	Error              string `json:"error,omitempty"`
+}
+
+// HandoffSummary is the latest handoff across all sessions.
+type HandoffSummary struct {
+	Session    string `json:"session"`
+	Goal       string `json:"goal,omitempty"`
+	Now        string `json:"now,omitempty"`
+	Path       string `json:"path,omitempty"`
+	AgeSeconds int64  `json:"age_seconds,omitempty"`
+	Status     string `json:"status,omitempty"`
+}
+
+// StatusAlert represents a warning or alert emitted by robot status.
+type StatusAlert struct {
+	Type         string  `json:"type"`
+	Session      string  `json:"session,omitempty"`
+	Pane         string  `json:"pane,omitempty"`
+	PaneIdx      int     `json:"pane_idx,omitempty"`
+	UsagePercent float64 `json:"usage_percent,omitempty"`
+	ContextModel string  `json:"context_model,omitempty"`
+	Severity     string  `json:"severity,omitempty"`
 }
 
 // GraphMetrics provides bv graph analysis metrics for status output
@@ -479,6 +513,12 @@ Tips for AI Agents:
 
 // PrintStatus outputs machine-readable status
 func PrintStatus() error {
+	wd := mustGetwd()
+	cfg, err := config.LoadMerged(wd, config.DefaultPath())
+	if err != nil {
+		cfg = config.Default()
+	}
+
 	output := StatusOutput{
 		GeneratedAt: time.Now().UTC(),
 		System: SystemInfo{
@@ -532,8 +572,26 @@ func PrintStatus() error {
 					agent.Type = detectAgentType(pane.Title)
 				}
 
+				modelName := modelNameForPane(pane, cfg)
+
 				// Enrich status with process/output info
-				enrichAgentStatus(&agent, sess.Name)
+				enrichAgentStatus(&agent, sess.Name, modelName)
+
+				if agent.ContextPercent >= 70 {
+					severity := "warning"
+					if agent.ContextPercent >= 85 {
+						severity = "critical"
+					}
+					output.Alerts = append(output.Alerts, StatusAlert{
+						Type:         "context_warning",
+						Session:      sess.Name,
+						Pane:         pane.ID,
+						PaneIdx:      pane.Index,
+						UsagePercent: agent.ContextPercent,
+						ContextModel: agent.ContextModel,
+						Severity:     severity,
+					})
+				}
 
 				info.Agents = append(info.Agents, agent)
 
@@ -565,8 +623,23 @@ func PrintStatus() error {
 
 	// Add beads summary if bv is available
 	if bv.IsInstalled() {
-		output.Beads = bv.GetBeadsSummary(mustGetwd(), BeadLimit)
+		output.Beads = bv.GetBeadsSummary(wd, BeadLimit)
 		output.GraphMetrics = getGraphMetrics()
+	}
+
+	// Add latest handoff across sessions (best-effort)
+	if wd != "" {
+		reader := handoff.NewReader(wd)
+		if h, path, err := reader.FindLatestAny(); err == nil && h != nil {
+			output.Handoff = &HandoffSummary{
+				Session:    h.Session,
+				Goal:       h.Goal,
+				Now:        h.Now,
+				Path:       path,
+				Status:     h.Status,
+				AgeSeconds: int64(time.Since(h.CreatedAt).Seconds()),
+			}
+		}
 	}
 
 	// Enrich with Agent Mail summary (best-effort; degrade gracefully)
@@ -630,7 +703,11 @@ func PrintMail(sessionName, projectKey string) error {
 	if projectKey == "" {
 		wd, err := os.Getwd()
 		if err == nil {
-			projectKey = wd
+			if root, err := git.FindProjectRoot(wd); err == nil {
+				projectKey = root
+			} else {
+				projectKey = wd
+			}
 		}
 	}
 
@@ -1450,10 +1527,11 @@ func detectModel(agentType, title string) string {
 	}
 }
 
+// encodeJSON outputs the payload using the current OutputFormat.
+// Despite the name (kept for backward compatibility), this now supports
+// multiple formats: json, toon, or auto (default).
 func encodeJSON(v interface{}) error {
-	encoder := json.NewEncoder(os.Stdout)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(v)
+	return Output(v, OutputFormat)
 }
 
 // TailOutput is the structured output for --robot-tail
@@ -1780,13 +1858,15 @@ func resolveAgentsForSession(panes []tmux.Pane, mailAgents []agentmail.Agent) ma
 	agentsByType := groupAgentsByType(mailAgents)
 	mapping := make(map[string]string)
 
-	for _, paneType := range []string{"cc", "cod", "gmi"} {
-		typeMapping := assignAgentsToPanes(paneInfos[paneType], agentsByType[paneType])
-		for k, v := range typeMapping {
-			mapping[k] = v
+	for paneType, info := range paneInfos {
+		if agents, ok := agentsByType[paneType]; ok {
+			typeMapping := assignAgentsToPanes(info, agents)
+			for k, v := range typeMapping {
+				mapping[k] = v
+			}
 		}
 	}
-	
+
 	return mapping
 }
 
@@ -1900,7 +1980,11 @@ func PrintSnapshot(cfg *config.Config) error {
 
 	cwd, err := os.Getwd()
 	if err == nil {
-		projectKey = cwd
+		if root, err := git.FindProjectRoot(cwd); err == nil {
+			projectKey = root
+		} else {
+			projectKey = cwd
+		}
 		// Build initial mail summary without pane mapping
 		if summary, agents, stats := fetchAgentMailData(projectKey); summary != nil {
 			output.AgentMail = summary
@@ -1960,7 +2044,7 @@ func PrintSnapshot(cfg *config.Config) error {
 			if agentName, ok := agentMapping[pane.Title]; ok {
 				if stats, ok := mailStats[agentName]; ok {
 					agent.PendingMail = stats.Unread
-					
+
 					// Update the mail summary with the pane ID
 					if output.AgentMail != nil && output.AgentMail.Agents != nil {
 						if s, exists := output.AgentMail.Agents[agentName]; exists {
@@ -2069,6 +2153,38 @@ func agentTypeString(t tmux.AgentType) string {
 		return "user"
 	default:
 		return "unknown"
+	}
+}
+
+func modelNameForPane(pane tmux.Pane, cfg *config.Config) string {
+	if pane.Variant != "" {
+		return pane.Variant
+	}
+	if cfg != nil {
+		switch pane.Type {
+		case tmux.AgentClaude:
+			if cfg.Models.DefaultClaude != "" {
+				return cfg.Models.DefaultClaude
+			}
+		case tmux.AgentCodex:
+			if cfg.Models.DefaultCodex != "" {
+				return cfg.Models.DefaultCodex
+			}
+		case tmux.AgentGemini:
+			if cfg.Models.DefaultGemini != "" {
+				return cfg.Models.DefaultGemini
+			}
+		}
+	}
+	switch pane.Type {
+	case tmux.AgentClaude:
+		return "claude-sonnet-4-20250514"
+	case tmux.AgentCodex:
+		return "gpt-4"
+	case tmux.AgentGemini:
+		return "gemini-2.0-flash"
+	default:
+		return ""
 	}
 }
 
@@ -3332,9 +3448,14 @@ func getTerseMailCount() int {
 
 // getAgentMailSummary returns a best-effort Agent Mail summary for --robot-status.
 func getAgentMailSummary() *AgentMailSummary {
-	projectKey, err := os.Getwd()
+	cwd, err := os.Getwd()
 	if err != nil {
 		return nil
+	}
+	
+	projectKey := cwd
+	if root, err := git.FindProjectRoot(cwd); err == nil {
+		projectKey = root
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
@@ -3395,7 +3516,6 @@ func countInbox(ctx context.Context, client *agentmail.Client, projectKey, agent
 	}
 	return len(msgs)
 }
-
 
 // ContextOutput is the structured output for --robot-context
 type ContextOutput struct {
@@ -4140,6 +4260,7 @@ func PrintTriage(opts TriageOptions) error {
 
 	return encodeJSON(output)
 }
+
 // Additional BV robot modes for comprehensive analysis
 
 // LabelAttentionOptions configures label attention analysis
@@ -4324,9 +4445,10 @@ func PrintLabelAttention(opts LabelAttentionOptions) error {
 	if err != nil {
 		output.Error = fmt.Sprintf("failed to get label attention: %v", err)
 		output.Success = false
-	} else {
-		output.Labels = labels
+		return encodeJSON(output)
 	}
+
+	output.Labels = labels
 
 	return encodeJSON(output)
 }
@@ -4357,9 +4479,10 @@ func PrintLabelFlow() error {
 	if err != nil {
 		output.Error = fmt.Sprintf("failed to get label flow: %v", err)
 		output.Success = false
-	} else {
-		output.Flow = flow
+		return encodeJSON(output)
 	}
+
+	output.Flow = flow
 
 	return encodeJSON(output)
 }
@@ -4390,9 +4513,10 @@ func PrintLabelHealth() error {
 	if err != nil {
 		output.Error = fmt.Sprintf("failed to get label health: %v", err)
 		output.Success = false
-	} else {
-		output.Health = health
+		return encodeJSON(output)
 	}
+
+	output.Health = health
 
 	return encodeJSON(output)
 }
@@ -4427,9 +4551,10 @@ func PrintFileBeads(opts FileBeadsOptions) error {
 	if err != nil {
 		output.Error = fmt.Sprintf("failed to get file beads: %v", err)
 		output.Success = false
-	} else {
-		output.Beads = beads
+		return encodeJSON(output)
 	}
+
+	output.Beads = beads
 
 	return encodeJSON(output)
 }
@@ -4462,9 +4587,10 @@ func PrintFileHotspots(opts FileHotspotsOptions) error {
 	if err != nil {
 		output.Error = fmt.Sprintf("failed to get file hotspots: %v", err)
 		output.Success = false
-	} else {
-		output.Hotspots = hotspots
+		return encodeJSON(output)
 	}
+
+	output.Hotspots = hotspots
 
 	return encodeJSON(output)
 }
@@ -4501,9 +4627,10 @@ func PrintFileRelations(opts FileRelationsOptions) error {
 	if err != nil {
 		output.Error = fmt.Sprintf("failed to get file relations: %v", err)
 		output.Success = false
-	} else {
-		output.Relations = relations
+		return encodeJSON(output)
 	}
+
+	output.Relations = relations
 
 	return encodeJSON(output)
 }

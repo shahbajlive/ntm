@@ -14,9 +14,11 @@ import (
 	"golang.org/x/term"
 
 	"github.com/Dicklesworthstone/ntm/internal/assignment"
+	"github.com/Dicklesworthstone/ntm/internal/handoff"
 	"github.com/Dicklesworthstone/ntm/internal/output"
 	"github.com/Dicklesworthstone/ntm/internal/status"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/Dicklesworthstone/ntm/internal/tokens"
 	"github.com/Dicklesworthstone/ntm/internal/tui/icons"
 	"github.com/Dicklesworthstone/ntm/internal/tui/layout"
 	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
@@ -30,6 +32,21 @@ type statusOptions struct {
 	filterAgent     string
 	filterPane      int
 	showSummary     bool
+}
+
+type paneContextUsage struct {
+	Tokens  int
+	Limit   int
+	Percent float64
+	Model   string
+}
+
+type contextRow struct {
+	Label   string
+	Percent float64
+	Tokens  int
+	Limit   int
+	Model   string
 }
 
 func newAttachCmd() *cobra.Command {
@@ -352,6 +369,28 @@ func runStatus(w io.Writer, session string, opts statusOptions) error {
 
 	dir := cfg.GetProjectDir(session)
 
+	// Load handoff info (best-effort)
+	var handoffGoal, handoffNow, handoffStatus, handoffPath string
+	var handoffAge time.Duration
+	{
+		reader := handoff.NewReader(dir)
+		if goal, now, err := reader.ExtractGoalNow(session); err == nil {
+			handoffGoal = goal
+			handoffNow = now
+		}
+		if h, path, err := reader.FindLatest(session); err == nil && h != nil {
+			if handoffGoal == "" {
+				handoffGoal = h.Goal
+			}
+			if handoffNow == "" {
+				handoffNow = h.Now
+			}
+			handoffStatus = h.Status
+			handoffPath = path
+			handoffAge = time.Since(h.CreatedAt)
+		}
+	}
+
 	// Calculate counts
 	var ccCount, codCount, gmiCount, otherCount int
 	for _, p := range panes {
@@ -364,6 +403,36 @@ func runStatus(w io.Writer, session string, opts statusOptions) error {
 			gmiCount++
 		default:
 			otherCount++
+		}
+	}
+
+	// Estimate context usage per pane (best-effort)
+	contextByIndex := make(map[int]paneContextUsage)
+	for _, p := range panes {
+		if p.Type == tmux.AgentUser {
+			continue
+		}
+		modelName := modelNameForPane(p)
+		if modelName == "" {
+			continue
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		out, err := tmux.CaptureForFullContextContext(ctx, p.ID)
+		cancel()
+		if err != nil || out == "" {
+			continue
+		}
+
+		usage := tokens.GetUsageInfo(out, modelName)
+		if usage == nil {
+			continue
+		}
+		contextByIndex[p.Index] = paneContextUsage{
+			Tokens:  usage.EstimatedTokens,
+			Limit:   usage.ContextLimit,
+			Percent: usage.UsagePercent,
+			Model:   usage.Model,
 		}
 	}
 
@@ -401,9 +470,23 @@ func runStatus(w io.Writer, session string, opts statusOptions) error {
 			},
 		}
 
+		if handoffGoal != "" || handoffNow != "" || handoffStatus != "" {
+			handoffInfo := &output.HandoffStatus{
+				Session: session,
+				Goal:    handoffGoal,
+				Now:     handoffNow,
+				Path:    handoffPath,
+				Status:  handoffStatus,
+			}
+			if handoffAge > 0 {
+				handoffInfo.AgeSeconds = int64(handoffAge.Seconds())
+			}
+			resp.Handoff = handoffInfo
+		}
+
 		// Add panes
 		for _, p := range panes {
-			resp.Panes = append(resp.Panes, output.PaneResponse{
+			paneResp := output.PaneResponse{
 				Index:   p.Index,
 				Title:   p.Title,
 				Type:    agentTypeToString(p.Type),
@@ -412,7 +495,14 @@ func runStatus(w io.Writer, session string, opts statusOptions) error {
 				Width:   p.Width,
 				Height:  p.Height,
 				Command: p.Command,
-			})
+			}
+			if usage, ok := contextByIndex[p.Index]; ok {
+				paneResp.ContextTokens = usage.Tokens
+				paneResp.ContextLimit = usage.Limit
+				paneResp.ContextPercent = usage.Percent
+				paneResp.ContextModel = usage.Model
+			}
+			resp.Panes = append(resp.Panes, paneResp)
 		}
 
 		// Add assignments if requested
@@ -461,19 +551,30 @@ func runStatus(w io.Writer, session string, opts statusOptions) error {
 	t := theme.Current()
 
 	// ANSI helpers
-	const reset = "\033[0m"
-	const bold = "\033[1m"
+	noColor := theme.NoColorEnabled()
+	reset := ""
+	bold := ""
+	if !noColor {
+		reset = "\033[0m"
+		bold = "\033[1m"
+	}
+	color := func(c interface{}) string {
+		if noColor {
+			return ""
+		}
+		return colorize(c)
+	}
 
 	// Colors
-	primary := colorize(t.Primary)
-	surface := colorize(t.Surface0)
-	text := colorize(t.Text)
-	subtext := colorize(t.Subtext)
-	overlay := colorize(t.Overlay)
-	success := colorize(t.Success)
-	claude := colorize(t.Claude)
-	codex := colorize(t.Codex)
-	gemini := colorize(t.Gemini)
+	primary := color(t.Primary)
+	surface := color(t.Surface0)
+	text := color(t.Text)
+	subtext := color(t.Subtext)
+	overlay := color(t.Overlay)
+	success := color(t.Success)
+	claude := color(t.Claude)
+	codex := color(t.Codex)
+	gemini := color(t.Gemini)
 
 	ic := icons.Current()
 
@@ -496,6 +597,28 @@ func runStatus(w io.Writer, session string, opts statusOptions) error {
 	fmt.Fprintf(w, "  %s%s Panes:%s    %s%d%s\n", subtext, ic.Pane, reset, text, len(panes), reset)
 	fmt.Fprintln(w)
 
+	maxTextWidth := maxInt(width-12, 20)
+	if handoffGoal != "" || handoffNow != "" || handoffStatus != "" {
+		fmt.Fprintf(w, "  %sHandoff%s\n", bold, reset)
+		fmt.Fprintf(w, "  %s%s%s\n", surface, "─────────────────────────────────────────────────────────", reset)
+
+		ageLabel := "unknown"
+		if handoffAge > 0 {
+			ageLabel = formatDuration(handoffAge) + " ago"
+		}
+		fmt.Fprintf(w, "    %sLatest:%s %s%s%s\n", subtext, reset, text, ageLabel, reset)
+		if handoffStatus != "" {
+			fmt.Fprintf(w, "    %sStatus:%s %s%s%s\n", subtext, reset, text, handoffStatus, reset)
+		}
+		if handoffGoal != "" {
+			fmt.Fprintf(w, "    %sGoal:%s %s%s%s\n", subtext, reset, text, layout.TruncateWidthDefault(handoffGoal, maxTextWidth), reset)
+		}
+		if handoffNow != "" {
+			fmt.Fprintf(w, "    %sNow:%s  %s%s%s\n", subtext, reset, text, layout.TruncateWidthDefault(handoffNow, maxTextWidth), reset)
+		}
+		fmt.Fprintln(w)
+	}
+
 	// Panes section
 	fmt.Fprintf(w, "  %sPanes%s\n", bold, reset)
 	fmt.Fprintf(w, "  %s%s%s\n", surface, "─────────────────────────────────────────────────────────", reset)
@@ -504,7 +627,7 @@ func runStatus(w io.Writer, session string, opts statusOptions) error {
 	detector := status.NewDetector()
 
 	// Get error color for status display
-	errorColor := colorize(t.Error)
+	errorColor := color(t.Error)
 
 	for i, p := range panes {
 		var typeColor, typeIcon string
@@ -614,6 +737,66 @@ func runStatus(w io.Writer, session string, opts statusOptions) error {
 	fmt.Fprintf(w, "  %s%s%s\n", surface, "─────────────────────────────────────────────────────────", reset)
 	fmt.Fprintln(w)
 
+	var contextRows []contextRow
+	for _, p := range panes {
+		usage, ok := contextByIndex[p.Index]
+		if !ok {
+			continue
+		}
+		label := layout.TruncateWidthDefault(paneLabel(session, p), 12)
+		model := layout.TruncateWidthDefault(usage.Model, 28)
+		contextRows = append(contextRows, contextRow{
+			Label:   label,
+			Percent: usage.Percent,
+			Tokens:  usage.Tokens,
+			Limit:   usage.Limit,
+			Model:   model,
+		})
+	}
+
+	if len(contextRows) > 0 {
+		sort.Slice(contextRows, func(i, j int) bool {
+			return contextRows[i].Percent > contextRows[j].Percent
+		})
+
+		barWidth := 18
+		if width < 110 {
+			barWidth = 12
+		} else if width >= 160 {
+			barWidth = 24
+		}
+
+		warnColor := color(t.Warning)
+		fmt.Fprintf(w, "  %sContext Usage%s\n", bold, reset)
+		fmt.Fprintf(w, "  %s%s%s\n", surface, "─────────────────────────────────────────────────────────", reset)
+
+		for _, row := range contextRows {
+			percentColor := text
+			if row.Percent >= 85 {
+				percentColor = errorColor
+			} else if row.Percent >= 70 {
+				percentColor = warnColor
+			}
+			percentText := fmt.Sprintf("%s%.0f%%%s", percentColor, row.Percent, reset)
+
+			tokenInfo := ""
+			if row.Limit > 0 {
+				tokenInfo = fmt.Sprintf(" (%s/%s)", formatTokenCount(row.Tokens), formatTokenCount(row.Limit))
+			}
+
+			warnMark := ""
+			if row.Percent >= 70 {
+				warnMark = fmt.Sprintf(" %s%s%s", percentColor, ic.Warning, reset)
+			}
+
+			bar := renderProgressBar(row.Percent, barWidth)
+			fmt.Fprintf(w, "    %s%-12s%s %s of %s context%s %s%s\n",
+				text, row.Label, reset,
+				percentText, row.Model, tokenInfo, bar, warnMark)
+		}
+		fmt.Fprintln(w)
+	}
+
 	// Agent summary with icons
 	fmt.Fprintf(w, "  %sAgents%s\n", bold, reset)
 
@@ -640,7 +823,7 @@ func runStatus(w io.Writer, session string, opts statusOptions) error {
 	// Agent Mail section
 	agentMailStatus := fetchAgentMailStatus(dir)
 	if agentMailStatus != nil && agentMailStatus.Available {
-		mailColor := colorize(t.Lavender)
+		mailColor := color(t.Lavender)
 		lockIcon := "🔒"
 
 		fmt.Fprintf(w, "  %sAgent Mail%s\n", bold, reset)
@@ -672,7 +855,7 @@ func runStatus(w io.Writer, session string, opts statusOptions) error {
 
 	// Assignments section (only if requested)
 	if opts.showAssignments && assignmentStore != nil {
-		assignColor := colorize(t.Peach)
+		assignColor := color(t.Peach)
 		beadIcon := "◆"
 
 		fmt.Fprintf(w, "  %sAssignments%s\n", bold, reset)
@@ -853,4 +1036,73 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%dm", int(d.Minutes()))
 	}
 	return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
+}
+
+func modelNameForPane(p tmux.Pane) string {
+	if p.Variant != "" {
+		return p.Variant
+	}
+	if cfg != nil {
+		switch p.Type {
+		case tmux.AgentClaude:
+			if cfg.Models.DefaultClaude != "" {
+				return cfg.Models.DefaultClaude
+			}
+		case tmux.AgentCodex:
+			if cfg.Models.DefaultCodex != "" {
+				return cfg.Models.DefaultCodex
+			}
+		case tmux.AgentGemini:
+			if cfg.Models.DefaultGemini != "" {
+				return cfg.Models.DefaultGemini
+			}
+		}
+	}
+	switch p.Type {
+	case tmux.AgentClaude:
+		return "claude-sonnet-4-20250514"
+	case tmux.AgentCodex:
+		return "gpt-4"
+	case tmux.AgentGemini:
+		return "gemini-2.0-flash"
+	default:
+		return ""
+	}
+}
+
+func paneLabel(session string, pane tmux.Pane) string {
+	label := strings.TrimSpace(pane.Title)
+	prefix := session + "__"
+	if strings.HasPrefix(label, prefix) {
+		label = strings.TrimPrefix(label, prefix)
+	}
+	if label == "" {
+		label = fmt.Sprintf("pane %d", pane.Index)
+	}
+	return label
+}
+
+func renderProgressBar(percent float64, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if percent < 0 {
+		percent = 0
+	}
+	if percent > 100 {
+		percent = 100
+	}
+	filled := int(percent / 100 * float64(width))
+	if filled > width {
+		filled = width
+	}
+	empty := width - filled
+	return "[" + strings.Repeat("=", filled) + strings.Repeat("-", empty) + "]"
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

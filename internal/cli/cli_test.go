@@ -422,8 +422,22 @@ func TestShellCmdExecutes(t *testing.T) {
 
 // TestKillCmdRequiresSession tests kill command requires session name
 func TestKillCmdRequiresSession(t *testing.T) {
+	// Isolate environment
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("chdir failed: %v", err)
+	}
+	defer os.Chdir(oldWd)
+	oldTmux := os.Getenv("TMUX")
+	os.Unsetenv("TMUX")
+	defer os.Setenv("TMUX", oldTmux)
+
 	resetFlags()
 	rootCmd.SetArgs([]string{"kill"})
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetErr(&buf)
 
 	err := rootCmd.Execute()
 	if err == nil {
@@ -437,24 +451,58 @@ func TestViewCmdRequiresSession(t *testing.T) {
 		t.Skip("tmux not installed")
 	}
 
+	// Isolate environment
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("chdir failed: %v", err)
+	}
+	defer os.Chdir(oldWd)
+	oldTmux := os.Getenv("TMUX")
+	os.Unsetenv("TMUX")
+	defer os.Setenv("TMUX", oldTmux)
+
+	if sessionAutoSelectPossible() {
+		t.Skip("Skipping: exactly one tmux session running (auto-selection applies)")
+	}
+
 	resetFlags()
 	rootCmd.SetArgs([]string{"view"})
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetErr(&buf)
 
 	err := rootCmd.Execute()
 	if err == nil {
-		t.Error("Expected error for view without session name")
+		t.Errorf("Expected error for view without session name, but got success. Output: %s", buf.String())
 	}
 }
 
 // TestCopyCmdRequiresSession tests copy command requires session name
 // when no session can be auto-selected (0 or 2+ sessions running).
 func TestCopyCmdRequiresSession(t *testing.T) {
+	// Isolate environment FIRST to ensure sessionAutoSelectPossible behaves correctly if it depends on CWD/Env
+	// But sessionAutoSelectPossible uses tmux list-sessions, which connects to server.
+	// We only need to block INFERENCE.
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("chdir failed: %v", err)
+	}
+	defer os.Chdir(oldWd)
+	oldTmux := os.Getenv("TMUX")
+	os.Unsetenv("TMUX")
+	defer os.Setenv("TMUX", oldTmux)
+
 	if sessionAutoSelectPossible() {
 		t.Skip("Skipping: exactly one tmux session running (auto-selection applies)")
 	}
 
 	resetFlags()
 	rootCmd.SetArgs([]string{"copy"})
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetErr(&buf)
 
 	err := rootCmd.Execute()
 	if err == nil {
@@ -465,16 +513,30 @@ func TestCopyCmdRequiresSession(t *testing.T) {
 // TestSaveCmdRequiresSession tests save command requires session name
 // when no session can be auto-selected (0 or 2+ sessions running).
 func TestSaveCmdRequiresSession(t *testing.T) {
+	// Isolate environment
+	tmpDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("chdir failed: %v", err)
+	}
+	defer os.Chdir(oldWd)
+	oldTmux := os.Getenv("TMUX")
+	os.Unsetenv("TMUX")
+	defer os.Setenv("TMUX", oldTmux)
+
 	if sessionAutoSelectPossible() {
 		t.Skip("Skipping: exactly one tmux session running (auto-selection applies)")
 	}
 
 	resetFlags()
 	rootCmd.SetArgs([]string{"save"})
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetErr(&buf)
 
 	err := rootCmd.Execute()
 	if err == nil {
-		t.Error("Expected error for save without session name")
+		t.Errorf("Expected error for save without session name, but got success. Output: %s", buf.String())
 	}
 }
 

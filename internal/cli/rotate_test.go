@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"os"
 	"strings"
 	"testing"
@@ -57,9 +58,10 @@ func TestRotateCmdValidation(t *testing.T) {
 			}
 
 			cmd := newRotateCmd()
-			// Redirect output to discard
-			cmd.SetOut(nil)
-			cmd.SetErr(nil)
+			// Redirect output to buffer to ensure non-interactive mode
+			var buf bytes.Buffer
+			cmd.SetOut(&buf)
+			cmd.SetErr(&buf)
 
 			// Set args
 			if len(tt.args) > 0 {

@@ -802,3 +802,345 @@ func findSubstringSpawn(s, sub string) bool {
 	}
 	return false
 }
+
+// =============================================================================
+// Work Assignment Mode Tests (ntm-n50g)
+// Tests for orchestrator work assignment functionality
+// =============================================================================
+
+// TestNormalizeAssignStrategy validates strategy normalization
+func TestNormalizeAssignStrategy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"top-n", "top-n"},
+		{"topn", "top-n"},
+		{"TOP-N", "top-n"},
+		{"diverse", "diverse"},
+		{"DIVERSE", "diverse"},
+		{"dependency-aware", "dependency-aware"},
+		{"dependency", "dependency-aware"},
+		{"skill-matched", "skill-matched"},
+		{"skill", "skill-matched"},
+		{"", "top-n"},           // Default
+		{"invalid", "top-n"},   // Invalid falls back to default
+		{"  top-n  ", "top-n"}, // Whitespace trimmed
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			t.Parallel()
+			got := normalizeAssignStrategy(tc.input)
+			if got != tc.expected {
+				t.Errorf("normalizeAssignStrategy(%q) = %q, want %q", tc.input, got, tc.expected)
+			}
+		})
+	}
+}
+
+// TestGenerateWorkPrompt validates work prompt generation
+func TestGenerateWorkPrompt(t *testing.T) {
+	t.Parallel()
+
+	item := workItem{
+		ID:       "test-123",
+		Title:    "Fix authentication bug",
+		Priority: 1,
+		Score:    0.85,
+		Type:     "bug",
+		Reasons:  []string{"High priority", "Unblocks 3 items"},
+	}
+
+	prompt := generateWorkPrompt(item)
+
+	// Validate prompt contains key elements
+	if !containsAnyStr(prompt, "test-123") {
+		t.Error("Prompt should contain bead ID")
+	}
+	if !containsAnyStr(prompt, "Fix authentication bug") {
+		t.Error("Prompt should contain bead title")
+	}
+	if !containsAnyStr(prompt, "br show test-123") {
+		t.Error("Prompt should contain br show command")
+	}
+	if !containsAnyStr(prompt, "in_progress") {
+		t.Error("Prompt should mention in_progress status")
+	}
+	if !containsAnyStr(prompt, "High priority") {
+		t.Error("Prompt should contain reasons")
+	}
+	if !containsAnyStr(prompt, "br update test-123 --status done") {
+		t.Error("Prompt should contain completion command")
+	}
+
+	t.Logf("Generated prompt:\n%s", prompt)
+}
+
+// TestSpawnOptions_AssignWorkDryRun validates assign-work in dry-run mode
+func TestSpawnOptions_AssignWorkDryRun(t *testing.T) {
+	// Note: Cannot use t.Parallel() because captureStdout modifies global os.Stdout
+
+	opts := SpawnOptions{
+		Session:        "test_assign_dryrun",
+		CCCount:        2,
+		NoUserPane:     true,
+		DryRun:         true,
+		AssignWork:     true,
+		AssignStrategy: "top-n",
+	}
+
+	cfg := config.Default()
+
+	output, err := captureStdout(t, func() error { return PrintSpawn(opts, cfg) })
+	if err != nil {
+		t.Fatalf("PrintSpawn failed: %v", err)
+	}
+
+	var resp SpawnOutput
+	if err := json.Unmarshal([]byte(output), &resp); err != nil {
+		t.Fatalf("Failed to parse JSON: %v", err)
+	}
+
+	// Dry-run should still work with assign flags
+	if !resp.DryRun {
+		t.Error("DryRun field should be true")
+	}
+
+	// Mode and strategy should not be set in dry-run (no actual assignment happens)
+	// since dry-run returns early before assignment logic
+
+	t.Logf("DryRun with AssignWork: Session=%s, WouldCreate=%d", resp.Session, len(resp.WouldCreate))
+}
+
+// TestSpawnAssignmentOutput_SchemaStability validates assignment output schema
+func TestSpawnAssignmentOutput_SchemaStability(t *testing.T) {
+	t.Parallel()
+
+	// Create a test assignment
+	assignment := SpawnAssignment{
+		Pane:        "0.1",
+		AgentType:   "claude",
+		BeadID:      "test-bead",
+		BeadTitle:   "Test Bead Title",
+		Priority:    "P1",
+		Claimed:     true,
+		PromptSent:  true,
+		ClaimError:  "",
+		PromptError: "",
+	}
+
+	// Marshal and unmarshal to validate JSON schema
+	data, err := json.Marshal(assignment)
+	if err != nil {
+		t.Fatalf("Failed to marshal assignment: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Failed to unmarshal assignment: %v", err)
+	}
+
+	// Validate required fields
+	requiredFields := []string{"pane", "agent_type", "bead_id", "bead_title", "priority", "claimed", "prompt_sent"}
+	for _, field := range requiredFields {
+		if _, ok := parsed[field]; !ok {
+			t.Errorf("Missing required field: %s", field)
+		}
+	}
+
+	// Validate omitempty fields are not present when empty
+	omitEmptyFields := []string{"claim_error", "prompt_error"}
+	for _, field := range omitEmptyFields {
+		if _, ok := parsed[field]; ok {
+			t.Errorf("Field %s should be omitted when empty", field)
+		}
+	}
+
+	t.Logf("Assignment JSON: %s", string(data))
+}
+
+// TestSpawnOutput_ModeField validates mode field is set correctly
+func TestSpawnOutput_ModeField(t *testing.T) {
+	t.Parallel()
+
+	// Test output struct with mode field
+	output := SpawnOutput{
+		Session:        "test-session",
+		Mode:           "orchestrator",
+		AssignStrategy: "top-n",
+		Assignments: []SpawnAssignment{
+			{Pane: "0.1", BeadID: "test-1", Claimed: true},
+		},
+	}
+
+	data, err := json.Marshal(output)
+	if err != nil {
+		t.Fatalf("Failed to marshal output: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Failed to unmarshal output: %v", err)
+	}
+
+	// Validate mode is present
+	if parsed["mode"] != "orchestrator" {
+		t.Errorf("Mode should be 'orchestrator', got %v", parsed["mode"])
+	}
+
+	// Validate assign_strategy is present
+	if parsed["assign_strategy"] != "top-n" {
+		t.Errorf("AssignStrategy should be 'top-n', got %v", parsed["assign_strategy"])
+	}
+
+	// Validate assignments array is present
+	if _, ok := parsed["assignments"]; !ok {
+		t.Error("Missing assignments field")
+	}
+
+	t.Logf("Output with mode: %s", string(data))
+}
+
+// =============================================================================
+// Session Recovery Tests (bd-1wtja)
+// Tests for handoff context loading and SpawnRecovery struct
+// =============================================================================
+
+// TestSpawnRecovery_SchemaStability ensures SpawnRecovery JSON structure is stable
+func TestSpawnRecovery_SchemaStability(t *testing.T) {
+	t.Parallel()
+
+	recovery := SpawnRecovery{
+		HandoffPath:  "/path/to/handoff.yaml",
+		HandoffAge:   "5m ago",
+		Goal:         "Implemented feature X",
+		Now:          "Write tests for feature X",
+		Status:       "complete",
+		Outcome:      "SUCCEEDED",
+		InjectedText: "## Previous Session Context\n**Your task:** Write tests",
+	}
+
+	data, err := json.Marshal(recovery)
+	if err != nil {
+		t.Fatalf("Failed to marshal SpawnRecovery: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Failed to unmarshal SpawnRecovery: %v", err)
+	}
+
+	// Verify all expected fields are present
+	expectedFields := []string{
+		"handoff_path", "handoff_age", "goal", "now",
+		"status", "outcome", "injected_text",
+	}
+
+	for _, field := range expectedFields {
+		if _, ok := parsed[field]; !ok {
+			t.Errorf("Missing field %q in SpawnRecovery JSON", field)
+		}
+	}
+
+	t.Logf("SpawnRecovery JSON: %s", string(data))
+}
+
+// TestSpawnOutput_RecoveryField verifies the recovery field is included in SpawnOutput
+func TestSpawnOutput_RecoveryField(t *testing.T) {
+	t.Parallel()
+
+	output := SpawnOutput{
+		Session:   "test-session",
+		WorkingDir: "/tmp/test",
+		Layout:    "tiled",
+		Recovery: &SpawnRecovery{
+			HandoffPath: "/tmp/handoff.yaml",
+			HandoffAge:  "10m ago",
+			Goal:        "Built the API",
+			Now:         "Add authentication",
+		},
+	}
+
+	data, err := json.Marshal(output)
+	if err != nil {
+		t.Fatalf("Failed to marshal SpawnOutput: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Failed to unmarshal SpawnOutput: %v", err)
+	}
+
+	// Verify recovery field is present
+	recoveryData, ok := parsed["recovery"]
+	if !ok {
+		t.Fatal("Missing recovery field in SpawnOutput")
+	}
+
+	recoveryMap, ok := recoveryData.(map[string]interface{})
+	if !ok {
+		t.Fatalf("recovery field is not an object: %T", recoveryData)
+	}
+
+	if recoveryMap["goal"] != "Built the API" {
+		t.Errorf("Expected goal 'Built the API', got %v", recoveryMap["goal"])
+	}
+
+	if recoveryMap["now"] != "Add authentication" {
+		t.Errorf("Expected now 'Add authentication', got %v", recoveryMap["now"])
+	}
+
+	t.Logf("SpawnOutput with recovery: %s", string(data))
+}
+
+// TestSpawnOutput_RecoveryOmittedWhenNil verifies recovery is omitted from JSON when nil
+func TestSpawnOutput_RecoveryOmittedWhenNil(t *testing.T) {
+	t.Parallel()
+
+	output := SpawnOutput{
+		Session:   "test-session",
+		WorkingDir: "/tmp/test",
+		Layout:    "tiled",
+		Recovery:  nil, // No recovery context
+	}
+
+	data, err := json.Marshal(output)
+	if err != nil {
+		t.Fatalf("Failed to marshal SpawnOutput: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Failed to unmarshal SpawnOutput: %v", err)
+	}
+
+	// Verify recovery field is NOT present (omitempty)
+	if _, ok := parsed["recovery"]; ok {
+		t.Error("recovery field should be omitted when nil")
+	}
+
+	t.Logf("SpawnOutput without recovery: %s", string(data))
+}
+
+// TestLoadLatestHandoff_NoHandoff verifies graceful handling when no handoff exists
+func TestLoadLatestHandoff_NoHandoff(t *testing.T) {
+	t.Parallel()
+
+	// Use a temp directory with no handoffs
+	tmpDir := t.TempDir()
+
+	spawnRecovery, handoffCtx := loadLatestHandoff(tmpDir, "nonexistent_session")
+
+	if spawnRecovery != nil {
+		t.Error("Expected nil SpawnRecovery when no handoff exists")
+	}
+
+	if handoffCtx != nil {
+		t.Error("Expected nil HandoffContext when no handoff exists")
+	}
+
+	t.Log("loadLatestHandoff correctly returns nil when no handoff found")
+}

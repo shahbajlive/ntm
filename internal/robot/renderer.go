@@ -14,7 +14,7 @@
 //
 // The RobotFormat type controls output format:
 //   - FormatJSON: Standard JSON (current behavior, fully supported)
-//   - FormatTOON: TOON format (token-efficient, stub - see bd-4xgr6)
+//   - FormatTOON: TOON format (token-efficient tabular encoding)
 //   - FormatAuto: Automatic selection based on environment (future)
 //
 // # Content-Type Hints
@@ -52,8 +52,7 @@ const (
 	FormatJSON RobotFormat = "json"
 
 	// FormatTOON produces TOON-encoded output for token efficiency.
-	// TOON uses tab-separated values with optional headers.
-	// Implementation pending (see bd-4xgr6 for encoder task).
+	// TOON uses tab-separated values with schema headers for uniform arrays.
 	FormatTOON RobotFormat = "toon"
 
 	// FormatAuto selects the format automatically based on environment.
@@ -144,14 +143,19 @@ func (r *JSONRenderer) Format() RobotFormat {
 }
 
 // =============================================================================
-// TOON Renderer (Stub)
+// TOON Renderer
 // =============================================================================
 
 // TOONRenderer produces TOON-encoded output for token efficiency.
-// This is currently a stub that returns an error - see bd-4xgr6 for implementation.
-//
-// TOON (Tab-Organized Object Notation) uses tab-separated values with schema
+// TOON (Token-Oriented Object Notation) uses tab-separated values with schema
 // headers, providing significant token savings over JSON for AI model consumption.
+//
+// Supported shapes:
+//   - Uniform arrays of objects (tabular format)
+//   - Primitive values (strings, numbers, booleans, null)
+//   - Simple objects with scalar fields
+//
+// Unsupported shapes return an error; use FormatAuto to fall back to JSON.
 type TOONRenderer struct {
 	// Delimiter is the field separator. Default: "\t" (tab).
 	Delimiter string
@@ -165,11 +169,9 @@ func NewTOONRenderer() *TOONRenderer {
 }
 
 // Render encodes the payload as TOON.
-// Currently returns an error as TOON encoding is not yet implemented.
+// Returns an error for unsupported payload shapes.
 func (r *TOONRenderer) Render(payload any) (string, error) {
-	// TOON encoding not yet implemented - see bd-4xgr6
-	// For now, return a clear error with guidance
-	return "", fmt.Errorf("TOON encoding not yet implemented (see bd-4xgr6); use --robot-format=json")
+	return toonEncode(payload, r.Delimiter)
 }
 
 // ContentType returns the TOON MIME type.
@@ -194,7 +196,7 @@ var defaultRenderer = NewJSONRenderer()
 //
 // Format behavior:
 //   - FormatJSON: Pretty-printed JSON (matches current robot output)
-//   - FormatTOON: TOON encoding (not yet implemented, returns error)
+//   - FormatTOON: Token-efficient tabular encoding for uniform arrays
 //   - FormatAuto: Currently defaults to JSON
 //
 // Example:

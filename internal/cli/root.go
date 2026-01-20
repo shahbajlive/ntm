@@ -103,6 +103,9 @@ Shell Integration:
 		PrintProfilingIfEnabled()
 	},
 	Run: func(cmd *cobra.Command, args []string) {
+		// Resolve robot output format: CLI flag > env var > default (auto)
+		resolveRobotFormat()
+
 		// Handle robot flags for AI agent integration
 		if robotHelp {
 			robot.PrintHelp()
@@ -117,6 +120,13 @@ Shell Integration:
 		}
 		if robotVersion {
 			if err := robot.PrintVersion(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+		if robotCapabilities {
+			if err := robot.PrintCapabilities(); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
@@ -596,8 +606,10 @@ Shell Integration:
 				WorkingDir:   robotSpawnDir,
 				WaitReady:    robotSpawnWait,
 				ReadyTimeout: int(spawnTimeout.Seconds()),
-				DryRun:       robotRestoreDry,
-				Safety:       robotSpawnSafety,
+				DryRun:         robotRestoreDry,
+				Safety:         robotSpawnSafety,
+				AssignWork:     robotSpawnAssignWork,
+				AssignStrategy: robotSpawnStrategy,
 			}
 			if err := robot.PrintSpawn(opts, cfg); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -942,9 +954,10 @@ func goPlatform() string {
 
 // Robot output flags for AI agent integration
 var (
-	robotHelp      bool
-	robotStatus    bool
-	robotVersion   bool
+	robotHelp         bool
+	robotStatus       bool
+	robotVersion      bool
+	robotCapabilities bool
 	robotPlan      bool
 	robotSnapshot  bool   // unified state query
 	robotSince     string // ISO8601 timestamp for delta snapshot
@@ -997,16 +1010,18 @@ var (
 	robotAckTrack   bool   // combined send+ack mode
 
 	// Robot-spawn flags for structured session creation
-	robotSpawn        string // session name for spawn
-	robotSpawnCC      int    // number of Claude agents
-	robotSpawnCod     int    // number of Codex agents
-	robotSpawnGmi     int    // number of Gemini agents
-	robotSpawnPreset  string // recipe/preset name
-	robotSpawnNoUser  bool   // don't create user pane
-	robotSpawnWait    bool   // wait for agents to be ready
-	robotSpawnTimeout string // timeout for ready detection (e.g., "30s", "1m")
-	robotSpawnSafety  bool   // fail if session already exists
-	robotSpawnDir     string // working directory override
+	robotSpawn           string // session name for spawn
+	robotSpawnCC         int    // number of Claude agents
+	robotSpawnCod        int    // number of Codex agents
+	robotSpawnGmi        int    // number of Gemini agents
+	robotSpawnPreset     string // recipe/preset name
+	robotSpawnNoUser     bool   // don't create user pane
+	robotSpawnWait       bool   // wait for agents to be ready
+	robotSpawnTimeout    string // timeout for ready detection (e.g., "30s", "1m")
+	robotSpawnSafety     bool   // fail if session already exists
+	robotSpawnDir        string // working directory override
+	robotSpawnAssignWork bool   // enable orchestrator work assignment mode
+	robotSpawnStrategy   string // assignment strategy: top-n, diverse, dependency-aware, skill-matched
 
 	// Robot-interrupt flags for priority course correction
 	robotInterrupt        string // session name for interrupt
@@ -1018,6 +1033,9 @@ var (
 
 	// Robot-terse flag for ultra-compact output
 	robotTerse bool // single-line encoded state
+
+	// Robot-format flag for output serialization format
+	robotFormat string // json, toon, or auto
 
 	// Robot-markdown flags for token-efficient markdown output
 	robotMarkdown          bool   // markdown output mode
@@ -1196,6 +1214,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&robotHelp, "robot-help", false, "Show comprehensive AI agent integration guide with examples (JSON)")
 	rootCmd.Flags().BoolVar(&robotStatus, "robot-status", false, "Get tmux sessions, panes, agent states. Start here. Example: ntm --robot-status")
 	rootCmd.Flags().BoolVar(&robotVersion, "robot-version", false, "Get ntm version, commit, build info (JSON). Example: ntm --robot-version")
+	rootCmd.Flags().BoolVar(&robotCapabilities, "robot-capabilities", false, "Get all available robot commands with parameters and descriptions (JSON). Machine-discoverable API")
 	rootCmd.Flags().BoolVar(&robotPlan, "robot-plan", false, "Get bv execution plan with parallelizable tracks (JSON). Example: ntm --robot-plan")
 	rootCmd.Flags().BoolVar(&robotSnapshot, "robot-snapshot", false, "Unified state: sessions + beads + alerts + mail. Use --since for delta. Example: ntm --robot-snapshot")
 	rootCmd.Flags().StringVar(&robotSince, "since", "", "RFC3339 timestamp for delta snapshot. Optional with --robot-snapshot. Example: --since=2025-12-15T10:00:00Z")
@@ -1282,6 +1301,8 @@ func init() {
 	rootCmd.Flags().StringVar(&robotSpawnTimeout, "ready-timeout", "30s", "Alias for --spawn-timeout. Max wait for agent ready state. Use with --spawn-wait")
 	rootCmd.Flags().BoolVar(&robotSpawnSafety, "spawn-safety", false, "Fail if session already exists. Prevents accidental reuse of existing sessions")
 	rootCmd.Flags().StringVar(&robotSpawnDir, "spawn-dir", "", "Working directory for spawned session. Use with --robot-spawn. Example: --spawn-dir=/path/to/project")
+	rootCmd.Flags().BoolVar(&robotSpawnAssignWork, "spawn-assign-work", false, "Enable orchestrator work assignment: get bv triage, claim beads, send work prompts to agents")
+	rootCmd.Flags().StringVar(&robotSpawnStrategy, "spawn-assign-strategy", "top-n", "Work assignment strategy (use with --spawn-assign-work). Values: top-n, diverse, dependency-aware, skill-matched")
 
 	// Robot-interrupt flags for priority course correction
 	rootCmd.Flags().StringVar(&robotInterrupt, "robot-interrupt", "", "Send Ctrl+C to stop agents, optionally send new task. Required: SESSION. Example: ntm --robot-interrupt=proj --interrupt-msg='Stop and fix bug'")
@@ -1296,6 +1317,9 @@ func init() {
 
 	// Robot-terse flag for ultra-compact output
 	rootCmd.Flags().BoolVar(&robotTerse, "robot-terse", false, "Single-line state: S:session|A:ready/total|W:working|I:idle|B:beads|M:mail|!:alerts. Minimal tokens")
+
+	// Robot-format flag for output serialization format
+	rootCmd.Flags().StringVar(&robotFormat, "robot-format", "", "Output format for robot commands: json (default), toon (token-efficient), or auto. Env: NTM_ROBOT_FORMAT")
 
 	// Robot-markdown flags for token-efficient markdown output
 	rootCmd.Flags().BoolVar(&robotMarkdown, "robot-markdown", false, "System state as markdown tables. LLM-friendly, ~50% fewer tokens than JSON")
@@ -1559,6 +1583,7 @@ func init() {
 		newWorkflowsCmd(),
 		newPersonasCmd(),
 		newTemplateCmd(),
+		newSessionTemplatesCmd(),
 		newMonitorCmd(),
 	)
 
@@ -1964,6 +1989,30 @@ func GetFormatter() *output.Formatter {
 	return output.New(output.WithJSON(jsonOutput))
 }
 
+// resolveRobotFormat determines the robot output format from CLI flag, env var, or default.
+// Priority: --robot-format flag > NTM_ROBOT_FORMAT env var > default (auto)
+func resolveRobotFormat() {
+	formatStr := robotFormat
+
+	// Fall back to environment variable if flag not set
+	if formatStr == "" {
+		formatStr = os.Getenv("NTM_ROBOT_FORMAT")
+	}
+
+	// Parse and set the format
+	if formatStr != "" {
+		format, err := robot.ParseRobotFormat(formatStr)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: %v, using default (auto)\n", err)
+			robot.OutputFormat = robot.FormatAuto
+			return
+		}
+		robot.OutputFormat = format
+	} else {
+		robot.OutputFormat = robot.FormatAuto
+	}
+}
+
 // canSkipConfigLoading returns true if we can skip Phase 2 config loading.
 // This checks both subcommand names and robot flags for Phase 1 only operations.
 func canSkipConfigLoading(cmdName string) bool {
@@ -1975,7 +2024,7 @@ func canSkipConfigLoading(cmdName string) bool {
 	// Check robot flags that don't need config
 	// These flags are processed in the root command's Run function
 	if cmdName == "ntm" || cmdName == "" {
-		if robotHelp || robotVersion {
+		if robotHelp || robotVersion || robotCapabilities {
 			return true
 		}
 	}

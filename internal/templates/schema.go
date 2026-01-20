@@ -58,6 +58,11 @@ type SessionTemplateMetadata struct {
 	// The base template's values are used as defaults,
 	// and this template's values override them.
 	Extends string `yaml:"extends,omitempty"`
+
+	// Source indicates where this template was loaded from.
+	// Values: "builtin", "user", "project"
+	// This is set at load time, not from YAML.
+	Source string `yaml:"-"`
 }
 
 // SessionTemplateSpec defines the template's behavior.
@@ -383,6 +388,21 @@ func (t *SessionTemplate) Validate() error {
 		return fmt.Errorf("session template validation failed:\n  - %s", strings.Join(errs, "\n  - "))
 	}
 	return nil
+}
+
+// GetAgentCount returns the total number of agents specified in this template.
+func (t *SessionTemplate) GetAgentCount() int {
+	count := 0
+	if t.Spec.Agents.Claude != nil {
+		count += t.Spec.Agents.Claude.Count
+	}
+	if t.Spec.Agents.Codex != nil {
+		count += t.Spec.Agents.Codex.Count
+	}
+	if t.Spec.Agents.Gemini != nil {
+		count += t.Spec.Agents.Gemini.Count
+	}
+	return count
 }
 
 // MergeFrom applies values from a parent template, keeping child values where set.
@@ -735,10 +755,12 @@ func (l *SessionTemplateLoader) loadDirect(name string) (*SessionTemplate, error
 	if l.projectDir != "" {
 		path := filepath.Join(l.projectDir, name+".yaml")
 		if tmpl, err := LoadSessionTemplate(path); err == nil {
+			tmpl.Metadata.Source = "project"
 			return tmpl, nil
 		}
 		path = filepath.Join(l.projectDir, name+".yml")
 		if tmpl, err := LoadSessionTemplate(path); err == nil {
+			tmpl.Metadata.Source = "project"
 			return tmpl, nil
 		}
 	}
@@ -746,15 +768,18 @@ func (l *SessionTemplateLoader) loadDirect(name string) (*SessionTemplate, error
 	if l.userDir != "" {
 		path := filepath.Join(l.userDir, name+".yaml")
 		if tmpl, err := LoadSessionTemplate(path); err == nil {
+			tmpl.Metadata.Source = "user"
 			return tmpl, nil
 		}
 		path = filepath.Join(l.userDir, name+".yml")
 		if tmpl, err := LoadSessionTemplate(path); err == nil {
+			tmpl.Metadata.Source = "user"
 			return tmpl, nil
 		}
 	}
 
 	if tmpl := GetBuiltinSessionTemplate(name); tmpl != nil {
+		tmpl.Metadata.Source = "builtin"
 		return tmpl, nil
 	}
 
@@ -766,31 +791,37 @@ func (l *SessionTemplateLoader) List() ([]*SessionTemplate, error) {
 	seen := make(map[string]bool)
 	var templates []*SessionTemplate
 
+	// Project templates (highest precedence)
 	if l.projectDir != "" {
 		if tmpls, err := listSessionTemplatesFromDir(l.projectDir); err == nil {
 			for _, t := range tmpls {
 				if !seen[t.Metadata.Name] {
 					seen[t.Metadata.Name] = true
+					t.Metadata.Source = "project"
 					templates = append(templates, t)
 				}
 			}
 		}
 	}
 
+	// User templates
 	if l.userDir != "" {
 		if tmpls, err := listSessionTemplatesFromDir(l.userDir); err == nil {
 			for _, t := range tmpls {
 				if !seen[t.Metadata.Name] {
 					seen[t.Metadata.Name] = true
+					t.Metadata.Source = "user"
 					templates = append(templates, t)
 				}
 			}
 		}
 	}
 
+	// Built-in templates (lowest precedence)
 	for _, t := range ListBuiltinSessionTemplates() {
 		if !seen[t.Metadata.Name] {
 			seen[t.Metadata.Name] = true
+			t.Metadata.Source = "builtin"
 			templates = append(templates, t)
 		}
 	}
@@ -915,6 +946,443 @@ func init() {
 			},
 		},
 	})
+
+	// code-review: Optimized for reviewing PRs and providing feedback
+	RegisterBuiltinSessionTemplate(&SessionTemplate{
+		APIVersion: "v1",
+		Kind:       "SessionTemplate",
+		Metadata: SessionTemplateMetadata{
+			Name:        "code-review",
+			Description: "Optimized for reviewing PRs and providing feedback",
+			Tags:        []string{"review", "pr", "quality"},
+		},
+		Spec: SessionTemplateSpec{
+			Agents: AgentsSpec{
+				Claude: &AgentTypeSpec{Count: 2, Model: "opus"},
+				Codex:  &AgentTypeSpec{Count: 1},
+			},
+			Prompts: PromptsSpec{
+				Initial: `You are part of a code review team. Your focus is on:
+1. Code correctness and potential bugs
+2. Security vulnerabilities (OWASP top 10)
+3. Performance implications
+4. Code maintainability and readability
+5. Test coverage gaps
+
+Read AGENTS.md first, then register with Agent Mail.
+When reviewing, be specific about line numbers and provide concrete suggestions.`,
+				PerAgent: map[string]string{
+					"cc": `You are a senior code reviewer focusing on architecture and design patterns.
+Look for:
+- SOLID principle violations
+- Code duplication opportunities
+- Error handling completeness
+- API design consistency`,
+					"cod": `You are a test coverage analyst.
+Focus on:
+- Missing test cases
+- Edge cases not covered
+- Integration test gaps
+- Mocking strategy improvements`,
+				},
+				Delay: "3s",
+			},
+			FileReservations: FileReservationsSpec{
+				Enabled:  true,
+				Patterns: []string{"**/*.go", "**/*.ts", "**/*.py"},
+				TTL:      "2h",
+			},
+		},
+	})
+
+	// refactor: For large-scale code refactoring
+	RegisterBuiltinSessionTemplate(&SessionTemplate{
+		APIVersion: "v1",
+		Kind:       "SessionTemplate",
+		Metadata: SessionTemplateMetadata{
+			Name:        "refactor",
+			Description: "For large-scale code refactoring with architecture focus",
+			Tags:        []string{"refactor", "architecture", "cleanup"},
+		},
+		Spec: SessionTemplateSpec{
+			Agents: AgentsSpec{
+				Claude: &AgentTypeSpec{Count: 3, Model: "opus"},
+			},
+			Prompts: PromptsSpec{
+				Initial: `You are part of a refactoring team. Read AGENTS.md first.
+
+Key principles:
+1. Make incremental, testable changes
+2. Maintain backwards compatibility unless explicitly told otherwise
+3. Run tests after each significant change
+4. Document breaking changes clearly
+5. Use br to track discovered work
+
+Before making changes:
+- Understand the existing code thoroughly
+- Identify all callers/consumers
+- Plan the migration path`,
+				PerAgent: map[string]string{
+					"cc:1": `You are the architect. Your role:
+- Design the target architecture
+- Identify migration steps
+- Review changes from other agents
+- Ensure consistency across the codebase`,
+					"cc:2": `You are an implementer. Your role:
+- Execute refactoring tasks assigned to you
+- Write migration code
+- Update tests to match new structure
+- Report blockers to the architect`,
+					"cc:3": `You are an implementer. Your role:
+- Execute refactoring tasks assigned to you
+- Write migration code
+- Update tests to match new structure
+- Report blockers to the architect`,
+				},
+				Delay: "5s",
+			},
+			FileReservations: FileReservationsSpec{
+				Enabled:   true,
+				Patterns:  []string{"**/*.go", "**/*.ts", "**/*.py"},
+				Exclusive: boolPtr(true),
+				TTL:       "1h",
+			},
+			Beads: BeadsSpec{
+				AutoAssign: true,
+				Recipe:     "actionable",
+			},
+			Options: SessionOptionsSpec{
+				Stagger: &StaggerSpec{
+					Enabled:  true,
+					Interval: "10s",
+				},
+				AutoRestart: true,
+			},
+		},
+	})
+
+	// greenfield: For new project development
+	RegisterBuiltinSessionTemplate(&SessionTemplate{
+		APIVersion: "v1",
+		Kind:       "SessionTemplate",
+		Metadata: SessionTemplateMetadata{
+			Name:        "greenfield",
+			Description: "For starting new projects from scratch",
+			Tags:        []string{"new", "project", "bootstrap"},
+		},
+		Spec: SessionTemplateSpec{
+			Agents: AgentsSpec{
+				Claude: &AgentTypeSpec{Count: 2, Model: "opus"},
+				Codex:  &AgentTypeSpec{Count: 2},
+			},
+			Prompts: PromptsSpec{
+				Initial: `You are building a new project from scratch. Read AGENTS.md first.
+
+Guidelines:
+1. Start with project structure and core abstractions
+2. Establish coding standards early
+3. Set up CI/CD pipeline
+4. Write tests as you build
+5. Document architectural decisions
+
+Work collaboratively - communicate via Agent Mail when you need to coordinate.`,
+				PerAgent: map[string]string{
+					"cc": `You are responsible for:
+- Core architecture and design
+- API design and contracts
+- Code review of implementations
+- Documentation structure`,
+					"cod": `You are responsible for:
+- Feature implementation
+- Unit and integration tests
+- Build system setup
+- Performance optimization`,
+				},
+				Delay: "3s",
+			},
+			CASS: CASSSpec{
+				Enabled:     boolPtr(true),
+				MaxSessions: 5,
+			},
+			Options: SessionOptionsSpec{
+				Stagger: &StaggerSpec{
+					Enabled:  true,
+					Interval: "15s",
+				},
+				Checkpoint: &CheckpointSpec{
+					Enabled:  true,
+					Interval: "30m",
+				},
+			},
+		},
+	})
+
+	// feature: For implementing new features in existing codebases
+	RegisterBuiltinSessionTemplate(&SessionTemplate{
+		APIVersion: "v1",
+		Kind:       "SessionTemplate",
+		Metadata: SessionTemplateMetadata{
+			Name:        "feature",
+			Description: "For implementing new features in existing codebases",
+			Tags:        []string{"feature", "enhancement", "implementation"},
+		},
+		Spec: SessionTemplateSpec{
+			Agents: AgentsSpec{
+				Claude: &AgentTypeSpec{Count: 2, Model: "opus"},
+				Codex:  &AgentTypeSpec{Count: 1},
+			},
+			Prompts: PromptsSpec{
+				Initial: `You are a feature implementation team. Read AGENTS.md first.
+
+Feature development workflow:
+1. Understand the existing codebase architecture
+2. Identify integration points for the new feature
+3. Design the feature to fit existing patterns and conventions
+4. Implement incrementally with tests
+5. Update documentation as needed
+6. Ensure backward compatibility
+
+Use br to track feature tasks and sub-tasks.`,
+				PerAgent: map[string]string{
+					"cc": `You are the feature architect. Your role:
+- Analyze how the feature fits into existing architecture
+- Design the feature API and interfaces
+- Review implementations for consistency
+- Ensure the feature follows project conventions`,
+					"cod": `You are a feature implementer. Your role:
+- Implement feature components
+- Write unit and integration tests
+- Handle edge cases
+- Optimize performance`,
+				},
+				Delay: "2s",
+			},
+			FileReservations: FileReservationsSpec{
+				Enabled: true,
+				TTL:     "1h",
+			},
+			CASS: CASSSpec{
+				Enabled:     boolPtr(true),
+				MaxSessions: 10,
+			},
+			Beads: BeadsSpec{
+				AutoAssign: true,
+				Filter:     "type:feature",
+			},
+			Options: SessionOptionsSpec{
+				Stagger: &StaggerSpec{
+					Enabled:  true,
+					Interval: "10s",
+				},
+			},
+		},
+	})
+
+	// bug-hunt: For debugging and bug fixing
+	RegisterBuiltinSessionTemplate(&SessionTemplate{
+		APIVersion: "v1",
+		Kind:       "SessionTemplate",
+		Metadata: SessionTemplateMetadata{
+			Name:        "bug-hunt",
+			Description: "For debugging and systematic bug fixing",
+			Tags:        []string{"debug", "bug", "fix"},
+		},
+		Spec: SessionTemplateSpec{
+			Agents: AgentsSpec{
+				Claude: &AgentTypeSpec{Count: 1, Model: "opus"},
+				Codex:  &AgentTypeSpec{Count: 2},
+			},
+			Prompts: PromptsSpec{
+				Initial: `You are on a bug hunting team. Read AGENTS.md first.
+
+Debugging methodology:
+1. Reproduce the bug consistently
+2. Isolate the root cause (not symptoms)
+3. Write a failing test that demonstrates the bug
+4. Fix the root cause
+5. Verify the fix doesn't break other functionality
+6. Document the fix and any related issues discovered
+
+Use br to track bugs found during investigation.`,
+				PerAgent: map[string]string{
+					"cc": `You are the lead debugger. Your role:
+- Analyze bug reports and stack traces
+- Form hypotheses about root causes
+- Direct investigation strategy
+- Review proposed fixes`,
+					"cod": `You are a bug hunter. Your role:
+- Reproduce reported bugs
+- Write regression tests
+- Implement fixes
+- Test edge cases`,
+				},
+				Delay: "2s",
+			},
+			CASS: CASSSpec{
+				Enabled:     boolPtr(true),
+				Query:       "bug error fix debug",
+				MaxSessions: 10,
+			},
+			Beads: BeadsSpec{
+				AutoAssign: true,
+				Filter:     "type:bug",
+			},
+		},
+	})
+
+	// documentation: For documentation tasks
+	RegisterBuiltinSessionTemplate(&SessionTemplate{
+		APIVersion: "v1",
+		Kind:       "SessionTemplate",
+		Metadata: SessionTemplateMetadata{
+			Name:        "documentation",
+			Description: "For writing and improving documentation",
+			Tags:        []string{"docs", "readme", "api-docs"},
+		},
+		Spec: SessionTemplateSpec{
+			Agents: AgentsSpec{
+				Claude: &AgentTypeSpec{Count: 2, Model: "sonnet"},
+				Gemini: &AgentTypeSpec{Count: 1},
+			},
+			Prompts: PromptsSpec{
+				Initial: `You are a documentation team. Read AGENTS.md first.
+
+Documentation principles:
+1. Write for the intended audience (user vs developer)
+2. Include working examples
+3. Keep docs close to code (update together)
+4. Use clear, concise language
+5. Add diagrams where they help understanding
+
+Types of documentation to consider:
+- README and getting started guides
+- API reference documentation
+- Architecture decision records (ADRs)
+- Runbooks and troubleshooting guides`,
+				PerAgent: map[string]string{
+					"cc": `You focus on:
+- Technical documentation (API docs, architecture)
+- Code examples that actually work
+- Ensuring accuracy of technical details`,
+					"gmi": `You focus on:
+- User-facing documentation
+- Tutorials and guides
+- Improving clarity and readability`,
+				},
+				Delay: "3s",
+			},
+			FileReservations: FileReservationsSpec{
+				Enabled:  true,
+				Patterns: []string{"**/*.md", "**/docs/**", "README*"},
+				TTL:      "1h",
+			},
+		},
+	})
+
+	// swarm: For large-scale parallel work with many agents
+	RegisterBuiltinSessionTemplate(&SessionTemplate{
+		APIVersion: "v1",
+		Kind:       "SessionTemplate",
+		Metadata: SessionTemplateMetadata{
+			Name:        "swarm",
+			Description: "Large swarm of agents for parallel task execution",
+			Tags:        []string{"swarm", "parallel", "scale"},
+		},
+		Spec: SessionTemplateSpec{
+			Agents: AgentsSpec{
+				Claude: &AgentTypeSpec{Count: 6, Model: "sonnet"},
+				Codex:  &AgentTypeSpec{Count: 4},
+			},
+			Prompts: PromptsSpec{
+				Initial: `You are part of an agent swarm. Read AGENTS.md first.
+
+CRITICAL - Coordination rules:
+1. Register with Agent Mail immediately
+2. Reserve files before editing (use file_reservation_paths)
+3. Check inbox regularly for coordination messages
+4. Claim work via br before starting (br update <id> --status in_progress)
+5. Keep other agents informed via Agent Mail
+
+Work distribution:
+- Use bv --robot-triage to find your next task
+- One agent, one task at a time
+- Report completion via br close <id>`,
+				Delay: "5s",
+			},
+			FileReservations: FileReservationsSpec{
+				Enabled:   true,
+				Exclusive: boolPtr(true),
+				TTL:       "30m",
+			},
+			Beads: BeadsSpec{
+				AutoAssign: true,
+				Recipe:     "actionable",
+			},
+			Options: SessionOptionsSpec{
+				Stagger: &StaggerSpec{
+					Enabled:  true,
+					Interval: "5s",
+				},
+				AutoRestart: true,
+			},
+		},
+	})
+
+	// migration: For database or API migrations
+	RegisterBuiltinSessionTemplate(&SessionTemplate{
+		APIVersion: "v1",
+		Kind:       "SessionTemplate",
+		Metadata: SessionTemplateMetadata{
+			Name:        "migration",
+			Description: "For database schemas or API version migrations",
+			Tags:        []string{"migration", "database", "api"},
+		},
+		Spec: SessionTemplateSpec{
+			Agents: AgentsSpec{
+				Claude: &AgentTypeSpec{Count: 2, Model: "opus"},
+			},
+			Prompts: PromptsSpec{
+				Initial: `You are handling a migration. Read AGENTS.md first.
+
+Migration safety rules:
+1. NEVER run destructive commands without explicit approval
+2. Always have a rollback plan
+3. Test migrations on non-production data first
+4. Document all changes in migration files
+5. Verify data integrity after each step
+
+Migration phases:
+1. Analysis - understand current state
+2. Planning - design migration steps
+3. Testing - validate on test data
+4. Execution - run with monitoring
+5. Verification - confirm success`,
+				PerAgent: map[string]string{
+					"cc:1": `You are the migration planner. Your role:
+- Analyze current schema/API
+- Design migration steps
+- Identify data transformation needs
+- Plan rollback procedures`,
+					"cc:2": `You are the migration implementer. Your role:
+- Write migration scripts
+- Create data transformation logic
+- Test migrations thoroughly
+- Document edge cases`,
+				},
+				Delay: "5s",
+			},
+			Environment: EnvironmentSpec{
+				Env: map[string]string{
+					"NTM_MIGRATION_MODE": "true",
+				},
+			},
+		},
+	})
+}
+
+// boolPtr is a helper to create a pointer to a bool value.
+func boolPtr(b bool) *bool {
+	return &b
 }
 
 // ExampleSessionTemplateYAML provides documentation and examples.

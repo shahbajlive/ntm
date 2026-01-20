@@ -19,7 +19,7 @@ func TestEstimateTokens(t *testing.T) {
 		{"test", 1},
 		{"hello world", 3},           // 11 chars -> 3 tokens
 		{"This is a longer text", 6}, // 21 chars -> 6 tokens
-		{"A very long sentence that should result in many tokens being counted", 17}, // 68 chars -> 17 tokens
+		{"A very long sentence that should result in many tokens being counted", 19}, // 68 chars -> 19 tokens
 	}
 
 	for _, tt := range tests {

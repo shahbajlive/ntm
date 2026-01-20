@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/Dicklesworthstone/ntm/internal/tokens"
 )
 
 // ModelPricing defines the cost per 1K tokens for input and output.
@@ -302,17 +304,9 @@ func GetModelPricing(model string) ModelPricing {
 }
 
 // EstimateTokens estimates the token count for text.
-// Uses a simple heuristic: approximately 4 characters per token.
-// This is a rough estimate; actual token counts vary by model and content.
+// Uses the heuristics from the internal/tokens package.
 func EstimateTokens(text string) int {
-	// Rule of thumb: ~4 characters per token for English text
-	// This is a simplification - actual tokenizers vary
-	chars := len(text)
-	tokens := (chars + 3) / 4 // Round up
-	if tokens < 1 && chars > 0 {
-		tokens = 1
-	}
-	return tokens
+	return tokens.EstimateTokens(text)
 }
 
 // FormatCost formats a USD amount as a string.
