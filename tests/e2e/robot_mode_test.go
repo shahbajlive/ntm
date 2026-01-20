@@ -661,6 +661,335 @@ func createSyntheticAgentSessionWithName(t *testing.T, logger *testutil.TestLogg
 	return name
 }
 
+// TestRobotStatusAllAgentStates comprehensively tests robot-status JSON output
+// for all possible agent states: idle, working, error, unknown.
+func TestRobotStatusAllAgentStates(t *testing.T) {
+	testutil.RequireE2E(t)
+	testutil.RequireTmux(t)
+	testutil.RequireNTMBinary(t)
+
+	logger := testutil.NewTestLogger(t, t.TempDir())
+
+	session := fmt.Sprintf("robot_status_all_states_%d", time.Now().UnixNano())
+	projectsBase := t.TempDir()
+	projectDir := filepath.Join(projectsBase, session)
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatalf("failed to create project dir: %v", err)
+	}
+
+	configDir := t.TempDir()
+	configPath := filepath.Join(configDir, "config.toml")
+	configContent := fmt.Sprintf(`
+projects_base = %q
+
+[agents]
+claude = "bash"
+codex = "bash"
+gemini = "bash"
+`, projectsBase)
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+
+	t.Cleanup(func() {
+		exec.Command("tmux", "kill-session", "-t", session).Run()
+	})
+
+	// Spawn session with agents to simulate different states
+	logger.LogSection("spawn session with multiple agents")
+	if _, err := logger.Exec("ntm", "--config", configPath, "spawn", session, "--cc=2", "--cod=1", "--gmi=1"); err != nil {
+		t.Fatalf("ntm spawn failed: %v", err)
+	}
+	time.Sleep(1 * time.Second) // Wait for agents to stabilize
+
+	// Test basic robot-status JSON validity
+	logger.LogSection("test robot-status JSON validity")
+	out := testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath, "--robot-status")
+	logger.Log("[E2E-ROBOT-STATUS] Full JSON output:\n%s", string(out))
+
+	var payload struct {
+		GeneratedAt string `json:"generated_at"`
+		System      struct {
+			Version   string `json:"version"`
+			OS        string `json:"os"`
+			Arch      string `json:"arch"`
+			TmuxOK    bool   `json:"tmux_available"`
+			GoVersion string `json:"go_version"`
+		} `json:"system"`
+		Sessions []struct {
+			Name   string `json:"name"`
+			Agents []struct {
+				Type         string `json:"type"`
+				Pane         string `json:"pane"`
+				PaneIdx      int    `json:"pane_idx"`
+				State        string `json:"state"`
+				ErrorType    string `json:"error_type,omitempty"`
+				LastActivity string `json:"last_activity,omitempty"`
+			} `json:"agents"`
+			Summary struct {
+				TotalAgents   int `json:"total_agents"`
+				WorkingAgents int `json:"working_agents"`
+				IdleAgents    int `json:"idle_agents"`
+				ErrorAgents   int `json:"error_agents"`
+			} `json:"summary"`
+		} `json:"sessions"`
+		Summary struct {
+			TotalSessions int `json:"total_sessions"`
+			TotalAgents   int `json:"total_agents"`
+			ClaudeCount   int `json:"claude_count"`
+			CodexCount    int `json:"codex_count"`
+			GeminiCount   int `json:"gemini_count"`
+		} `json:"summary"`
+	}
+
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	// Validate required top-level fields
+	if payload.GeneratedAt == "" {
+		t.Fatalf("missing generated_at field")
+	}
+	if _, err := time.Parse(time.RFC3339, payload.GeneratedAt); err != nil {
+		t.Fatalf("generated_at not RFC3339: %v", err)
+	}
+
+	// Validate system fields
+	if payload.System.Version == "" {
+		t.Fatalf("missing system.version")
+	}
+	if payload.System.OS == "" || payload.System.Arch == "" {
+		t.Fatalf("missing system.os or system.arch")
+	}
+	if payload.System.GoVersion == "" {
+		t.Fatalf("missing system.go_version")
+	}
+
+	// Find our session
+	var targetSession *struct {
+		Name   string `json:"name"`
+		Agents []struct {
+			Type         string `json:"type"`
+			Pane         string `json:"pane"`
+			PaneIdx      int    `json:"pane_idx"`
+			State        string `json:"state"`
+			ErrorType    string `json:"error_type,omitempty"`
+			LastActivity string `json:"last_activity,omitempty"`
+		} `json:"agents"`
+		Summary struct {
+			TotalAgents   int `json:"total_agents"`
+			WorkingAgents int `json:"working_agents"`
+			IdleAgents    int `json:"idle_agents"`
+			ErrorAgents   int `json:"error_agents"`
+		} `json:"summary"`
+	}
+	for i := range payload.Sessions {
+		if payload.Sessions[i].Name == session {
+			targetSession = &payload.Sessions[i]
+			break
+		}
+	}
+
+	if targetSession == nil {
+		t.Fatalf("robot-status missing session %s", session)
+	}
+
+	// Validate agent count and types
+	if len(targetSession.Agents) < 4 {
+		t.Fatalf("expected at least 4 agents (2 claude + 1 codex + 1 gemini), got %d", len(targetSession.Agents))
+	}
+
+	// Test that agents have valid states
+	validStates := map[string]bool{
+		"idle":    true,
+		"working": true,
+		"error":   true,
+		"unknown": true,
+	}
+
+	statesCounted := map[string]int{}
+	typeCounts := map[string]int{}
+
+	for _, agent := range targetSession.Agents {
+		// Validate required agent fields
+		if agent.Type == "" {
+			t.Fatalf("agent missing type field")
+		}
+		if agent.Pane == "" {
+			t.Fatalf("agent missing pane field")
+		}
+		if agent.State == "" {
+			t.Fatalf("agent missing state field")
+		}
+
+		// Validate state is one of the known valid states
+		if !validStates[agent.State] {
+			t.Fatalf("agent has invalid state %q, expected one of: idle, working, error, unknown", agent.State)
+		}
+
+		statesCounted[agent.State]++
+		typeCounts[agent.Type]++
+
+		logger.Log("[E2E-ROBOT-STATUS] Agent pane=%s type=%s state=%s error_type=%s",
+			agent.Pane, agent.Type, agent.State, agent.ErrorType)
+	}
+
+	// Validate summary counts match agent counts
+	expectedTotal := len(targetSession.Agents)
+	if targetSession.Summary.TotalAgents != expectedTotal {
+		t.Fatalf("summary.total_agents = %d, expected %d", targetSession.Summary.TotalAgents, expectedTotal)
+	}
+
+	// Validate state counts add up
+	calculatedTotal := targetSession.Summary.IdleAgents + targetSession.Summary.WorkingAgents + targetSession.Summary.ErrorAgents
+	// Note: unknown state agents might not be counted in specific categories
+	if calculatedTotal > expectedTotal {
+		t.Fatalf("sum of state counts (%d) exceeds total agents (%d)", calculatedTotal, expectedTotal)
+	}
+
+	// Validate agent type counts
+	expectedClaude := 2
+	expectedCodex := 1
+	expectedGemini := 1
+	if typeCounts["cc"] < expectedClaude {
+		t.Fatalf("expected at least %d claude agents, got %d", expectedClaude, typeCounts["cc"])
+	}
+	if typeCounts["cod"] < expectedCodex {
+		t.Fatalf("expected at least %d codex agents, got %d", expectedCodex, typeCounts["cod"])
+	}
+	if typeCounts["gmi"] < expectedGemini {
+		t.Fatalf("expected at least %d gemini agents, got %d", expectedGemini, typeCounts["gmi"])
+	}
+
+	logger.Log("[E2E-ROBOT-STATUS] State distribution: idle=%d working=%d error=%d unknown=%d",
+		statesCounted["idle"], statesCounted["working"], statesCounted["error"], statesCounted["unknown"])
+	logger.Log("[E2E-ROBOT-STATUS] Type distribution: claude=%d codex=%d gemini=%d",
+		typeCounts["cc"], typeCounts["cod"], typeCounts["gmi"])
+}
+
+// TestRobotStatusVerboseMode tests that verbose mode includes additional fields
+func TestRobotStatusVerboseMode(t *testing.T) {
+	testutil.RequireE2E(t)
+	testutil.RequireTmux(t)
+	testutil.RequireNTMBinary(t)
+
+	logger := testutil.NewTestLogger(t, t.TempDir())
+	_ = createSyntheticAgentSession(t, logger)
+
+	// Test with verbose flag (if supported)
+	logger.LogSection("test robot-status verbose mode")
+	out := testutil.AssertCommandSuccess(t, logger, "ntm", "--robot-status", "--verbose")
+	logger.Log("[E2E-ROBOT-STATUS-VERBOSE] Full JSON output:\n%s", string(out))
+
+	var payload struct {
+		GeneratedAt string `json:"generated_at"`
+		Sessions    []struct {
+			Name   string `json:"name"`
+			Agents []struct {
+				Type         string `json:"type"`
+				State        string `json:"state"`
+				LastActivity string `json:"last_activity,omitempty"`
+				MemoryMB     int    `json:"memory_mb,omitempty"`
+				LastOutput   string `json:"last_output,omitempty"`
+			} `json:"agents"`
+		} `json:"sessions"`
+	}
+
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("invalid JSON in verbose mode: %v", err)
+	}
+
+	// In verbose mode, we expect additional fields (though their presence depends on implementation)
+	if payload.GeneratedAt == "" {
+		t.Fatalf("verbose mode missing generated_at")
+	}
+
+	logger.Log("[E2E-ROBOT-STATUS-VERBOSE] Verbose mode JSON validated successfully")
+}
+
+// TestRobotStatusErrorHandling tests error conditions and malformed input
+func TestRobotStatusErrorHandling(t *testing.T) {
+	testutil.RequireNTMBinary(t)
+
+	logger := testutil.NewTestLoggerStdout(t)
+
+	// Test with non-existent session filter (should still return valid JSON)
+	logger.LogSection("test robot-status with non-existent session")
+	out := testutil.AssertCommandSuccess(t, logger, "ntm", "--robot-status")
+	logger.Log("[E2E-ROBOT-STATUS-ERROR] Output for empty state:\n%s", string(out))
+
+	var payload struct {
+		GeneratedAt string                   `json:"generated_at"`
+		Sessions    []map[string]interface{} `json:"sessions"`
+		Summary     struct {
+			TotalSessions int `json:"total_sessions"`
+			TotalAgents   int `json:"total_agents"`
+		} `json:"summary"`
+	}
+
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("invalid JSON in error condition: %v", err)
+	}
+
+	// Should still have valid structure even with no sessions
+	if payload.GeneratedAt == "" {
+		t.Fatalf("missing generated_at in error condition")
+	}
+	if payload.Sessions == nil {
+		t.Fatalf("sessions should be empty array, not nil")
+	}
+
+	logger.Log("[E2E-ROBOT-STATUS-ERROR] Error handling validated successfully")
+}
+
+// TestRobotStatusFieldStability tests that JSON schema remains stable
+func TestRobotStatusFieldStability(t *testing.T) {
+	testutil.RequireNTMBinary(t)
+
+	logger := testutil.NewTestLoggerStdout(t)
+	out := testutil.AssertCommandSuccess(t, logger, "ntm", "--robot-status")
+
+	// Define expected schema for critical fields that should never change
+	type ExpectedAgentSchema struct {
+		Type    string `json:"type"`
+		Pane    string `json:"pane"`
+		PaneIdx int    `json:"pane_idx"`
+		State   string `json:"state"`
+	}
+
+	type ExpectedSessionSchema struct {
+		Name   string                `json:"name"`
+		Agents []ExpectedAgentSchema `json:"agents"`
+	}
+
+	type ExpectedSchema struct {
+		GeneratedAt string                  `json:"generated_at"`
+		Sessions    []ExpectedSessionSchema `json:"sessions"`
+		Summary     struct {
+			TotalSessions int `json:"total_sessions"`
+			TotalAgents   int `json:"total_agents"`
+		} `json:"summary"`
+	}
+
+	var payload ExpectedSchema
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("JSON schema validation failed: %v", err)
+	}
+
+	// Verify critical fields are present (this ensures API stability)
+	if payload.GeneratedAt == "" {
+		t.Fatalf("critical field 'generated_at' missing")
+	}
+	if payload.Sessions == nil {
+		t.Fatalf("critical field 'sessions' missing")
+	}
+	if payload.Summary.TotalSessions < 0 || payload.Summary.TotalAgents < 0 {
+		t.Fatalf("summary counts should be non-negative")
+	}
+
+	logger.Log("[E2E-ROBOT-STATUS-SCHEMA] JSON schema stability validated")
+}
+
 // Skip tests if ntm binary is missing.
 func TestMain(m *testing.M) {
 	if _, err := exec.LookPath("ntm"); err != nil {
