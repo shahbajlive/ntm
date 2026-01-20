@@ -350,27 +350,27 @@ func (m *TickerPanel) styleVisibleText(text string) string {
 
 	// Style "Fleet:" label
 	fleetLabel := lipgloss.NewStyle().Foreground(t.Blue).Bold(true).Render("Fleet:")
-	result = strings.Replace(result, "Fleet:", fleetLabel, 1)
+	result = strings.Replace(result, "Fleet:", fleetLabel, -1)
 
 	// Style "Alerts:" label
 	alertsLabel := lipgloss.NewStyle().Foreground(t.Pink).Bold(true).Render("Alerts:")
-	result = strings.Replace(result, "Alerts:", alertsLabel, 1)
+	result = strings.Replace(result, "Alerts:", alertsLabel, -1)
 
 	// Style "Beads:" label
 	beadsLabel := lipgloss.NewStyle().Foreground(t.Green).Bold(true).Render("Beads:")
-	result = strings.Replace(result, "Beads:", beadsLabel, 1)
+	result = strings.Replace(result, "Beads:", beadsLabel, -1)
 
 	// Style "Mail:" label
 	mailLabel := lipgloss.NewStyle().Foreground(t.Lavender).Bold(true).Render("Mail:")
-	result = strings.Replace(result, "Mail:", mailLabel, 1)
+	result = strings.Replace(result, "Mail:", mailLabel, -1)
 
 	// Style "Ckpt:" label
 	ckptLabel := lipgloss.NewStyle().Foreground(t.Teal).Bold(true).Render("Ckpt:")
-	result = strings.Replace(result, "Ckpt:", ckptLabel, 1)
+	result = strings.Replace(result, "Ckpt:", ckptLabel, -1)
 
 	// Style "Bugs:" label
 	bugsLabel := lipgloss.NewStyle().Foreground(t.Peach).Bold(true).Render("Bugs:")
-	result = strings.Replace(result, "Bugs:", bugsLabel, 1)
+	result = strings.Replace(result, "Bugs:", bugsLabel, -1)
 
 	// Style separators
 	sepStyled := lipgloss.NewStyle().Foreground(t.Surface2).Render(" | ")
@@ -378,15 +378,15 @@ func (m *TickerPanel) styleVisibleText(text string) string {
 
 	// Style "OK" in green
 	okStyled := lipgloss.NewStyle().Foreground(t.Green).Render("OK")
-	result = strings.Replace(result, " OK", " "+okStyled, 1)
+	result = strings.Replace(result, " OK", " "+okStyled, -1)
 
 	// Style "offline" in dim
 	offlineStyled := lipgloss.NewStyle().Foreground(t.Overlay).Italic(true).Render("offline")
-	result = strings.Replace(result, "offline", offlineStyled, 1)
+	result = strings.Replace(result, "offline", offlineStyled, -1)
 
 	// Style "detected" in yellow (MCP-only mode, partial functionality)
 	detectedStyled := lipgloss.NewStyle().Foreground(t.Yellow).Render("detected")
-	result = strings.Replace(result, "detected", detectedStyled, 1)
+	result = strings.Replace(result, "detected", detectedStyled, -1)
 
 	return result
 }

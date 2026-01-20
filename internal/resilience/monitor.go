@@ -135,11 +135,17 @@ func (m *Monitor) ScanAndRegisterAgents() error {
 		modelName := m.cfg.Models.GetModelName(string(p.Type), p.Variant)
 
 		// Generate command
+		// Use NTM index (logical agent number) if available, otherwise fallback to tmux pane index
+		paneIdx := p.Index
+		if p.NTMIndex > 0 {
+			paneIdx = p.NTMIndex
+		}
+
 		cmd, err := config.GenerateAgentCommand(agentCmdTemplate, config.AgentTemplateVars{
 			Model:       modelName,
 			ModelAlias:  p.Variant,
 			SessionName: m.session,
-			PaneIndex:   p.Index,
+			PaneIndex:   paneIdx,
 			AgentType:   string(p.Type),
 			ProjectDir:  m.projectDir,
 			// Note: SystemPromptFile is lost in reconstruction
@@ -152,7 +158,7 @@ func (m *Monitor) ScanAndRegisterAgents() error {
 
 		m.agents[p.ID] = &AgentState{
 			PaneID:    p.ID,
-			PaneIndex: p.Index,
+			PaneIndex: paneIdx,
 			AgentType: string(p.Type),
 			Model:     p.Variant,
 			Command:   cmd,

@@ -51,6 +51,15 @@ func TestDetermineOverallHealth(t *testing.T) {
 			want: "degraded",
 		},
 		{
+			name: "one degraded (non-rate limited)",
+			summary: DiagnoseSummary{
+				TotalPanes: 4,
+				Healthy:    3,
+				Degraded:   1, // We will need to add this field to DiagnoseSummary
+			},
+			want: "degraded",
+		},
+		{
 			name: "one unresponsive minority",
 			summary: DiagnoseSummary{
 				TotalPanes:   4,

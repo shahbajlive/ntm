@@ -40,6 +40,7 @@ type DiagnoseOutput struct {
 type DiagnoseSummary struct {
 	TotalPanes   int `json:"total_panes"`
 	Healthy      int `json:"healthy"`
+	Degraded     int `json:"degraded"`
 	RateLimited  int `json:"rate_limited"`
 	Unresponsive int `json:"unresponsive"`
 	Crashed      int `json:"crashed"`
@@ -49,6 +50,7 @@ type DiagnoseSummary struct {
 // DiagnosePanes groups pane indices by health state
 type DiagnosePanes struct {
 	Healthy      []int `json:"healthy"`
+	Degraded     []int `json:"degraded"`
 	RateLimited  []int `json:"rate_limited"`
 	Unresponsive []int `json:"unresponsive"`
 	Crashed      []int `json:"crashed"`
@@ -85,6 +87,7 @@ func PrintDiagnose(opts DiagnoseOptions) error {
 
 	// Initialize empty slices (never nil per envelope spec)
 	output.Panes.Healthy = []int{}
+	output.Panes.Degraded = []int{}
 	output.Panes.RateLimited = []int{}
 	output.Panes.Unresponsive = []int{}
 	output.Panes.Crashed = []int{}
@@ -169,9 +172,21 @@ func PrintDiagnose(opts DiagnoseOptions) error {
 				rec := buildRateLimitRecommendation(pane.Index, opts.Session, check)
 				output.Recommendations = append(output.Recommendations, rec)
 			} else {
-				// Treat as healthy but note it
-				output.Summary.Healthy++
-				output.Panes.Healthy = append(output.Panes.Healthy, pane.Index)
+				// Treat as degraded
+				output.Summary.Degraded++
+				output.Panes.Degraded = append(output.Panes.Degraded, pane.Index)
+				
+				// If stalled, add recommendation
+				if check.StallCheck != nil && check.StallCheck.Stalled {
+					output.Recommendations = append(output.Recommendations, DiagnoseRecommendation{
+						Pane:        pane.Index,
+						Status:      "stalled",
+						Action:      "investigate",
+						Reason:      check.Reason,
+						AutoFixable: false,
+						FixCommand:  fmt.Sprintf("ntm inspect %s --pane=%d", opts.Session, pane.Index),
+					})
+				}
 			}
 
 		case HealthRateLimited:
@@ -226,6 +241,7 @@ func PrintDiagnose(opts DiagnoseOptions) error {
 
 	// Sort all pane lists for consistent output
 	sort.Ints(output.Panes.Healthy)
+	sort.Ints(output.Panes.Degraded)
 	sort.Ints(output.Panes.RateLimited)
 	sort.Ints(output.Panes.Unresponsive)
 	sort.Ints(output.Panes.Crashed)
@@ -272,8 +288,8 @@ func determineOverallHealth(summary DiagnoseSummary) string {
 		return "critical"
 	}
 
-	// Degraded: any rate-limited or unresponsive panes
-	if summary.RateLimited > 0 || summary.Unresponsive > 0 || summary.Unknown > 0 {
+	// Degraded: any rate-limited, degraded, or unresponsive panes
+	if summary.RateLimited > 0 || summary.Degraded > 0 || summary.Unresponsive > 0 || summary.Unknown > 0 {
 		return "degraded"
 	}
 

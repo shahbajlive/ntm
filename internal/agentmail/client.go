@@ -191,6 +191,9 @@ func HasArchiveForProject(projectKey string) bool {
 	}
 	homeDir, _ := os.UserHomeDir()
 	slug := ProjectSlugFromPath(projectKey)
+	if slug == "" {
+		return false
+	}
 	projectPath := filepath.Join(homeDir, DefaultArchivePath, "projects", slug)
 	info, err := os.Stat(projectPath)
 	if err != nil {
