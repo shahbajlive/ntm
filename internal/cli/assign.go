@@ -1479,22 +1479,67 @@ func generateAssignmentsEnhanced(agents []assignAgentInfo, beads []bv.BeadPrevie
 		}
 
 	default: // balanced
-		// Balanced: spread work evenly, considering existing load
+		// Balanced: spread work evenly, considering existing load from AssignmentStore
 		agentAssignCounts := make(map[int]int)
+		agentLastAssigned := make(map[int]time.Time)
+
+		// Pre-populate counts from AssignmentStore (live tracking of active assignments)
+		if opts.Session != "" {
+			store, err := assignment.LoadStore(opts.Session)
+			if err == nil && store != nil {
+				for _, a := range store.ListActive() {
+					agentAssignCounts[a.Pane]++
+					// Track most recent assignment time for tie-breaking
+					if agentLastAssigned[a.Pane].Before(a.AssignedAt) {
+						agentLastAssigned[a.Pane] = a.AssignedAt
+					}
+				}
+			}
+		}
+
 		for _, bead := range beads {
 			var bestAgent *assignAgentInfo
 			var bestScore float64
 			minAssigns := int(^uint(0) >> 1)
+			var leastRecentTime time.Time
 
 			for i := range agents {
 				count := agentAssignCounts[agents[i].pane.Index]
 				score := calculateMatchConfidence(agents[i].agentType, bead, "balanced")
+				lastAssign := agentLastAssigned[agents[i].pane.Index]
 
-				// Prefer agents with fewer assignments, then by score
-				if count < minAssigns || (count == minAssigns && score > bestScore) {
+				// Tie-breaker cascade:
+				// 1. Prefer agents with fewer active assignments
+				// 2. On tie: prefer higher capability score
+				// 3. On tie: prefer least-recently assigned (or never assigned)
+				// 4. On tie: prefer lower pane index (deterministic)
+				shouldPick := false
+				if count < minAssigns {
+					shouldPick = true
+				} else if count == minAssigns {
+					if score > bestScore {
+						shouldPick = true
+					} else if score == bestScore {
+						// Tie-breaker: least-recently assigned wins
+						if bestAgent == nil {
+							shouldPick = true
+						} else if lastAssign.IsZero() && !leastRecentTime.IsZero() {
+							// Never assigned beats previously assigned
+							shouldPick = true
+						} else if !lastAssign.IsZero() && !leastRecentTime.IsZero() && lastAssign.Before(leastRecentTime) {
+							shouldPick = true
+						} else if lastAssign.Equal(leastRecentTime) && agents[i].pane.Index < bestAgent.pane.Index {
+							// Final tie-breaker: lower pane index for determinism
+							shouldPick = true
+						}
+					}
+				}
+
+				if shouldPick {
 					minAssigns = count
 					bestScore = score
 					bestAgent = &agents[i]
+					leastRecentTime = lastAssign
 				}
 			}
 
@@ -1512,6 +1557,9 @@ func generateAssignmentsEnhanced(agents []assignAgentInfo, beads []bv.BeadPrevie
 					Reasoning:  buildReasoning(bestAgent.agentType, bead, "balanced"),
 				})
 				agentAssignCounts[bestAgent.pane.Index]++
+				// Update last assigned time for this session's assignments
+				now := time.Now()
+				agentLastAssigned[bestAgent.pane.Index] = now
 			}
 		}
 	}
