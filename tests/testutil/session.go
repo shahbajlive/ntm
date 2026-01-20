@@ -210,3 +210,23 @@ func filterEnv(env []string, prefix string) []string {
 	}
 	return result
 }
+
+// CreateNTMConfig creates a temporary NTM config file pointing to the given project directory.
+func CreateNTMConfig(t *testing.T, projectDir string, logger *TestLogger) string {
+	t.Helper()
+	configContent := fmt.Sprintf(`
+projects_base = %q
+
+[agents]
+claude = "echo claude"
+codex = "echo codex"
+gemini = "echo gemini"
+`, filepath.Dir(projectDir))
+
+	configPath := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+	logger.Log("Created config file at %s", configPath)
+	return configPath
+}

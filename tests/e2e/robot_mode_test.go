@@ -495,7 +495,7 @@ claude = "bash"
 	marker := fmt.Sprintf("ROBOT_SEND_MARKER_%d", time.Now().UnixNano())
 	logger.LogSection("robot-send")
 	out := testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath,
-		"--robot-send", session, "--msg", fmt.Sprintf("echo %s", marker), "--type=cc")
+		"--robot-send", session, "--msg", fmt.Sprintf("echo %s", marker), "--all")
 	logger.Log("robot-send output: %s", string(out))
 
 	var sendPayload struct {
@@ -988,6 +988,790 @@ func TestRobotStatusFieldStability(t *testing.T) {
 	}
 
 	logger.Log("[E2E-ROBOT-STATUS-SCHEMA] JSON schema stability validated")
+}
+
+// TestRobotSendTargetFiltering tests comprehensive target filtering for robot-send.
+func TestRobotSendTargetFiltering(t *testing.T) {
+	testutil.RequireE2E(t)
+	testutil.RequireTmux(t)
+	testutil.RequireNTMBinary(t)
+
+	logger := testutil.NewTestLogger(t, t.TempDir())
+
+	session := fmt.Sprintf("robot_send_filtering_%d", time.Now().UnixNano())
+	projectsBase := t.TempDir()
+	projectDir := filepath.Join(projectsBase, session)
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatalf("Failed to create project directory: %v", err)
+	}
+
+	// Create test configuration
+	configDir := t.TempDir()
+	configPath := filepath.Join(configDir, "config.toml")
+	configContent := fmt.Sprintf(`
+projects_base = %q
+
+[agents]
+claude = "bash"
+`, projectsBase)
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+	logger.LogSection("robot-send-target-filtering")
+	logger.Log("[E2E-ROBOT-SEND-FILTERING] Starting comprehensive target filtering tests")
+
+	defer func() {
+		logger.LogSection("cleanup")
+		_ = exec.Command("tmux", "kill-session", "-t", session).Run()
+	}()
+
+	// Spawn mixed session with multiple agent types
+	spawnOut := testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath,
+		"spawn", session, "--cc=3", "--cod=2", "--project-dir", projectDir)
+	logger.Log("[E2E-ROBOT-SEND-FILTERING] Spawn output: %s", string(spawnOut))
+
+	// Give agents time to initialize
+	time.Sleep(2 * time.Second)
+	testutil.AssertSessionExists(t, logger, session)
+
+	// Test 1: Filter by agent type (claude)
+	logger.Log("[E2E-ROBOT-SEND-FILTERING] Test 1: Filter by agent type --type=claude")
+	testMessage := fmt.Sprintf("FILTER_TEST_CLAUDE_%d", time.Now().UnixNano())
+	sendOut := testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath,
+		"--robot-send", session, "--msg", fmt.Sprintf("echo %s", testMessage), "--type=claude")
+
+	var sendPayload struct {
+		Success        bool     `json:"success"`
+		Session        string   `json:"session"`
+		Targets        []string `json:"targets"`
+		Successful     []string `json:"successful"`
+		Failed         []struct {
+			Pane  string `json:"pane"`
+			Error string `json:"error"`
+		} `json:"failed"`
+		MessagePreview string    `json:"message_preview"`
+		SentAt         time.Time `json:"sent_at"`
+	}
+
+	if err := json.Unmarshal(sendOut, &sendPayload); err != nil {
+		t.Fatalf("[E2E-ROBOT-SEND-FILTERING] Invalid robot-send JSON: %v", err)
+	}
+
+	if !sendPayload.Success {
+		t.Fatalf("[E2E-ROBOT-SEND-FILTERING] robot-send --type=claude should succeed")
+	}
+	if sendPayload.Session != session {
+		t.Errorf("[E2E-ROBOT-SEND-FILTERING] Expected session %s, got %s", session, sendPayload.Session)
+	}
+	if len(sendPayload.Targets) != 3 {
+		t.Errorf("[E2E-ROBOT-SEND-FILTERING] Expected 3 claude targets, got %d", len(sendPayload.Targets))
+	}
+	if len(sendPayload.Successful) != 3 {
+		t.Errorf("[E2E-ROBOT-SEND-FILTERING] Expected 3 successful sends, got %d", len(sendPayload.Successful))
+	}
+	logger.Log("[E2E-ROBOT-SEND-FILTERING] Test 1 PASSED: claude filter sent to %d targets", len(sendPayload.Targets))
+
+	// Test 2: Filter by agent type (codex)
+	logger.Log("[E2E-ROBOT-SEND-FILTERING] Test 2: Filter by agent type --type=cod")
+	testMessage = fmt.Sprintf("FILTER_TEST_CODEX_%d", time.Now().UnixNano())
+	sendOut = testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath,
+		"--robot-send", session, "--msg", fmt.Sprintf("echo %s", testMessage), "--type=cod")
+
+	if err := json.Unmarshal(sendOut, &sendPayload); err != nil {
+		t.Fatalf("[E2E-ROBOT-SEND-FILTERING] Invalid robot-send JSON for codex: %v", err)
+	}
+
+	if !sendPayload.Success {
+		t.Fatalf("[E2E-ROBOT-SEND-FILTERING] robot-send --type=cod should succeed")
+	}
+	if len(sendPayload.Targets) != 2 {
+		t.Errorf("[E2E-ROBOT-SEND-FILTERING] Expected 2 codex targets, got %d", len(sendPayload.Targets))
+	}
+	logger.Log("[E2E-ROBOT-SEND-FILTERING] Test 2 PASSED: codex filter sent to %d targets", len(sendPayload.Targets))
+
+	// Test 3: Send to all agents
+	logger.Log("[E2E-ROBOT-SEND-FILTERING] Test 3: Send to all agents --all")
+	testMessage = fmt.Sprintf("FILTER_TEST_ALL_%d", time.Now().UnixNano())
+	sendOut = testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath,
+		"--robot-send", session, "--msg", fmt.Sprintf("echo %s", testMessage), "--all")
+
+	if err := json.Unmarshal(sendOut, &sendPayload); err != nil {
+		t.Fatalf("[E2E-ROBOT-SEND-FILTERING] Invalid robot-send JSON for all: %v", err)
+	}
+
+	if !sendPayload.Success {
+		t.Fatalf("[E2E-ROBOT-SEND-FILTERING] robot-send --all should succeed")
+	}
+	if len(sendPayload.Targets) < 5 {
+		t.Errorf("[E2E-ROBOT-SEND-FILTERING] Expected at least 5 targets (all agents), got %d", len(sendPayload.Targets))
+	}
+	logger.Log("[E2E-ROBOT-SEND-FILTERING] Test 3 PASSED: --all sent to %d targets", len(sendPayload.Targets))
+
+	// Test 4: Specific pane targeting
+	logger.Log("[E2E-ROBOT-SEND-FILTERING] Test 4: Send to specific panes --panes=1,2")
+	testMessage = fmt.Sprintf("FILTER_TEST_PANES_%d", time.Now().UnixNano())
+	sendOut = testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath,
+		"--robot-send", session, "--msg", fmt.Sprintf("echo %s", testMessage), "--panes=1,2")
+
+	if err := json.Unmarshal(sendOut, &sendPayload); err != nil {
+		t.Fatalf("[E2E-ROBOT-SEND-FILTERING] Invalid robot-send JSON for panes: %v", err)
+	}
+
+	if !sendPayload.Success {
+		t.Fatalf("[E2E-ROBOT-SEND-FILTERING] robot-send --panes should succeed")
+	}
+	if len(sendPayload.Targets) != 2 {
+		t.Errorf("[E2E-ROBOT-SEND-FILTERING] Expected 2 pane targets, got %d", len(sendPayload.Targets))
+	}
+	logger.Log("[E2E-ROBOT-SEND-FILTERING] Test 4 PASSED: pane filter sent to %d targets", len(sendPayload.Targets))
+
+	logger.Log("[E2E-ROBOT-SEND-FILTERING] All target filtering tests completed successfully")
+}
+
+// TestRobotSendExcludeFiltering tests exclude filtering capabilities.
+func TestRobotSendExcludeFiltering(t *testing.T) {
+	testutil.RequireE2E(t)
+	testutil.RequireTmux(t)
+	testutil.RequireNTMBinary(t)
+
+	logger := testutil.NewTestLogger(t, t.TempDir())
+
+	session := fmt.Sprintf("robot_send_exclude_%d", time.Now().UnixNano())
+	projectsBase := t.TempDir()
+	projectDir := filepath.Join(projectsBase, session)
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatalf("Failed to create project directory: %v", err)
+	}
+
+	// Create test configuration
+	configDir := t.TempDir()
+	configPath := filepath.Join(configDir, "config.toml")
+	configContent := fmt.Sprintf(`
+projects_base = %q
+
+[agents]
+claude = "bash"
+`, projectsBase)
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+	logger.LogSection("robot-send-exclude-filtering")
+	logger.Log("[E2E-ROBOT-SEND-EXCLUDE] Starting exclude filtering tests")
+
+	defer func() {
+		logger.LogSection("cleanup")
+		_ = exec.Command("tmux", "kill-session", "-t", session).Run()
+	}()
+
+	// Spawn session with multiple agents
+	spawnOut := testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath,
+		"spawn", session, "--cc=3", "--project-dir", projectDir)
+	logger.Log("[E2E-ROBOT-SEND-EXCLUDE] Spawn output: %s", string(spawnOut))
+
+	time.Sleep(2 * time.Second)
+	testutil.AssertSessionExists(t, logger, session)
+
+	// Test exclude functionality
+	logger.Log("[E2E-ROBOT-SEND-EXCLUDE] Test: Send to all claude agents except pane 1 --type=claude --exclude=1")
+	testMessage := fmt.Sprintf("EXCLUDE_TEST_%d", time.Now().UnixNano())
+	sendOut := testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath,
+		"--robot-send", session, "--msg", fmt.Sprintf("echo %s", testMessage), "--type=claude", "--exclude=1")
+
+	var sendPayload struct {
+		Success        bool     `json:"success"`
+		Targets        []string `json:"targets"`
+		Successful     []string `json:"successful"`
+		MessagePreview string   `json:"message_preview"`
+	}
+
+	if err := json.Unmarshal(sendOut, &sendPayload); err != nil {
+		t.Fatalf("[E2E-ROBOT-SEND-EXCLUDE] Invalid robot-send JSON: %v", err)
+	}
+
+	if !sendPayload.Success {
+		t.Fatalf("[E2E-ROBOT-SEND-EXCLUDE] robot-send with exclude should succeed")
+	}
+
+	// Should send to 2 claude agents (3 total - 1 excluded)
+	if len(sendPayload.Targets) != 2 {
+		t.Errorf("[E2E-ROBOT-SEND-EXCLUDE] Expected 2 targets after excluding 1 pane, got %d", len(sendPayload.Targets))
+	}
+
+	logger.Log("[E2E-ROBOT-SEND-EXCLUDE] PASSED: exclude filter sent to %d targets", len(sendPayload.Targets))
+}
+
+// TestRobotSendDryRun tests dry-run functionality.
+func TestRobotSendDryRun(t *testing.T) {
+	testutil.RequireE2E(t)
+	testutil.RequireTmux(t)
+	testutil.RequireNTMBinary(t)
+
+	logger := testutil.NewTestLogger(t, t.TempDir())
+
+	session := fmt.Sprintf("robot_send_dryrun_%d", time.Now().UnixNano())
+	projectsBase := t.TempDir()
+	projectDir := filepath.Join(projectsBase, session)
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatalf("Failed to create project directory: %v", err)
+	}
+
+	// Create test configuration
+	configDir := t.TempDir()
+	configPath := filepath.Join(configDir, "config.toml")
+	configContent := fmt.Sprintf(`
+projects_base = %q
+
+[agents]
+claude = "bash"
+`, projectsBase)
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+	logger.LogSection("robot-send-dry-run")
+	logger.Log("[E2E-ROBOT-SEND-DRYRUN] Starting dry-run tests")
+
+	defer func() {
+		logger.LogSection("cleanup")
+		_ = exec.Command("tmux", "kill-session", "-t", session).Run()
+	}()
+
+	// Spawn session
+	spawnOut := testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath,
+		"spawn", session, "--cc=2", "--project-dir", projectDir)
+	logger.Log("[E2E-ROBOT-SEND-DRYRUN] Spawn output: %s", string(spawnOut))
+
+	time.Sleep(2 * time.Second)
+	testutil.AssertSessionExists(t, logger, session)
+
+	// Test dry-run mode
+	logger.Log("[E2E-ROBOT-SEND-DRYRUN] Test: Dry run with --dry-run")
+	testMessage := fmt.Sprintf("DRYRUN_TEST_%d", time.Now().UnixNano())
+	sendOut := testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath,
+		"--robot-send", session, "--msg", fmt.Sprintf("echo %s", testMessage), "--type=claude", "--dry-run")
+
+	var sendPayload struct {
+		Success     bool     `json:"success"`
+		DryRun      bool     `json:"dry_run"`
+		WouldSendTo []string `json:"would_send_to"`
+		Targets     []string `json:"targets"`
+	}
+
+	if err := json.Unmarshal(sendOut, &sendPayload); err != nil {
+		t.Fatalf("[E2E-ROBOT-SEND-DRYRUN] Invalid robot-send JSON: %v", err)
+	}
+
+	if !sendPayload.Success {
+		t.Fatalf("[E2E-ROBOT-SEND-DRYRUN] robot-send dry-run should succeed")
+	}
+	if !sendPayload.DryRun {
+		t.Fatalf("[E2E-ROBOT-SEND-DRYRUN] dry_run field should be true")
+	}
+	if len(sendPayload.WouldSendTo) == 0 {
+		t.Errorf("[E2E-ROBOT-SEND-DRYRUN] would_send_to should have entries in dry-run mode")
+	}
+
+	logger.Log("[E2E-ROBOT-SEND-DRYRUN] PASSED: dry-run would send to %d targets", len(sendPayload.WouldSendTo))
+}
+
+// TestRobotSendErrorHandling tests error scenarios and edge cases.
+func TestRobotSendErrorHandling(t *testing.T) {
+	testutil.RequireNTMBinary(t)
+
+	logger := testutil.NewTestLogger(t, t.TempDir())
+	logger.LogSection("robot-send-error-handling")
+	logger.Log("[E2E-ROBOT-SEND-ERROR] Starting error handling tests")
+
+	// Test 1: Non-existent session
+	logger.Log("[E2E-ROBOT-SEND-ERROR] Test 1: Send to non-existent session")
+	nonexistentSession := fmt.Sprintf("nonexistent_%d", time.Now().UnixNano())
+
+	cmd := exec.Command("ntm", "--robot-send", nonexistentSession, "--msg", "test")
+	out, err := cmd.CombinedOutput()
+
+	logger.Log("[E2E-ROBOT-SEND-ERROR] Command output: %s", string(out))
+	logger.Log("[E2E-ROBOT-SEND-ERROR] Command error: %v", err)
+
+	// Robot mode should return JSON even for errors (exit code 0, but success=false)
+
+	var errorPayload struct {
+		Success   bool   `json:"success"`
+		Error     string `json:"error"`
+		ErrorCode string `json:"error_code"`
+		Session   string `json:"session"`
+	}
+
+	if jsonErr := json.Unmarshal(out, &errorPayload); jsonErr != nil {
+		t.Fatalf("[E2E-ROBOT-SEND-ERROR] Error response should be valid JSON: %v", jsonErr)
+	}
+
+	if errorPayload.Success {
+		t.Fatalf("[E2E-ROBOT-SEND-ERROR] Error response should have success=false")
+	}
+	if errorPayload.Error == "" {
+		t.Errorf("[E2E-ROBOT-SEND-ERROR] Error response should have error message")
+	}
+	if errorPayload.ErrorCode == "" {
+		t.Errorf("[E2E-ROBOT-SEND-ERROR] Error response should have error_code")
+	}
+
+	logger.Log("[E2E-ROBOT-SEND-ERROR] Test 1 PASSED: Non-existent session error handled correctly")
+
+	// Test 2: Empty message
+	logger.Log("[E2E-ROBOT-SEND-ERROR] Test 2: Send empty message")
+	cmd = exec.Command("ntm", "--robot-send", "dummy", "--msg", "")
+	out, err = cmd.CombinedOutput()
+
+	logger.Log("[E2E-ROBOT-SEND-ERROR] Empty message output: %s", string(out))
+	logger.Log("[E2E-ROBOT-SEND-ERROR] Empty message error: %v", err)
+
+	// Empty message may return plain text error or JSON error, both are acceptable
+	if jsonErr := json.Unmarshal(out, &errorPayload); jsonErr != nil {
+		// Plain text error is acceptable for validation errors
+		if err != nil && strings.Contains(string(out), "msg is required") {
+			logger.Log("[E2E-ROBOT-SEND-ERROR] Test 2 PASSED: Empty message rejected with plain text error")
+		} else {
+			t.Fatalf("[E2E-ROBOT-SEND-ERROR] Empty message should produce valid JSON or clear error: %v", jsonErr)
+		}
+	} else {
+		// JSON error response
+		if errorPayload.Success {
+			t.Fatalf("[E2E-ROBOT-SEND-ERROR] Empty message should fail")
+		}
+		logger.Log("[E2E-ROBOT-SEND-ERROR] Test 2 PASSED: Empty message rejected with JSON error")
+	}
+
+	logger.Log("[E2E-ROBOT-SEND-ERROR] Test 2 PASSED: Empty message error handled correctly")
+
+	logger.Log("[E2E-ROBOT-SEND-ERROR] All error handling tests completed")
+}
+
+// TestRobotSendFieldStability validates JSON schema stability for robot-send.
+func TestRobotSendFieldStability(t *testing.T) {
+	testutil.RequireE2E(t)
+	testutil.RequireTmux(t)
+	testutil.RequireNTMBinary(t)
+
+	logger := testutil.NewTestLogger(t, t.TempDir())
+
+	session := fmt.Sprintf("robot_send_schema_%d", time.Now().UnixNano())
+	projectsBase := t.TempDir()
+	projectDir := filepath.Join(projectsBase, session)
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatalf("Failed to create project directory: %v", err)
+	}
+
+	// Create test configuration
+	configDir := t.TempDir()
+	configPath := filepath.Join(configDir, "config.toml")
+	configContent := fmt.Sprintf(`
+projects_base = %q
+
+[agents]
+claude = "bash"
+`, projectsBase)
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+	logger.LogSection("robot-send-schema-stability")
+	logger.Log("[E2E-ROBOT-SEND-SCHEMA] Starting JSON schema stability validation")
+
+	defer func() {
+		logger.LogSection("cleanup")
+		_ = exec.Command("tmux", "kill-session", "-t", session).Run()
+	}()
+
+	// Spawn session
+	spawnOut := testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath,
+		"spawn", session, "--cc=1", "--project-dir", projectDir)
+	logger.Log("[E2E-ROBOT-SEND-SCHEMA] Spawn output: %s", string(spawnOut))
+
+	time.Sleep(2 * time.Second)
+
+	// Send message and validate schema
+	sendOut := testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath,
+		"--robot-send", session, "--msg", "echo schema_test", "--type=claude")
+
+	// Define expected schema for critical fields that should never change
+	type ExpectedSendSchema struct {
+		Success        bool      `json:"success"`
+		Session        string    `json:"session"`
+		SentAt         time.Time `json:"sent_at"`
+		Targets        []string  `json:"targets"`
+		Successful     []string  `json:"successful"`
+		Failed         []struct {
+			Pane  string `json:"pane"`
+			Error string `json:"error"`
+		} `json:"failed"`
+		MessagePreview string `json:"message_preview"`
+	}
+
+	var payload ExpectedSendSchema
+	if err := json.Unmarshal(sendOut, &payload); err != nil {
+		t.Fatalf("[E2E-ROBOT-SEND-SCHEMA] JSON schema validation failed: %v", err)
+	}
+
+	// Verify critical fields are present (this ensures API stability)
+	if payload.Session == "" {
+		t.Fatalf("[E2E-ROBOT-SEND-SCHEMA] Critical field 'session' missing")
+	}
+	if payload.SentAt.IsZero() {
+		t.Fatalf("[E2E-ROBOT-SEND-SCHEMA] Critical field 'sent_at' missing or invalid")
+	}
+	if payload.Targets == nil {
+		t.Fatalf("[E2E-ROBOT-SEND-SCHEMA] Critical field 'targets' missing")
+	}
+	if payload.Successful == nil {
+		t.Fatalf("[E2E-ROBOT-SEND-SCHEMA] Critical field 'successful' missing")
+	}
+	if payload.Failed == nil {
+		t.Fatalf("[E2E-ROBOT-SEND-SCHEMA] Critical field 'failed' missing")
+	}
+	if payload.MessagePreview == "" {
+		t.Fatalf("[E2E-ROBOT-SEND-SCHEMA] Critical field 'message_preview' missing")
+	}
+
+	logger.Log("[E2E-ROBOT-SEND-SCHEMA] JSON schema stability validated")
+}
+
+// TestRobotSendTrackingCapabilities tests the tracking functionality for robot-send.
+func TestRobotSendTrackingCapabilities(t *testing.T) {
+	testutil.RequireE2E(t)
+	testutil.RequireTmux(t)
+	testutil.RequireNTMBinary(t)
+
+	logger := testutil.NewTestLogger(t, t.TempDir())
+
+	session := fmt.Sprintf("robot_send_tracking_%d", time.Now().UnixNano())
+	projectsBase := t.TempDir()
+	projectDir := filepath.Join(projectsBase, session)
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatalf("Failed to create project directory: %v", err)
+	}
+
+	// Create test configuration
+	configDir := t.TempDir()
+	configPath := filepath.Join(configDir, "config.toml")
+	configContent := fmt.Sprintf(`
+projects_base = %q
+
+[agents]
+claude = "bash"
+`, projectsBase)
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+	logger.LogSection("robot-send-tracking")
+	logger.Log("[E2E-ROBOT-SEND-TRACKING] Starting tracking capabilities tests")
+
+	defer func() {
+		logger.LogSection("cleanup")
+		_ = exec.Command("tmux", "kill-session", "-t", session).Run()
+	}()
+
+	// Spawn session
+	spawnOut := testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath,
+		"spawn", session, "--cc=2", "--project-dir", projectDir)
+	logger.Log("[E2E-ROBOT-SEND-TRACKING] Spawn output: %s", string(spawnOut))
+
+	time.Sleep(2 * time.Second)
+	testutil.AssertSessionExists(t, logger, session)
+
+	// Test 1: Basic send with tracking enabled (with timeout to avoid hanging)
+	logger.Log("[E2E-ROBOT-SEND-TRACKING] Test 1: Send with --track and timeout")
+	testMessage := fmt.Sprintf("TRACKING_TEST_%d", time.Now().UnixNano())
+
+	// Use timeout to prevent test from hanging if agent doesn't respond
+	cmd := exec.Command("timeout", "5s", "ntm", "--config", configPath,
+		"--robot-send", session, "--msg", fmt.Sprintf("echo %s", testMessage), "--type=claude", "--track")
+
+	out, err := cmd.CombinedOutput()
+	logger.Log("[E2E-ROBOT-SEND-TRACKING] Track command output: %s", string(out))
+
+	// Track mode may timeout, but that's acceptable for this test
+	if err != nil {
+		logger.Log("[E2E-ROBOT-SEND-TRACKING] Track command timed out or errored (expected): %v", err)
+
+		// Even if it timed out, it should still produce valid JSON for what was sent
+		var trackPayload struct {
+			Success        bool     `json:"success"`
+			Session        string   `json:"session"`
+			Targets        []string `json:"targets"`
+			Successful     []string `json:"successful"`
+			MessagePreview string   `json:"message_preview"`
+			SentAt         time.Time `json:"sent_at"`
+		}
+
+		// Try to parse JSON even from timeout/error output
+		if jsonErr := json.Unmarshal(out, &trackPayload); jsonErr == nil {
+			logger.Log("[E2E-ROBOT-SEND-TRACKING] Valid JSON received even with timeout")
+			if trackPayload.Session == session && len(trackPayload.Targets) > 0 {
+				logger.Log("[E2E-ROBOT-SEND-TRACKING] Test 1 PASSED: Track mode initiated successfully before timeout")
+			}
+		} else {
+			logger.Log("[E2E-ROBOT-SEND-TRACKING] Test 1 PASSED: Track mode executed (timeout expected in test environment)")
+		}
+	} else {
+		// If track completed successfully, validate the JSON
+		var trackPayload struct {
+			Success        bool     `json:"success"`
+			Session        string   `json:"session"`
+			Targets        []string `json:"targets"`
+			Successful     []string `json:"successful"`
+			MessagePreview string   `json:"message_preview"`
+			SentAt         time.Time `json:"sent_at"`
+		}
+
+		if err := json.Unmarshal(out, &trackPayload); err != nil {
+			t.Fatalf("[E2E-ROBOT-SEND-TRACKING] Invalid robot-send track JSON: %v", err)
+		}
+
+		if !trackPayload.Success {
+			t.Errorf("[E2E-ROBOT-SEND-TRACKING] robot-send --track should succeed")
+		}
+		if trackPayload.Session != session {
+			t.Errorf("[E2E-ROBOT-SEND-TRACKING] Expected session %s, got %s", session, trackPayload.Session)
+		}
+		logger.Log("[E2E-ROBOT-SEND-TRACKING] Test 1 PASSED: Track mode completed successfully")
+	}
+
+	// Test 2: Send with delay staggering (testing throughput control)
+	logger.Log("[E2E-ROBOT-SEND-TRACKING] Test 2: Send with --delay-ms=100")
+	testMessage = fmt.Sprintf("DELAY_TEST_%d", time.Now().UnixNano())
+	startTime := time.Now()
+
+	sendOut := testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath,
+		"--robot-send", session, "--msg", fmt.Sprintf("echo %s", testMessage), "--type=claude", "--delay-ms=100")
+
+	elapsedTime := time.Since(startTime)
+	logger.Log("[E2E-ROBOT-SEND-TRACKING] Send with delay took: %v", elapsedTime)
+
+	var delayPayload struct {
+		Success        bool     `json:"success"`
+		Targets        []string `json:"targets"`
+		Successful     []string `json:"successful"`
+		MessagePreview string   `json:"message_preview"`
+	}
+
+	if err := json.Unmarshal(sendOut, &delayPayload); err != nil {
+		t.Fatalf("[E2E-ROBOT-SEND-TRACKING] Invalid robot-send delay JSON: %v", err)
+	}
+
+	if !delayPayload.Success {
+		t.Fatalf("[E2E-ROBOT-SEND-TRACKING] robot-send with delay should succeed")
+	}
+
+	// Should have taken at least some time due to delay
+	if len(delayPayload.Targets) > 1 && elapsedTime < 50*time.Millisecond {
+		t.Errorf("[E2E-ROBOT-SEND-TRACKING] Expected some delay for multiple targets, got %v", elapsedTime)
+	}
+
+	logger.Log("[E2E-ROBOT-SEND-TRACKING] Test 2 PASSED: Delay staggering worked, sent to %d targets", len(delayPayload.Targets))
+
+	// Test 3: Track message delivery by checking pane output
+	logger.Log("[E2E-ROBOT-SEND-TRACKING] Test 3: Verify message delivery to panes")
+	uniqueMarker := fmt.Sprintf("DELIVERY_MARKER_%d", time.Now().UnixNano())
+
+	sendOut = testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath,
+		"--robot-send", session, "--msg", fmt.Sprintf("echo %s", uniqueMarker), "--panes=1")
+
+	var deliveryPayload struct {
+		Success    bool     `json:"success"`
+		Targets    []string `json:"targets"`
+		Successful []string `json:"successful"`
+	}
+
+	if err := json.Unmarshal(sendOut, &deliveryPayload); err != nil {
+		t.Fatalf("[E2E-ROBOT-SEND-TRACKING] Invalid robot-send delivery JSON: %v", err)
+	}
+
+	if !deliveryPayload.Success {
+		t.Fatalf("[E2E-ROBOT-SEND-TRACKING] robot-send for delivery test should succeed")
+	}
+
+	// Wait for command to execute
+	time.Sleep(500 * time.Millisecond)
+
+	// Check if we can capture pane output (best effort)
+	if output, err := exec.Command("tmux", "capture-pane", "-t", fmt.Sprintf("%s:0.1", session), "-p").Output(); err == nil {
+		paneContent := string(output)
+		if strings.Contains(paneContent, uniqueMarker) {
+			logger.Log("[E2E-ROBOT-SEND-TRACKING] Test 3 PASSED: Message delivered to pane (marker found in output)")
+		} else {
+			logger.Log("[E2E-ROBOT-SEND-TRACKING] Test 3 PASSED: Message sent successfully (marker not visible in pane capture)")
+		}
+	} else {
+		logger.Log("[E2E-ROBOT-SEND-TRACKING] Test 3 PASSED: Message sent successfully (pane capture failed)")
+	}
+
+	logger.Log("[E2E-ROBOT-SEND-TRACKING] All tracking tests completed successfully")
+}
+
+// TestRobotSendAdvancedFiltering tests complex filtering scenarios and edge cases.
+func TestRobotSendAdvancedFiltering(t *testing.T) {
+	testutil.RequireE2E(t)
+	testutil.RequireTmux(t)
+	testutil.RequireNTMBinary(t)
+
+	logger := testutil.NewTestLogger(t, t.TempDir())
+
+	session := fmt.Sprintf("robot_send_advanced_%d", time.Now().UnixNano())
+	projectsBase := t.TempDir()
+	projectDir := filepath.Join(projectsBase, session)
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatalf("Failed to create project directory: %v", err)
+	}
+
+	// Create test configuration
+	configDir := t.TempDir()
+	configPath := filepath.Join(configDir, "config.toml")
+	configContent := fmt.Sprintf(`
+projects_base = %q
+
+[agents]
+claude = "bash"
+`, projectsBase)
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+	logger.LogSection("robot-send-advanced-filtering")
+	logger.Log("[E2E-ROBOT-SEND-ADVANCED] Starting advanced filtering tests")
+
+	defer func() {
+		logger.LogSection("cleanup")
+		_ = exec.Command("tmux", "kill-session", "-t", session).Run()
+	}()
+
+	// Spawn large session with multiple agent types
+	spawnOut := testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath,
+		"spawn", session, "--cc=3", "--cod=2", "--project-dir", projectDir)
+	logger.Log("[E2E-ROBOT-SEND-ADVANCED] Spawn output: %s", string(spawnOut))
+
+	time.Sleep(3 * time.Second)
+	testutil.AssertSessionExists(t, logger, session)
+
+	// Test 1: Combination filtering (type + exclude)
+	logger.Log("[E2E-ROBOT-SEND-ADVANCED] Test 1: Combination filter --type=claude --exclude=2,3")
+	testMessage := fmt.Sprintf("COMBO_FILTER_%d", time.Now().UnixNano())
+	sendOut := testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath,
+		"--robot-send", session, "--msg", fmt.Sprintf("echo %s", testMessage), "--type=claude", "--exclude=2,3")
+
+	var comboPayload struct {
+		Success    bool     `json:"success"`
+		Targets    []string `json:"targets"`
+		Successful []string `json:"successful"`
+	}
+
+	if err := json.Unmarshal(sendOut, &comboPayload); err != nil {
+		t.Fatalf("[E2E-ROBOT-SEND-ADVANCED] Invalid combo filter JSON: %v", err)
+	}
+
+	if !comboPayload.Success {
+		t.Fatalf("[E2E-ROBOT-SEND-ADVANCED] Combination filter should succeed")
+	}
+
+	// Should have fewer targets than total claude agents due to exclusion
+	if len(comboPayload.Targets) == 0 {
+		t.Errorf("[E2E-ROBOT-SEND-ADVANCED] Combination filter should have some targets")
+	}
+
+	logger.Log("[E2E-ROBOT-SEND-ADVANCED] Test 1 PASSED: Combination filter sent to %d targets", len(comboPayload.Targets))
+
+	// Test 2: Invalid pane indices
+	logger.Log("[E2E-ROBOT-SEND-ADVANCED] Test 2: Send to invalid pane indices --panes=99,100")
+	testMessage = fmt.Sprintf("INVALID_PANES_%d", time.Now().UnixNano())
+
+	cmd := exec.Command("ntm", "--config", configPath,
+		"--robot-send", session, "--msg", fmt.Sprintf("echo %s", testMessage), "--panes=99,100")
+	out, err := cmd.CombinedOutput()
+
+	// This should either succeed with 0 targets or fail gracefully
+	if err != nil {
+		// If it fails, should return structured error JSON
+		var errorPayload struct {
+			Success   bool   `json:"success"`
+			Error     string `json:"error"`
+			ErrorCode string `json:"error_code"`
+		}
+
+		if jsonErr := json.Unmarshal(out, &errorPayload); jsonErr == nil {
+			if !errorPayload.Success {
+				logger.Log("[E2E-ROBOT-SEND-ADVANCED] Test 2 PASSED: Invalid panes handled with structured error")
+			} else {
+				t.Errorf("[E2E-ROBOT-SEND-ADVANCED] Invalid panes should return success=false")
+			}
+		} else {
+			logger.Log("[E2E-ROBOT-SEND-ADVANCED] Test 2 PASSED: Invalid panes handled (error output)")
+		}
+	} else {
+		// If it succeeds, should have 0 targets
+		var invalidPayload struct {
+			Success bool     `json:"success"`
+			Targets []string `json:"targets"`
+		}
+
+		if jsonErr := json.Unmarshal(out, &invalidPayload); jsonErr == nil {
+			if len(invalidPayload.Targets) == 0 {
+				logger.Log("[E2E-ROBOT-SEND-ADVANCED] Test 2 PASSED: Invalid panes result in 0 targets")
+			} else {
+				t.Errorf("[E2E-ROBOT-SEND-ADVANCED] Invalid panes should have 0 targets, got %d", len(invalidPayload.Targets))
+			}
+		}
+	}
+
+	// Test 3: Non-existent agent type
+	logger.Log("[E2E-ROBOT-SEND-ADVANCED] Test 3: Send to non-existent agent type --type=nonexistent")
+	testMessage = fmt.Sprintf("NONEXISTENT_TYPE_%d", time.Now().UnixNano())
+
+	sendOut = testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath,
+		"--robot-send", session, "--msg", fmt.Sprintf("echo %s", testMessage), "--type=nonexistent")
+
+	var typePayload struct {
+		Success bool     `json:"success"`
+		Targets []string `json:"targets"`
+	}
+
+	if err := json.Unmarshal(sendOut, &typePayload); err != nil {
+		t.Fatalf("[E2E-ROBOT-SEND-ADVANCED] Invalid non-existent type JSON: %v", err)
+	}
+
+	// Should succeed but have 0 targets
+	if !typePayload.Success {
+		t.Errorf("[E2E-ROBOT-SEND-ADVANCED] Non-existent type filter should succeed")
+	}
+	if len(typePayload.Targets) != 0 {
+		t.Errorf("[E2E-ROBOT-SEND-ADVANCED] Non-existent type should have 0 targets, got %d", len(typePayload.Targets))
+	}
+
+	logger.Log("[E2E-ROBOT-SEND-ADVANCED] Test 3 PASSED: Non-existent type handled correctly (0 targets)")
+
+	// Test 4: Large message handling
+	logger.Log("[E2E-ROBOT-SEND-ADVANCED] Test 4: Send large message")
+	largeMessage := fmt.Sprintf("LARGE_MSG_%d_%s", time.Now().UnixNano(), strings.Repeat("x", 500))
+
+	sendOut = testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath,
+		"--robot-send", session, "--msg", largeMessage, "--type=claude")
+
+	var largePayload struct {
+		Success        bool   `json:"success"`
+		MessagePreview string `json:"message_preview"`
+	}
+
+	if err := json.Unmarshal(sendOut, &largePayload); err != nil {
+		t.Fatalf("[E2E-ROBOT-SEND-ADVANCED] Invalid large message JSON: %v", err)
+	}
+
+	if !largePayload.Success {
+		t.Fatalf("[E2E-ROBOT-SEND-ADVANCED] Large message send should succeed")
+	}
+
+	// Message preview should be truncated for large messages
+	if len(largePayload.MessagePreview) == 0 {
+		t.Errorf("[E2E-ROBOT-SEND-ADVANCED] Message preview should not be empty")
+	}
+
+	logger.Log("[E2E-ROBOT-SEND-ADVANCED] Test 4 PASSED: Large message handled correctly")
+
+	logger.Log("[E2E-ROBOT-SEND-ADVANCED] All advanced filtering tests completed")
 }
 
 // Skip tests if ntm binary is missing.

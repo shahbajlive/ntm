@@ -420,7 +420,7 @@ test_robot_send_single() {
         log_assert_eq "$success" "true" "robot-send single reports success"
 
         local delivered
-        delivered=$(echo "$output" | jq -r '.delivered // 0')
+        delivered=$(echo "$output" | jq -r '(.successful | length)')
         log_assert_eq "$delivered" "1" "robot-send single delivered to 1 pane"
     else
         log_error "robot-send single failed with exit code $exit_code"
@@ -458,7 +458,7 @@ test_robot_send_by_type() {
         log_assert_eq "$success" "true" "robot-send by type reports success"
 
         local delivered
-        delivered=$(echo "$output" | jq -r '.delivered // 0')
+        delivered=$(echo "$output" | jq -r '(.successful | length)')
         if [[ "$delivered" -ge 2 ]]; then
             log_assert_eq "1" "1" "robot-send by type delivered to Claude agents"
         else
@@ -500,7 +500,7 @@ test_robot_send_all() {
         log_assert_eq "$success" "true" "robot-send all reports success"
 
         local delivered
-        delivered=$(echo "$output" | jq -r '.delivered // 0')
+        delivered=$(echo "$output" | jq -r '(.successful | length)')
         if [[ "$delivered" -ge 3 ]]; then
             log_assert_eq "1" "1" "robot-send all delivered to all panes (including user)"
         else
@@ -543,7 +543,7 @@ test_robot_send_exclude() {
 
         # Should deliver to 2 panes (excluding user at index 0)
         local delivered
-        delivered=$(echo "$output" | jq -r '.delivered // 0')
+        delivered=$(echo "$output" | jq -r '(.successful | length)')
         log_assert_eq "$delivered" "2" "robot-send exclude delivered to 2 panes (excluding user)"
     else
         log_error "robot-send exclude failed with exit code $exit_code"

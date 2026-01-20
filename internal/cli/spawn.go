@@ -16,7 +16,6 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/bv"
 	"github.com/Dicklesworthstone/ntm/internal/cm"
 	"github.com/Dicklesworthstone/ntm/internal/config"
-	contextpkg "github.com/Dicklesworthstone/ntm/internal/context"
 	"github.com/Dicklesworthstone/ntm/internal/events"
 	"github.com/Dicklesworthstone/ntm/internal/gemini"
 	"github.com/Dicklesworthstone/ntm/internal/hooks"
@@ -26,7 +25,6 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/ratelimit"
 	"github.com/Dicklesworthstone/ntm/internal/recipe"
 	"github.com/Dicklesworthstone/ntm/internal/resilience"
-	"github.com/Dicklesworthstone/ntm/internal/state"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/internal/workflow"
 )
@@ -1054,11 +1052,19 @@ func spawnSessionLogic(opts SpawnOptions) error {
 				}
 			}
 
+
 			// Inject user prompt if provided (Immediate delivery only)
 			// Staggered delivery is handled by the main thread's staggerWg logic
 			if opts.Prompt != "" && (!opts.StaggerEnabled || opts.Stagger <= 0) {
 				time.Sleep(200 * time.Millisecond)
-				if err := tmux.SendKeys(paneID, opts.Prompt, true); err != nil {
+
+				// Combine CASS context with user prompt
+				finalPrompt := opts.Prompt
+				if cassContext != "" {
+					finalPrompt = cassContext + "\n\n" + opts.Prompt
+				}
+
+				if err := tmux.SendKeys(paneID, finalPrompt, true); err != nil {
 					if !IsJSONOutput() {
 						fmt.Printf("⚠ Warning: failed to send prompt to agent %d: %v\n", idx, err)
 					}
@@ -1070,9 +1076,14 @@ func spawnSessionLogic(opts SpawnOptions) error {
 		if opts.StaggerEnabled && opts.Stagger > 0 && opts.Prompt != "" {
 			pID := pane.ID
 			pTitle := title
+			// Combine CASS context with user prompt for staggered delivery
+			finalPromptForStagger := opts.Prompt
+			if cassContext != "" {
+				finalPromptForStagger = cassContext + "\n\n" + opts.Prompt
+			}
 			// Annotate prompt with spawn context when stagger is enabled
 			// This helps agents understand their position in the spawn order
-			annotatedPrompt := agentSpawnCtx.AnnotatePrompt(opts.Prompt, true)
+			annotatedPrompt := agentSpawnCtx.AnnotatePrompt(finalPromptForStagger, true)
 			delay := promptDelay
 			scheduledAt := time.Now().Add(delay)
 

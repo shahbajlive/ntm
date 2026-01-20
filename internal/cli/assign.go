@@ -184,10 +184,8 @@ func runAssign(cmd *cobra.Command, args []string) error {
 		return runClearAssignments(cmd, session)
 	}
 
-	// Check if bv is available
-	if !bv.IsInstalled() {
-		return fmt.Errorf("bv is not installed - required for work assignment")
-	}
+	// BV is preferred for dependency-aware assignment, but we can fall back to bd-ready
+	// data when BV is unavailable.
 
 	// Resolve agent type filter from flags
 	agentTypeFilter := resolveAgentTypeFilter()
@@ -1448,25 +1446,73 @@ func expandPromptTemplate(beadID, title, templateName, templateFile string) stri
 // Clear Assignments - --clear and --clear-pane functionality
 // ============================================================================
 
-// ClearAssignmentResult represents the result of clearing assignments
+const (
+	clearErrNotAssigned      = "NOT_ASSIGNED"
+	clearErrAlreadyCompleted = "ALREADY_COMPLETED"
+	clearErrPaneNotFound     = "PANE_NOT_FOUND"
+	clearErrInvalidFlag      = "INVALID_FLAG"
+	clearErrInternal         = "INTERNAL_ERROR"
+)
+
+// ClearAssignmentResult represents the result of clearing a single assignment.
 type ClearAssignmentResult struct {
-	BeadID           string   `json:"bead_id"`
-	Pane             int      `json:"pane"`
-	AgentType        string   `json:"agent_type"`
-	Success          bool     `json:"success"`
-	Error            string   `json:"error,omitempty"`
-	FilesReleased    []string `json:"files_released,omitempty"`
-	AssignmentFound  bool     `json:"assignment_found"`
+	BeadID                   string   `json:"bead_id"`
+	BeadTitle                string   `json:"bead_title,omitempty"`
+	PreviousPane             int      `json:"previous_pane,omitempty"`
+	PreviousAgent            string   `json:"previous_agent,omitempty"`
+	PreviousAgentType        string   `json:"previous_agent_type,omitempty"`
+	PreviousStatus           string   `json:"previous_status,omitempty"`
+	AssignmentFound          bool     `json:"assignment_found"`
+	FileReservationsReleased bool     `json:"file_reservations_released"`
+	FilesReleased            []string `json:"files_released,omitempty"`
+	Success                  bool     `json:"success"`
+	Error                    string   `json:"error,omitempty"`
+	ErrorCode                string   `json:"error_code,omitempty"`
 }
 
-// ClearAllResult represents the result of clearing all assignments for a pane
+// ClearAllResult represents result of clearing all assignments for a pane.
 type ClearAllResult struct {
-	Pane             int                      `json:"pane"`
-	AgentType        string                   `json:"agent_type"`
-	ClearedBeads     []ClearAssignmentResult  `json:"cleared_beads"`
-	Success          bool                     `json:"success"`
-	Error            string                   `json:"error,omitempty"`
+	Pane         int                     `json:"pane"`
+	AgentType    string                  `json:"agent_type"`
+	Success      bool                    `json:"success"`
+	Error        string                  `json:"error,omitempty"`
+	ClearedBeads []ClearAssignmentResult `json:"cleared_beads"`
 }
+
+// ClearAssignmentsSummary provides a summary of a clear operation.
+type ClearAssignmentsSummary struct {
+	ClearedCount        int `json:"cleared_count"`
+	ReservationsReleased int `json:"reservations_released"`
+	FailedCount         int `json:"failed_count,omitempty"`
+}
+
+// ClearAssignmentsData is the data payload for clear operations.
+type ClearAssignmentsData struct {
+	Cleared   []ClearAssignmentResult `json:"cleared"`
+	Summary   ClearAssignmentsSummary `json:"summary"`
+	Pane      *int                    `json:"pane,omitempty"`
+	AgentType string                  `json:"agent_type,omitempty"`
+}
+
+// ClearAssignmentsError represents an error in the clear envelope.
+type ClearAssignmentsError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// ClearAssignmentsEnvelope is the standard JSON envelope for clear operations.
+type ClearAssignmentsEnvelope struct {
+	Command   string                 `json:"command"`
+	Subcommand string                `json:"subcommand"`
+	Session   string                 `json:"session"`
+	Timestamp string                 `json:"timestamp"`
+	Success   bool                   `json:"success"`
+	Data      *ClearAssignmentsData  `json:"data,omitempty"`
+	Warnings  []string               `json:"warnings"`
+	Error     *ClearAssignmentsError `json:"error,omitempty"`
+}
+
+var releaseReservations = releaseFileReservations
 
 // runClearAssignments handles --clear and --clear-pane operations
 func runClearAssignments(cmd *cobra.Command, session string) error {
@@ -1531,10 +1577,10 @@ func runClearSpecificBeads(cmd *cobra.Command, session string, clearBeads string
 		if foundAssignment == nil {
 			result.Success = false
 			result.Error = "assignment not found or already completed"
-			result.AssignmentFound = false
 		} else {
-			result.Pane = foundAssignment.Pane
-			result.AgentType = foundAssignment.AgentType
+			result.PreviousPane = foundAssignment.Pane
+			result.PreviousAgent = foundAssignment.AgentName
+			result.PreviousAgentType = foundAssignment.AgentType
 			result.AssignmentFound = true
 
 			// Release file reservations via Agent Mail
@@ -1574,7 +1620,7 @@ func runClearSpecificBeads(cmd *cobra.Command, session string, clearBeads string
 		fmt.Printf("Cleared %d of %d bead assignments:\n\n", successCount, len(beadIDs))
 		for _, result := range results {
 			if result.Success {
-				fmt.Printf("  ✓ %s (pane %d, %s)\n", result.BeadID, result.Pane, result.AgentType)
+				fmt.Printf("  ✓ %s (pane %d, %s)\n", result.BeadID, result.PreviousPane, result.PreviousAgentType)
 				if len(result.FilesReleased) > 0 {
 					fmt.Printf("    Released files: %v\n", result.FilesReleased)
 				}
@@ -1646,10 +1692,11 @@ func runClearPaneAssignments(cmd *cobra.Command, session string, pane int) error
 	// Clear each assignment
 	for _, a := range paneAssignments {
 		beadResult := ClearAssignmentResult{
-			BeadID:          a.BeadID,
-			Pane:            a.Pane,
-			AgentType:       a.AgentType,
-			AssignmentFound: true,
+			BeadID:            a.BeadID,
+			PreviousPane:      a.Pane,
+			PreviousAgent:     a.AgentName,
+			PreviousAgentType: a.AgentType,
+			AssignmentFound:   true,
 		}
 
 		// Release file reservations
