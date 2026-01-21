@@ -682,6 +682,7 @@ type AgentMailConfig struct {
 type IntegrationsConfig struct {
 	DCG  DCGConfig  `toml:"dcg"`
 	CAAM CAAMConfig `toml:"caam"` // CAAM (Coding Agent Account Manager) integration
+	RCH  RCHConfig  `toml:"rch"`  // RCH (Remote Compilation Helper) integration
 }
 
 // DCGConfig holds configuration for the DCG (destructive_commit_guard) integration.
@@ -731,6 +732,7 @@ func DefaultIntegrationsConfig() IntegrationsConfig {
 			AllowOverride:   true,
 		},
 		CAAM: DefaultCAAMConfig(),
+		RCH:  DefaultRCHConfig(),
 	}
 }
 
@@ -756,6 +758,36 @@ func DefaultCAAMConfig() CAAMConfig {
 		RateLimitPatterns: nil,                                    // Use built-in patterns
 		AccountCooldown:   300,                                    // 5 minute cooldown
 		AlertThreshold:    80,                                     // Alert at 80% of limit
+	}
+}
+
+// RCHConfig holds configuration for RCH (Remote Compilation Helper) integration.
+// RCH provides build offloading to remote workers for faster compilation.
+type RCHConfig struct {
+	Enabled           bool     `toml:"enabled"`            // Enable RCH build offloading
+	BinaryPath        string   `toml:"binary_path"`        // Path to rch binary (optional, defaults to PATH lookup)
+	MinBuildTime      int      `toml:"min_build_time"`     // Minimum build time (seconds) to consider remote; builds faster than this run locally
+	InterceptPatterns []string `toml:"intercept_patterns"` // Commands to intercept (regex patterns)
+	FallbackLocal     bool     `toml:"fallback_local"`     // Fallback to local build on RCH failure
+	ShowLocation      bool     `toml:"show_location"`      // Show build location in output
+	PreferredWorker   string   `toml:"preferred_worker"`   // Worker preference (by name or "auto")
+}
+
+// DefaultRCHConfig returns sensible defaults for RCH integration.
+func DefaultRCHConfig() RCHConfig {
+	return RCHConfig{
+		Enabled:      true, // Enabled by default (when rch is available)
+		BinaryPath:   "",   // Default to PATH lookup
+		MinBuildTime: 10,   // Only offload builds expected to take 10+ seconds
+		InterceptPatterns: []string{
+			"^cargo (build|test|check)",
+			"^go (build|test)",
+			"^npm run build",
+			"^make",
+		},
+		FallbackLocal:   true,   // Fallback to local if remote fails
+		ShowLocation:    true,   // Show where build ran
+		PreferredWorker: "auto", // Auto-select best worker
 	}
 }
 

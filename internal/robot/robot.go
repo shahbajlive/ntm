@@ -2472,6 +2472,20 @@ func PrintSend(opts SendOptions) error {
 		}
 	}
 
+	// Dry-run mode: show what would happen without sending
+	if opts.DryRun {
+		output.DryRun = true
+		if len(output.Targets) > 0 {
+			output.WouldSendTo = append(output.WouldSendTo, output.Targets...)
+			output.Success = true
+		} else {
+			output.Success = false
+			output.Error = "no target panes matched the filter criteria"
+			output.ErrorCode = ErrCodeInvalidFlag
+		}
+		return encodeJSON(output)
+	}
+
 	// Send to all targets
 	for i, pane := range targetPanes {
 		paneKey := fmt.Sprintf("%d", pane.Index)
