@@ -1024,7 +1024,24 @@ func assignAgentsToPanes(panes []ntmPaneInfo, agents []agentmail.Agent) map[stri
 	assigned := make(map[string]bool)
 	mapping := make(map[string]string)
 
-	for _, pane := range panes {
+	// Create a copy of panes to sort without affecting the caller
+	sortedPanes := make([]ntmPaneInfo, len(panes))
+	copy(sortedPanes, panes)
+
+	// Prioritize panes with variants (more specific requirements)
+	sort.SliceStable(sortedPanes, func(i, j int) bool {
+		hasVarI := sortedPanes[i].Variant != ""
+		hasVarJ := sortedPanes[j].Variant != ""
+		if hasVarI && !hasVarJ {
+			return true
+		}
+		if !hasVarI && hasVarJ {
+			return false
+		}
+		return sortedPanes[i].Index < sortedPanes[j].Index
+	})
+
+	for _, pane := range sortedPanes {
 		bestIdx := -1
 		bestScore := -1
 

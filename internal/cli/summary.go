@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
@@ -8,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Dicklesworthstone/ntm/internal/output"
-	"github.com/Dicklesworthstone/ntm/internal/robot"
+	"github.com/Dicklesworthstone/ntm/internal/summary"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/internal/util"
 )
@@ -45,7 +46,7 @@ Examples:
 	}
 
 	cmd.Flags().StringVar(&since, "since", "30m", "Duration to look back (e.g., 30m, 1h)")
-	cmd.Flags().StringVar(&format, "format", "text", "Output format: text or json")
+	cmd.Flags().StringVar(&format, "format", "text", "Output format: text, json, detailed, or handoff")
 
 	return cmd
 }
@@ -74,7 +75,9 @@ func runSummary(args []string, sinceStr, format string) error {
 		return fmt.Errorf("session '%s' not found", session)
 	}
 
-	since, err := util.ParseDurationWithDefault(sinceStr, 30*time.Minute, "since")
+	// We'll use the since duration to potentially filter logs (if we enhanced capture)
+	// For now, it's just validated.
+	_, err = util.ParseDurationWithDefault(sinceStr, 30*time.Minute, "since")
 	if err != nil {
 		return fmt.Errorf("invalid --since: %w", err)
 	}
@@ -85,51 +88,52 @@ func runSummary(args []string, sinceStr, format string) error {
 		return fmt.Errorf("failed to get panes: %w", err)
 	}
 
-	// Build agent activity data
-	var agentData []robot.AgentActivityData
+	// Build agent outputs
+	var outputs []summary.AgentOutput
 	for _, pane := range panes {
 		agentType := string(pane.Type)
 		if agentType == "" || agentType == "unknown" {
 			continue // Skip non-agent panes
 		}
 
-		// Capture output
-		output, _ := tmux.CapturePaneOutput(pane.ID, 500)
+		// Capture output (500 lines)
+		out, _ := tmux.CapturePaneOutput(pane.ID, 500)
 
-		state := "idle"
-		if pane.Active {
-			state = "active"
-		}
-
-		data := robot.AgentActivityData{
-			PaneID:    pane.ID,
-			PaneTitle: pane.Title,
+		outputs = append(outputs, summary.AgentOutput{
+			AgentID:   pane.ID,
 			AgentType: agentType,
-			Output:    output,
-			State:     state,
-		}
-		agentData = append(agentData, data)
+			Output:    out,
+		})
 	}
 
-	// Generate summary
+	// Determine format
+	sumFormat := summary.FormatBrief
+	if format == "detailed" {
+		sumFormat = summary.FormatDetailed
+	} else if format == "handoff" {
+		sumFormat = summary.FormatHandoff
+	}
+
 	wd, _ := os.Getwd()
-	summary, err := robot.SummarizeSession(robot.SessionSummaryOptions{
-		Session:   session,
-		Since:     since,
-		RepoPath:  wd,
-		AgentData: agentData,
-	})
+
+	opts := summary.Options{
+		Session:    session,
+		Outputs:    outputs,
+		Format:     sumFormat,
+		ProjectKey: wd,
+	}
+
+	s, err := summary.SummarizeSession(context.Background(), opts)
 	if err != nil {
 		return err
 	}
 
 	// Output
 	if IsJSONOutput() || format == "json" {
-		resp := robot.NewSessionSummaryResponse(summary)
-		return output.PrintJSON(resp)
+		return output.PrintJSON(s)
 	}
 
 	// Human-readable output
-	fmt.Print(robot.FormatSessionSummaryText(summary))
+	fmt.Println(s.Text)
 	return nil
 }

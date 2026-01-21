@@ -312,7 +312,7 @@ func TestClearParsesCommaSeparatedBeads(t *testing.T) {
 		// Simulate parsing logic
 		result := []string{}
 		if tc.input != "" {
-			parts := splitAndTrim(tc.input)
+			parts := splitAndTrimTestHelper(tc.input)
 			result = parts
 		} else {
 			result = []string{""}
@@ -325,7 +325,7 @@ func TestClearParsesCommaSeparatedBeads(t *testing.T) {
 }
 
 // Helper function for tests
-func splitAndTrim(input string) []string {
+func splitAndTrimTestHelper(input string) []string {
 	parts := []string{}
 	start := 0
 	for i := 0; i <= len(input); i++ {
