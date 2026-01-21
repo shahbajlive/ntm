@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -551,5 +552,265 @@ func TestRateLimitDetectorNilAdapter(t *testing.T) {
 	}
 	if result.SwitchSuccess {
 		t.Error("SwitchSuccess should be false with nil adapter")
+	}
+}
+
+// SwitchResult and SwitchToNextAccount tests
+
+func TestSwitchResultStruct(t *testing.T) {
+	result := SwitchResult{
+		Success:           true,
+		Provider:          "claude",
+		PreviousAccount:   "account1",
+		NewAccount:        "account2",
+		AccountsRemaining: 2,
+	}
+
+	if !result.Success {
+		t.Error("Expected Success to be true")
+	}
+
+	if result.Provider != "claude" {
+		t.Errorf("Expected Provider 'claude', got %s", result.Provider)
+	}
+
+	if result.PreviousAccount != "account1" {
+		t.Errorf("Expected PreviousAccount 'account1', got %s", result.PreviousAccount)
+	}
+
+	if result.NewAccount != "account2" {
+		t.Errorf("Expected NewAccount 'account2', got %s", result.NewAccount)
+	}
+
+	if result.AccountsRemaining != 2 {
+		t.Errorf("Expected AccountsRemaining 2, got %d", result.AccountsRemaining)
+	}
+}
+
+func TestSwitchResultWithError(t *testing.T) {
+	result := SwitchResult{
+		Success:           false,
+		Provider:          "claude",
+		PreviousAccount:   "account1",
+		Error:             "no accounts available",
+		AccountsRemaining: 0,
+	}
+
+	if result.Success {
+		t.Error("Expected Success to be false")
+	}
+
+	if result.Error != "no accounts available" {
+		t.Errorf("Expected Error 'no accounts available', got %s", result.Error)
+	}
+}
+
+func TestSwitchToNextAccountNotInstalled(t *testing.T) {
+	adapter := NewCAAMAdapter()
+
+	// If caam is not installed, should return error
+	_, installed := adapter.Detect()
+	if installed {
+		t.Skip("caam is installed, skipping not-installed test")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := adapter.SwitchToNextAccount(ctx, "claude")
+	if err == nil {
+		t.Error("Expected error when caam not installed")
+	}
+
+	if err != ErrToolNotInstalled {
+		t.Errorf("Expected ErrToolNotInstalled, got %v", err)
+	}
+}
+
+func TestTriggerAccountSwitchUnknownProvider(t *testing.T) {
+	adapter := NewCAAMAdapter()
+	detector := NewRateLimitDetector(adapter)
+
+	event := &RateLimitEvent{
+		Provider:   "unknown",
+		PaneID:     "pane-1",
+		DetectedAt: time.Now(),
+		Patterns:   []string{"rate limit"},
+	}
+
+	ctx := context.Background()
+	result := detector.TriggerAccountSwitch(ctx, event)
+
+	// Should return early without attempting switch for unknown provider
+	if result.SwitchSuccess {
+		t.Error("SwitchSuccess should be false for unknown provider")
+	}
+}
+
+func TestTriggerAccountSwitchEmptyProvider(t *testing.T) {
+	adapter := NewCAAMAdapter()
+	detector := NewRateLimitDetector(adapter)
+
+	event := &RateLimitEvent{
+		Provider:   "",
+		PaneID:     "pane-1",
+		DetectedAt: time.Now(),
+		Patterns:   []string{"rate limit"},
+	}
+
+	ctx := context.Background()
+	result := detector.TriggerAccountSwitch(ctx, event)
+
+	// Should return early without attempting switch for empty provider
+	if result.SwitchSuccess {
+		t.Error("SwitchSuccess should be false for empty provider")
+	}
+}
+
+// Credential and environment tests
+
+func TestCAAMCredentialsStruct(t *testing.T) {
+	creds := CAAMCredentials{
+		Provider:    "claude",
+		AccountID:   "acc-123",
+		APIKey:      "sk-ant-xxx",
+		TokenPath:   "/home/user/.config/caam/current/claude.json",
+		EnvVarName:  "ANTHROPIC_API_KEY",
+		RateLimited: false,
+	}
+
+	if creds.Provider != "claude" {
+		t.Errorf("Expected Provider 'claude', got %s", creds.Provider)
+	}
+
+	if creds.AccountID != "acc-123" {
+		t.Errorf("Expected AccountID 'acc-123', got %s", creds.AccountID)
+	}
+
+	if creds.EnvVarName != "ANTHROPIC_API_KEY" {
+		t.Errorf("Expected EnvVarName 'ANTHROPIC_API_KEY', got %s", creds.EnvVarName)
+	}
+}
+
+func TestGetCredentialEnvVar(t *testing.T) {
+	tests := []struct {
+		provider string
+		want     string
+	}{
+		{"claude", "ANTHROPIC_API_KEY"},
+		{"openai", "OPENAI_API_KEY"},
+		{"gemini", "GOOGLE_API_KEY"},
+		{"unknown", "UNKNOWN_API_KEY"}, // Default pattern
+		{"custom", "CUSTOM_API_KEY"},   // Default pattern
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.provider, func(t *testing.T) {
+			got := GetCredentialEnvVar(tt.provider)
+			if got != tt.want {
+				t.Errorf("GetCredentialEnvVar(%q) = %q, want %q", tt.provider, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetCredentialPath(t *testing.T) {
+	tests := []struct {
+		provider    string
+		wantSuffix  string
+	}{
+		{"claude", ".config/caam/current/claude.json"},
+		{"openai", ".config/caam/current/openai.json"},
+		{"gemini", ".config/caam/current/gemini.json"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.provider, func(t *testing.T) {
+			got := GetCredentialPath(tt.provider)
+			if got == "" {
+				t.Skip("Could not determine home directory")
+			}
+			if !strings.HasSuffix(got, tt.wantSuffix) {
+				t.Errorf("GetCredentialPath(%q) = %q, want suffix %q", tt.provider, got, tt.wantSuffix)
+			}
+		})
+	}
+}
+
+func TestProviderEnvVarsMap(t *testing.T) {
+	// Ensure all expected providers are mapped
+	expectedProviders := []string{"claude", "openai", "gemini"}
+	for _, provider := range expectedProviders {
+		if _, ok := ProviderEnvVars[provider]; !ok {
+			t.Errorf("ProviderEnvVars missing mapping for %q", provider)
+		}
+	}
+
+	// Verify specific mappings
+	if ProviderEnvVars["claude"] != "ANTHROPIC_API_KEY" {
+		t.Errorf("ProviderEnvVars[claude] = %q, want ANTHROPIC_API_KEY", ProviderEnvVars["claude"])
+	}
+	if ProviderEnvVars["openai"] != "OPENAI_API_KEY" {
+		t.Errorf("ProviderEnvVars[openai] = %q, want OPENAI_API_KEY", ProviderEnvVars["openai"])
+	}
+	if ProviderEnvVars["gemini"] != "GOOGLE_API_KEY" {
+		t.Errorf("ProviderEnvVars[gemini] = %q, want GOOGLE_API_KEY", ProviderEnvVars["gemini"])
+	}
+}
+
+func TestGetCurrentCredentialsNotInstalled(t *testing.T) {
+	adapter := NewCAAMAdapter()
+
+	_, installed := adapter.Detect()
+	if installed {
+		t.Skip("caam is installed, skipping not-installed test")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := adapter.GetCurrentCredentials(ctx, "claude")
+	if err == nil {
+		t.Error("Expected error when caam not installed")
+	}
+
+	if err != ErrToolNotInstalled {
+		t.Errorf("Expected ErrToolNotInstalled, got %v", err)
+	}
+}
+
+func TestConstructCredentialsHelper(t *testing.T) {
+	adapter := NewCAAMAdapter()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// constructCredentials is a fallback that should work even without caam
+	// It builds credentials from available status info
+	creds, err := adapter.constructCredentials(ctx, "claude")
+
+	// May error if caam not installed (GetAccounts fails)
+	_, installed := adapter.Detect()
+	if !installed {
+		if err == nil {
+			// Even if GetAccounts fails, it should return partial credentials
+			if creds == nil {
+				t.Error("Expected partial credentials even on error")
+			}
+		}
+		return
+	}
+
+	// If caam is installed, should return credentials
+	if err != nil {
+		t.Logf("constructCredentials error (may be expected): %v", err)
+	}
+	if creds != nil {
+		if creds.Provider != "claude" {
+			t.Errorf("Expected Provider 'claude', got %s", creds.Provider)
+		}
+		if creds.EnvVarName != "ANTHROPIC_API_KEY" {
+			t.Errorf("Expected EnvVarName 'ANTHROPIC_API_KEY', got %s", creds.EnvVarName)
+		}
 	}
 }

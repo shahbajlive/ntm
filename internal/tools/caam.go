@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -155,6 +157,54 @@ type CAAMStatus struct {
 	Accounts      []CAAMAccount `json:"accounts,omitempty"`
 }
 
+// SwitchResult represents the response from caam switch --next --json
+type SwitchResult struct {
+	Success           bool      `json:"success"`
+	Provider          string    `json:"provider"`
+	PreviousAccount   string    `json:"previous_account"`
+	NewAccount        string    `json:"new_account"`
+	CooldownUntil     time.Time `json:"cooldown_until,omitempty"`
+	AccountsRemaining int       `json:"accounts_remaining"`
+	Error             string    `json:"error,omitempty"`
+}
+
+// CAAMCredentials represents credential information for an active account
+type CAAMCredentials struct {
+	Provider    string `json:"provider"`
+	AccountID   string `json:"account_id"`
+	APIKey      string `json:"api_key,omitempty"`
+	TokenPath   string `json:"token_path,omitempty"`
+	EnvVarName  string `json:"env_var_name"`
+	ValidUntil  string `json:"valid_until,omitempty"`
+	RateLimited bool   `json:"rate_limited"`
+}
+
+// ProviderEnvVars maps provider names to their API key environment variables
+var ProviderEnvVars = map[string]string{
+	"claude": "ANTHROPIC_API_KEY",
+	"openai": "OPENAI_API_KEY",
+	"gemini": "GOOGLE_API_KEY",
+}
+
+// GetCredentialEnvVar returns the environment variable name for a provider's API key
+func GetCredentialEnvVar(provider string) string {
+	if envVar, ok := ProviderEnvVars[provider]; ok {
+		return envVar
+	}
+	// Default pattern for unknown providers
+	return strings.ToUpper(provider) + "_API_KEY"
+}
+
+// GetCredentialPath returns the expected path where caam stores credentials for a provider.
+// Returns the path in ~/.config/caam/current/<provider>.json format.
+func GetCredentialPath(provider string) string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(homeDir, ".config", "caam", "current", provider+".json")
+}
+
 // Cached status to avoid repeated lookups
 var (
 	caamStatusOnce   sync.Once
@@ -281,6 +331,80 @@ func (a *CAAMAdapter) GetActiveAccount(ctx context.Context) (*CAAMAccount, error
 	return status.ActiveAccount, nil
 }
 
+// GetCurrentCredentials returns credential information for the active account of a provider.
+// This calls `caam creds <provider> --json` to get the current active credentials.
+// The returned credentials include the environment variable name and optionally the token path.
+func (a *CAAMAdapter) GetCurrentCredentials(ctx context.Context, provider string) (*CAAMCredentials, error) {
+	path, installed := a.Detect()
+	if !installed {
+		return nil, ErrToolNotInstalled
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, a.Timeout())
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, path, "creds", provider, "--json")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, ErrTimeout
+		}
+		// caam creds might not exist in older versions - fallback to constructed credentials
+		return a.constructCredentials(ctx, provider)
+	}
+
+	output := stdout.Bytes()
+	if len(output) == 0 || !json.Valid(output) {
+		// Fallback to constructed credentials
+		return a.constructCredentials(ctx, provider)
+	}
+
+	var creds CAAMCredentials
+	if err := json.Unmarshal(output, &creds); err != nil {
+		return a.constructCredentials(ctx, provider)
+	}
+
+	// Ensure env var name is set
+	if creds.EnvVarName == "" {
+		creds.EnvVarName = GetCredentialEnvVar(provider)
+	}
+
+	return &creds, nil
+}
+
+// constructCredentials builds credentials from available information when caam creds isn't available
+func (a *CAAMAdapter) constructCredentials(ctx context.Context, provider string) (*CAAMCredentials, error) {
+	// Get active account for the provider
+	accounts, err := a.GetAccounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var activeAccount *CAAMAccount
+	for i := range accounts {
+		if accounts[i].Provider == provider && accounts[i].Active {
+			activeAccount = &accounts[i]
+			break
+		}
+	}
+
+	creds := &CAAMCredentials{
+		Provider:   provider,
+		EnvVarName: GetCredentialEnvVar(provider),
+		TokenPath:  GetCredentialPath(provider),
+	}
+
+	if activeAccount != nil {
+		creds.AccountID = activeAccount.ID
+		creds.RateLimited = activeAccount.RateLimited
+	}
+
+	return creds, nil
+}
+
 // SwitchAccount switches to a different account
 func (a *CAAMAdapter) SwitchAccount(ctx context.Context, accountID string) error {
 	path, installed := a.Detect()
@@ -308,6 +432,64 @@ func (a *CAAMAdapter) SwitchAccount(ctx context.Context, accountID string) error
 	caamStatusMutex.Unlock()
 
 	return nil
+}
+
+// SwitchToNextAccount switches to the next available account for a provider.
+// It calls `caam switch <provider> --next --json` and returns the structured result.
+// This is the preferred method for automatic account switching on rate limit.
+func (a *CAAMAdapter) SwitchToNextAccount(ctx context.Context, provider string) (*SwitchResult, error) {
+	path, installed := a.Detect()
+	if !installed {
+		return nil, ErrToolNotInstalled
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, a.Timeout())
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, path, "switch", provider, "--next", "--json")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+
+	// Parse JSON response even on error (caam may return valid JSON with error details)
+	output := stdout.Bytes()
+	if len(output) == 0 {
+		output = stderr.Bytes()
+	}
+
+	var result SwitchResult
+	if len(output) > 0 && json.Valid(output) {
+		if jsonErr := json.Unmarshal(output, &result); jsonErr != nil {
+			// If JSON parsing fails, wrap the original error
+			if err != nil {
+				if ctx.Err() == context.DeadlineExceeded {
+					return nil, ErrTimeout
+				}
+				return nil, fmt.Errorf("failed to switch account: %w: %s", err, stderr.String())
+			}
+			return nil, fmt.Errorf("failed to parse caam response: %w", jsonErr)
+		}
+	} else if err != nil {
+		// No valid JSON and command failed
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, ErrTimeout
+		}
+		return nil, fmt.Errorf("failed to switch account: %w: %s", err, stderr.String())
+	}
+
+	// Invalidate cache after switch attempt
+	caamStatusMutex.Lock()
+	caamStatusExpiry = time.Time{}
+	caamStatusMutex.Unlock()
+
+	// Return error if switch was not successful
+	if !result.Success && result.Error != "" {
+		return &result, fmt.Errorf("caam switch failed: %s", result.Error)
+	}
+
+	return &result, nil
 }
 
 // InvalidateCache forces the next GetStatus call to fetch fresh data
@@ -546,6 +728,7 @@ func parseWaitTimeFromOutput(output string) int {
 }
 
 // TriggerAccountSwitch attempts to switch CAAM accounts when rate limit is detected.
+// Uses the new SwitchToNextAccount method which calls `caam switch <provider> --next --json`.
 // Returns the event with switch results populated.
 func (d *RateLimitDetector) TriggerAccountSwitch(ctx context.Context, event *RateLimitEvent) *RateLimitEvent {
 	if d.adapter == nil {
@@ -560,40 +743,28 @@ func (d *RateLimitDetector) TriggerAccountSwitch(ctx context.Context, event *Rat
 		return event
 	}
 
-	// Get current account before switch
-	currentAccount, _ := d.adapter.GetActiveAccount(ctx)
-	if currentAccount != nil {
-		event.AccountBefore = currentAccount.ID
+	// Use the provider from the event, fallback to attempting detection
+	provider := event.Provider
+	if provider == "" || provider == "unknown" {
+		return event // Can't switch without knowing the provider
 	}
 
-	// Get available accounts and find next non-rate-limited one
-	accounts, err := d.adapter.GetAccounts(ctx)
+	// Use the new SwitchToNextAccount method
+	result, err := d.adapter.SwitchToNextAccount(ctx, provider)
 	if err != nil {
+		// Switch failed - populate event with error info
+		event.SwitchSuccess = false
+		if result != nil {
+			event.AccountBefore = result.PreviousAccount
+		}
 		return event
 	}
 
-	// Find next available account (not rate limited, not current)
-	for _, acc := range accounts {
-		if acc.Active {
-			continue // Skip current account
-		}
-		if acc.RateLimited {
-			continue // Skip rate limited accounts
-		}
-		if !acc.CooldownUntil.IsZero() && time.Now().Before(acc.CooldownUntil) {
-			continue // Skip accounts in cooldown
-		}
+	// Populate event with switch results
+	event.AccountBefore = result.PreviousAccount
+	event.AccountAfter = result.NewAccount
+	event.SwitchSuccess = result.Success
 
-		// Try to switch to this account
-		if err := d.adapter.SwitchAccount(ctx, acc.ID); err == nil {
-			event.AccountAfter = acc.ID
-			event.SwitchSuccess = true
-			return event
-		}
-	}
-
-	// No available account found
-	event.SwitchSuccess = false
 	return event
 }
 

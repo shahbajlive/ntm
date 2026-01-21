@@ -1067,6 +1067,41 @@ Shell Integration:
 			return
 		}
 
+		// Robot-account-status handler for CAAM account status
+		if robotAccountStatus {
+			opts := robot.AccountStatusOptions{
+				Provider: robotAccountStatusProvider,
+			}
+			if err := robot.PrintAccountStatus(opts); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+
+		// Robot-accounts-list handler for CAAM accounts list
+		if robotAccountsList {
+			opts := robot.AccountsListOptions{
+				Provider: robotAccountsListProvider,
+			}
+			if err := robot.PrintAccountsList(opts); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+
+		// Robot-switch-account handler for CAAM account switching
+		if robotSwitchAccount != "" {
+			opts := robot.ParseSwitchAccountArg(robotSwitchAccount)
+			opts.Pane = robotSwitchAccountPane
+			if err := robot.PrintSwitchAccount(opts); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+
 		// Show help with appropriate verbosity when run without subcommand
 		if helpMinimal {
 			PrintMinimalHelp(cmd.OutOrStdout())
@@ -1372,6 +1407,16 @@ var (
 	// Help verbosity flags
 	helpMinimal bool // show minimal help with essential commands only
 	helpFull    bool // show full help (default behavior)
+
+	// Robot-switch-account flags for CAAM account switching
+	robotSwitchAccount     string // provider or provider:account format
+	robotSwitchAccountPane string // optional pane filter
+
+	// Robot-account-status and robot-accounts-list flags for CAAM
+	robotAccountStatus       bool   // --robot-account-status flag
+	robotAccountStatusProvider string // --provider filter for account-status
+	robotAccountsList        bool   // --robot-accounts-list flag
+	robotAccountsListProvider string // --provider filter for accounts-list
 )
 
 func init() {
@@ -1402,7 +1447,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&robotAgentHealthVerbose, "agent-health-verbose", false, "Include raw sample output in --robot-agent-health response. Example: --agent-health-verbose")
 	rootCmd.Flags().StringVar(&robotSmartRestart, "robot-smart-restart", "", "SAFE restart: checks --robot-is-working first, refuses to interrupt working agents. Required: SESSION. Example: ntm --robot-smart-restart=myproject --panes=2,3")
 	rootCmd.Flags().BoolVar(&robotSmartRestartForce, "force", false, "DANGEROUS: Force restart even if agent is working. Optional with --robot-smart-restart. Use with extreme caution!")
-	rootCmd.Flags().BoolVar(&robotSmartRestartDryRun, "dry-run", false, "Show what would happen without performing restart. Optional with --robot-smart-restart")
+	rootCmd.Flags().BoolVar(&robotSmartRestartDryRun, "smart-restart-dry-run", false, "Show what would happen without performing restart. Optional with --robot-smart-restart")
 	rootCmd.Flags().StringVar(&robotSmartRestartPrompt, "prompt", "", "Send this prompt to the agent after restart. Optional with --robot-smart-restart")
 	rootCmd.Flags().BoolVar(&robotSmartRestartVerbose, "smart-restart-verbose", false, "Include extra debugging info in --robot-smart-restart response")
 	rootCmd.Flags().StringVar(&robotMonitor, "robot-monitor", "", "Start proactive monitoring for usage limits. Emits JSONL warnings. Required: SESSION. Example: ntm --robot-monitor=myproject --interval=30s")
@@ -1528,7 +1573,7 @@ func init() {
 
 	// Robot-restore flags for session state restoration
 	rootCmd.Flags().StringVar(&robotRestore, "robot-restore", "", "Restore session from saved state. Required: path to save file. Example: ntm --robot-restore=backup.json")
-	rootCmd.Flags().BoolVar(&robotRestoreDry, "dry-run", false, "Preview mode: show what would happen without executing. Use with --robot-restore, --robot-interrupt, --robot-send, or --robot-spawn")
+	rootCmd.Flags().BoolVar(&robotRestoreDry, "restore-dry-run", false, "Preview mode: show what would happen without executing. Use with --robot-restore")
 
 	// Robot-cass flags for CASS (Cross-Agent Semantic Search) integration
 	rootCmd.Flags().BoolVar(&robotCassStatus, "robot-cass-status", false, "Get CASS health: index status, message counts, freshness (JSON)")
@@ -1657,6 +1702,16 @@ func init() {
 	// Help verbosity flags
 	rootCmd.Flags().BoolVar(&helpMinimal, "minimal", false, "Show minimal help with essential commands only (spawn, send, status, kill, help)")
 	rootCmd.Flags().BoolVar(&helpFull, "full", false, "Show full help with all commands (default behavior)")
+
+	// Robot-switch-account flags for CAAM account switching
+	rootCmd.Flags().StringVar(&robotSwitchAccount, "robot-switch-account", "", "Switch CAAM account for provider. Format: provider or provider:account. Example: ntm --robot-switch-account=claude")
+	rootCmd.Flags().StringVar(&robotSwitchAccountPane, "switch-account-pane", "", "Filter to specific pane. Optional with --robot-switch-account. Example: --switch-account-pane=agent-1")
+
+	// Robot-account-status and robot-accounts-list flags for CAAM
+	rootCmd.Flags().BoolVar(&robotAccountStatus, "robot-account-status", false, "Show CAAM account status per provider. JSON output. Example: ntm --robot-account-status")
+	rootCmd.Flags().StringVar(&robotAccountStatusProvider, "account-status-provider", "", "Filter to specific provider. Optional with --robot-account-status. Example: --account-status-provider=claude")
+	rootCmd.Flags().BoolVar(&robotAccountsList, "robot-accounts-list", false, "List all CAAM accounts. JSON output. Example: ntm --robot-accounts-list")
+	rootCmd.Flags().StringVar(&robotAccountsListProvider, "accounts-list-provider", "", "Filter to specific provider. Optional with --robot-accounts-list. Example: --accounts-list-provider=claude")
 
 	// Sync version info with robot package
 	robot.Version = Version
