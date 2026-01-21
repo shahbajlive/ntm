@@ -507,24 +507,15 @@ func TestNewRecordID(t *testing.T) {
 func TestDefaultRotationHistoryPath(t *testing.T) {
 	t.Parallel()
 
-	// Save current XDG_DATA_HOME
-	oldXDG := os.Getenv("XDG_DATA_HOME")
-	defer os.Setenv("XDG_DATA_HOME", oldXDG)
-
-	// Test with XDG_DATA_HOME set
+	// Test with HOME set (XDG_DATA_HOME should be ignored)
 	tmpDir := t.TempDir()
-	os.Setenv("XDG_DATA_HOME", tmpDir)
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("XDG_DATA_HOME", "/should/be/ignored")
 
 	path := defaultRotationHistoryPath()
-	expected := filepath.Join(tmpDir, "ntm", "rotation_history", "rotations.jsonl")
+	// New behavior: ~/.ntm/rotation_history/rotations.jsonl
+	expected := filepath.Join(tmpDir, ".ntm", "rotation_history", "rotations.jsonl")
 	if path != expected {
 		t.Errorf("path = %q, want %q", path, expected)
-	}
-
-	// Test with XDG_DATA_HOME unset (uses home dir)
-	os.Unsetenv("XDG_DATA_HOME")
-	path = defaultRotationHistoryPath()
-	if path == "" {
-		t.Error("expected non-empty path")
 	}
 }
