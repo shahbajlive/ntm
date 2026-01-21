@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/Dicklesworthstone/ntm/internal/archive"
 	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/plugins"
 	"github.com/Dicklesworthstone/ntm/internal/resilience"
@@ -92,6 +93,21 @@ func runMonitor(session string) error {
 	defer cancel()
 
 	monitor.Start(ctx)
+
+	// Initialize archiver for background CASS capture
+	archiverOpts := archive.DefaultArchiverOptions(session)
+	archiver, err := archive.NewArchiver(archiverOpts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to initialize archiver: %v\n", err)
+	} else {
+		fmt.Printf("Starting archiver for session %s\n", session)
+		go func() {
+			if err := archiver.Run(ctx); err != nil && err != context.Canceled {
+				fmt.Fprintf(os.Stderr, "Archiver error: %v\n", err)
+			}
+		}()
+		defer archiver.Close()
+	}
 
 	// Wait for termination signal or session end
 	sigChan := make(chan os.Signal, 1)
