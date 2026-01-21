@@ -31,6 +31,7 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/status"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/internal/tokens"
+	"github.com/Dicklesworthstone/ntm/internal/tools"
 	"github.com/Dicklesworthstone/ntm/internal/tracker"
 	"github.com/Dicklesworthstone/ntm/internal/tui/components"
 	"github.com/Dicklesworthstone/ntm/internal/tui/dashboard/panels"
@@ -201,6 +202,17 @@ type FileConflictMsg struct {
 	Conflict watcher.FileConflict
 }
 
+// DCGStatusUpdateMsg is sent when DCG status is fetched
+type DCGStatusUpdateMsg struct {
+	Enabled    bool   // Whether DCG is enabled in config
+	Available  bool   // Whether DCG binary is available
+	Version    string // DCG version string
+	Blocked    int    // Commands blocked this session
+	LastBlocked string // Last blocked command
+	Err        error
+	Gen        uint64
+}
+
 // RoutingScore holds routing info for a single agent
 type RoutingScore struct {
 	Score         float64 // 0-100 composite routing score
@@ -249,6 +261,7 @@ const (
 	refreshAgentMail
 	refreshAgentMailInbox
 	refreshRouting
+	refreshDCG
 	refreshSourceCount
 )
 
@@ -439,6 +452,17 @@ type Model struct {
 	bugsWarning  int  // Warning bugs from last scan
 	bugsInfo     int  // Info bugs from last scan
 	bugsScanned  bool // Whether a scan has been run
+
+	// DCG (Destructive Command Guard) status
+	dcgEnabled      bool   // Whether DCG is enabled in config
+	dcgAvailable    bool   // Whether DCG binary is available
+	dcgVersion      string // DCG version string
+	dcgBlocked      int    // Commands blocked this session
+	dcgLastBlocked  string // Last blocked command (for tooltip)
+	dcgError        error  // Any error from DCG check
+	fetchingDCG     bool   // Whether we're currently fetching DCG status
+	lastDCGFetch    time.Time
+	dcgRefreshInterval time.Duration // How often to refresh DCG status
 
 	// Error tracking for data sources (displayed as badges)
 	beadsError       error
@@ -2919,6 +2943,12 @@ func (m Model) renderStatsBar() string {
 		parts = append(parts, cpBadge)
 	}
 
+	// DCG status badge
+	dcgBadge := m.renderDCGBadge()
+	if dcgBadge != "" {
+		parts = append(parts, dcgBadge)
+	}
+
 	return strings.Join(parts, "  ")
 }
 
@@ -3084,6 +3114,46 @@ func (m Model) renderCheckpointBadge() string {
 		label = fmt.Sprintf("%d old", m.checkpointCount)
 	default:
 		return ""
+	}
+
+	return lipgloss.NewStyle().
+		Background(bgColor).
+		Foreground(fgColor).
+		Bold(true).
+		Padding(0, 1).
+		Render(fmt.Sprintf("%s %s", icon, label))
+}
+
+// renderDCGBadge renders the DCG (Destructive Command Guard) status badge
+func (m Model) renderDCGBadge() string {
+	t := m.theme
+
+	// Don't show badge if DCG is not enabled in config
+	if !m.dcgEnabled {
+		return ""
+	}
+
+	var bgColor, fgColor lipgloss.Color
+	var icon, label string
+
+	if !m.dcgAvailable {
+		// DCG enabled but binary not found
+		bgColor = t.Yellow
+		fgColor = t.Base
+		icon = "⚠"
+		label = "DCG missing"
+	} else if m.dcgBlocked > 0 {
+		// DCG active with blocked commands
+		bgColor = t.Lavender
+		fgColor = t.Base
+		icon = "🛡️"
+		label = fmt.Sprintf("DCG %d blocked", m.dcgBlocked)
+	} else {
+		// DCG active and protecting
+		bgColor = t.Green
+		fgColor = t.Base
+		icon = "🛡️"
+		label = "DCG"
 	}
 
 	return lipgloss.NewStyle().
