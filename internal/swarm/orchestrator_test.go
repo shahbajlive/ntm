@@ -298,3 +298,86 @@ func TestGeometryResult_WithTolerance(t *testing.T) {
 		t.Errorf("expected 3 geometries, got %d", len(geometries))
 	}
 }
+
+func TestSessionOrchestrator_TmuxBinaryPath(t *testing.T) {
+	orch := NewSessionOrchestrator()
+
+	path := orch.TmuxBinaryPath()
+
+	// Should return a non-empty path
+	if path == "" {
+		t.Error("expected non-empty tmux binary path")
+	}
+
+	// Should prefer explicit paths over just "tmux"
+	// Common locations: /usr/bin/tmux, /usr/local/bin/tmux, /opt/homebrew/bin/tmux
+	validPaths := []string{
+		"/usr/bin/tmux",
+		"/usr/local/bin/tmux",
+		"/opt/homebrew/bin/tmux",
+		"tmux", // fallback
+	}
+
+	found := false
+	for _, valid := range validPaths {
+		if path == valid {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Logf("tmux binary path: %s (not in expected list, but may be valid)", path)
+	}
+}
+
+func TestSessionOrchestrator_GetTmuxBinaryInfo(t *testing.T) {
+	orch := NewSessionOrchestrator()
+
+	info := orch.GetTmuxBinaryInfo()
+
+	if info == nil {
+		t.Fatal("expected non-nil TmuxBinaryInfo")
+	}
+
+	if info.Path == "" {
+		t.Error("expected non-empty path in TmuxBinaryInfo")
+	}
+
+	// Default orchestrator should use local tmux
+	if info.IsRemote {
+		t.Error("expected IsRemote=false for default orchestrator")
+	}
+}
+
+func TestTmuxBinaryInfo(t *testing.T) {
+	info := TmuxBinaryInfo{
+		Path:      "/usr/bin/tmux",
+		Available: true,
+		IsRemote:  false,
+	}
+
+	if info.Path != "/usr/bin/tmux" {
+		t.Errorf("expected path /usr/bin/tmux, got %q", info.Path)
+	}
+
+	if !info.Available {
+		t.Error("expected Available=true")
+	}
+
+	if info.IsRemote {
+		t.Error("expected IsRemote=false")
+	}
+}
+
+func TestTmuxBinaryInfo_Remote(t *testing.T) {
+	info := TmuxBinaryInfo{
+		Path:      "/usr/bin/tmux",
+		Available: true,
+		IsRemote:  true,
+	}
+
+	if !info.IsRemote {
+		t.Error("expected IsRemote=true for remote configuration")
+	}
+}

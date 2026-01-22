@@ -9,6 +9,10 @@ import (
 
 // SessionOrchestrator handles creation and management of tmux sessions
 // for the weighted multi-project swarm system.
+//
+// The orchestrator uses an explicit tmux binary path (via tmux.BinaryPath())
+// to avoid issues with shell plugins (e.g., zsh tmux plugins) that may
+// intercept or modify tmux commands when relying on PATH resolution.
 type SessionOrchestrator struct {
 	// TmuxClient is the tmux client used for session operations.
 	// If nil, the default tmux client is used.
@@ -361,4 +365,41 @@ func (o *SessionOrchestrator) GetAverageGeometry(sessionName string) (*PaneGeome
 		Width:  totalWidth / len(panes),
 		Height: totalHeight / len(panes),
 	}, nil
+}
+
+// TmuxBinaryPath returns the resolved path to the tmux binary being used.
+// This uses an explicit binary path (preferring /usr/bin/tmux) to avoid
+// issues with shell plugins that may intercept tmux commands.
+func (o *SessionOrchestrator) TmuxBinaryPath() string {
+	return tmux.BinaryPath()
+}
+
+// VerifyTmuxBinary checks if the tmux binary is accessible and functional.
+// Returns the binary path if successful, or an error if tmux is not available.
+func (o *SessionOrchestrator) VerifyTmuxBinary() (string, error) {
+	if err := tmux.EnsureInstalled(); err != nil {
+		return "", err
+	}
+	return tmux.BinaryPath(), nil
+}
+
+// TmuxBinaryInfo contains information about the tmux binary being used.
+type TmuxBinaryInfo struct {
+	Path      string `json:"path"`
+	Available bool   `json:"available"`
+	IsRemote  bool   `json:"is_remote"`
+}
+
+// GetTmuxBinaryInfo returns detailed information about the tmux binary configuration.
+func (o *SessionOrchestrator) GetTmuxBinaryInfo() *TmuxBinaryInfo {
+	client := o.tmuxClient()
+	isRemote := client.Remote != ""
+
+	info := &TmuxBinaryInfo{
+		Path:      tmux.BinaryPath(),
+		Available: tmux.IsInstalled(),
+		IsRemote:  isRemote,
+	}
+
+	return info
 }
