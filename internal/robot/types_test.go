@@ -711,3 +711,379 @@ func TestOptionalFieldsOmitted(t *testing.T) {
 		}
 	})
 }
+
+// =============================================================================
+// Structured Error Tests (bd-3vc3s)
+// =============================================================================
+// Tests for StructuredError, ErrorDetails, and related helper functions.
+
+func TestNewStructuredError(t *testing.T) {
+	err := NewStructuredError(ErrCodeSoftExitFailed, "Agent did not respond to Ctrl-C")
+
+	if err.Code != ErrCodeSoftExitFailed {
+		t.Errorf("expected code %q, got %q", ErrCodeSoftExitFailed, err.Code)
+	}
+	if err.Message != "Agent did not respond to Ctrl-C" {
+		t.Errorf("expected message 'Agent did not respond to Ctrl-C', got %q", err.Message)
+	}
+	// Optional fields should be empty/nil
+	if err.Phase != "" {
+		t.Errorf("expected empty phase, got %q", err.Phase)
+	}
+	if err.Pane != 0 {
+		t.Errorf("expected pane 0, got %d", err.Pane)
+	}
+	if err.Details != nil {
+		t.Error("expected nil details")
+	}
+	if err.RecoveryHint != "" {
+		t.Errorf("expected empty recovery hint, got %q", err.RecoveryHint)
+	}
+}
+
+func TestStructuredErrorBuilderPattern(t *testing.T) {
+	details := NewErrorDetails().
+		WithChildPID(12345).
+		WithAgentType("cc").
+		WithAttemptedActions("ctrl-c-1", "ctrl-c-2", "wait-3s")
+
+	err := NewStructuredError(ErrCodeSoftExitFailed, "Agent did not respond to Ctrl-C").
+		WithPhase("soft_exit").
+		WithPane(4).
+		WithDetails(details).
+		WithRecoveryHint("Try --robot-restart-pane with automatic kill -9 fallback")
+
+	if err.Phase != "soft_exit" {
+		t.Errorf("expected phase 'soft_exit', got %q", err.Phase)
+	}
+	if err.Pane != 4 {
+		t.Errorf("expected pane 4, got %d", err.Pane)
+	}
+	if err.RecoveryHint != "Try --robot-restart-pane with automatic kill -9 fallback" {
+		t.Errorf("unexpected recovery hint: %q", err.RecoveryHint)
+	}
+	if err.Details == nil {
+		t.Fatal("expected details to be set")
+	}
+	if err.Details.ChildPID != 12345 {
+		t.Errorf("expected child PID 12345, got %d", err.Details.ChildPID)
+	}
+	if err.Details.AgentType != "cc" {
+		t.Errorf("expected agent type 'cc', got %q", err.Details.AgentType)
+	}
+	if len(err.Details.AttemptedActions) != 3 {
+		t.Errorf("expected 3 attempted actions, got %d", len(err.Details.AttemptedActions))
+	}
+}
+
+func TestStructuredErrorInterface(t *testing.T) {
+	t.Run("without phase", func(t *testing.T) {
+		err := NewStructuredError(ErrCodeTimeout, "Operation timed out")
+		msg := err.Error()
+		if msg != "Operation timed out" {
+			t.Errorf("expected 'Operation timed out', got %q", msg)
+		}
+	})
+
+	t.Run("with phase", func(t *testing.T) {
+		err := NewStructuredError(ErrCodeSoftExitFailed, "Ctrl-C ignored").
+			WithPhase("soft_exit")
+		msg := err.Error()
+		if msg != "soft_exit: Ctrl-C ignored" {
+			t.Errorf("expected 'soft_exit: Ctrl-C ignored', got %q", msg)
+		}
+	})
+}
+
+func TestErrorDetails(t *testing.T) {
+	details := NewErrorDetails()
+	if details == nil {
+		t.Fatal("expected non-nil ErrorDetails")
+	}
+
+	// Test all builder methods
+	details.
+		WithChildPID(54321).
+		WithProcessState("running").
+		WithLastOutput("some output here", 20).
+		WithAttemptedActions("action1", "action2").
+		WithAgentType("gmi").
+		WithExitMethod("escape_then_exit").
+		WithDuration(3500).
+		SetExtra("custom_field", "custom_value")
+
+	if details.ChildPID != 54321 {
+		t.Errorf("expected child PID 54321, got %d", details.ChildPID)
+	}
+	if details.ProcessState != "running" {
+		t.Errorf("expected process state 'running', got %q", details.ProcessState)
+	}
+	if details.LastOutput != "some output here" {
+		t.Errorf("expected last output 'some output here', got %q", details.LastOutput)
+	}
+	if len(details.AttemptedActions) != 2 {
+		t.Errorf("expected 2 attempted actions, got %d", len(details.AttemptedActions))
+	}
+	if details.AgentType != "gmi" {
+		t.Errorf("expected agent type 'gmi', got %q", details.AgentType)
+	}
+	if details.ExitMethod != "escape_then_exit" {
+		t.Errorf("expected exit method 'escape_then_exit', got %q", details.ExitMethod)
+	}
+	if details.DurationMs != 3500 {
+		t.Errorf("expected duration 3500, got %d", details.DurationMs)
+	}
+	if details.Extra["custom_field"] != "custom_value" {
+		t.Errorf("expected custom field value 'custom_value', got %v", details.Extra["custom_field"])
+	}
+}
+
+func TestErrorDetailsLastOutputTruncation(t *testing.T) {
+	details := NewErrorDetails()
+	longOutput := "This is a very long output string that exceeds the maximum length"
+
+	details.WithLastOutput(longOutput, 20)
+
+	if len(details.LastOutput) > 35 { // 20 + len("... [truncated]")
+		t.Errorf("expected truncated output, got length %d", len(details.LastOutput))
+	}
+	if details.LastOutput != "This is a very long ... [truncated]" {
+		t.Errorf("unexpected truncated output: %q", details.LastOutput)
+	}
+
+	// Short output should not be truncated
+	details2 := NewErrorDetails()
+	details2.WithLastOutput("short", 20)
+	if details2.LastOutput != "short" {
+		t.Errorf("short output should not be modified, got %q", details2.LastOutput)
+	}
+}
+
+func TestNewStructuredErrorResponse(t *testing.T) {
+	structErr := NewStructuredError(ErrCodeHardKillFailed, "kill -9 had no effect").
+		WithPhase("hard_kill").
+		WithPane(2).
+		WithRecoveryHint("Manual intervention required")
+
+	resp := NewStructuredErrorResponse(structErr)
+
+	// Check base response fields
+	if resp.Success {
+		t.Error("expected success to be false")
+	}
+	if resp.Timestamp == "" {
+		t.Error("expected timestamp to be set")
+	}
+
+	// Check backward compatibility fields
+	if resp.Error != "kill -9 had no effect" {
+		t.Errorf("expected error message 'kill -9 had no effect', got %q", resp.Error)
+	}
+	if resp.ErrorCode != ErrCodeHardKillFailed {
+		t.Errorf("expected error code %q, got %q", ErrCodeHardKillFailed, resp.ErrorCode)
+	}
+	if resp.Hint != "Manual intervention required" {
+		t.Errorf("expected hint 'Manual intervention required', got %q", resp.Hint)
+	}
+
+	// Check structured error is set
+	if resp.StructuredError == nil {
+		t.Fatal("expected structured error to be set")
+	}
+	if resp.StructuredError.Phase != "hard_kill" {
+		t.Errorf("expected phase 'hard_kill', got %q", resp.StructuredError.Phase)
+	}
+	if resp.StructuredError.Pane != 2 {
+		t.Errorf("expected pane 2, got %d", resp.StructuredError.Pane)
+	}
+}
+
+func TestStructuredErrorJSON(t *testing.T) {
+	details := NewErrorDetails().
+		WithChildPID(12345).
+		WithProcessState("zombie").
+		WithAttemptedActions("ctrl-c", "kill-9").
+		WithAgentType("cc")
+
+	structErr := NewStructuredError(ErrCodeSoftExitFailed, "Agent stuck").
+		WithPhase("soft_exit").
+		WithPane(3).
+		WithDetails(details).
+		WithRecoveryHint("Try manual intervention")
+
+	data, err := json.Marshal(structErr)
+	if err != nil {
+		t.Fatalf("failed to marshal: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	// Verify required fields
+	if parsed["code"] != ErrCodeSoftExitFailed {
+		t.Errorf("expected code %q, got %v", ErrCodeSoftExitFailed, parsed["code"])
+	}
+	if parsed["message"] != "Agent stuck" {
+		t.Errorf("expected message 'Agent stuck', got %v", parsed["message"])
+	}
+	if parsed["phase"] != "soft_exit" {
+		t.Errorf("expected phase 'soft_exit', got %v", parsed["phase"])
+	}
+	if parsed["pane"] != float64(3) {
+		t.Errorf("expected pane 3, got %v", parsed["pane"])
+	}
+	if parsed["recovery_hint"] != "Try manual intervention" {
+		t.Errorf("expected recovery_hint, got %v", parsed["recovery_hint"])
+	}
+
+	// Verify details
+	detailsData, ok := parsed["details"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected details to be an object")
+	}
+	if detailsData["child_pid"] != float64(12345) {
+		t.Errorf("expected child_pid 12345, got %v", detailsData["child_pid"])
+	}
+	if detailsData["process_state"] != "zombie" {
+		t.Errorf("expected process_state 'zombie', got %v", detailsData["process_state"])
+	}
+	if detailsData["agent_type"] != "cc" {
+		t.Errorf("expected agent_type 'cc', got %v", detailsData["agent_type"])
+	}
+}
+
+func TestStructuredErrorJSONOmitsEmptyFields(t *testing.T) {
+	// Minimal structured error - optional fields should be omitted
+	structErr := NewStructuredError(ErrCodeTimeout, "Timed out")
+
+	data, err := json.Marshal(structErr)
+	if err != nil {
+		t.Fatalf("failed to marshal: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	// Required fields must be present
+	if _, ok := parsed["code"]; !ok {
+		t.Error("code should always be present")
+	}
+	if _, ok := parsed["message"]; !ok {
+		t.Error("message should always be present")
+	}
+
+	// Optional fields should be omitted
+	optionalFields := []string{"phase", "details", "recovery_hint"}
+	for _, field := range optionalFields {
+		if _, ok := parsed[field]; ok {
+			t.Errorf("optional field %q should be omitted when empty", field)
+		}
+	}
+
+	// Pane=0 should be omitted (omitempty behavior for int)
+	if _, ok := parsed["pane"]; ok {
+		t.Error("pane should be omitted when 0")
+	}
+}
+
+func TestRestartErrorCodes(t *testing.T) {
+	// Verify the new restart-related error codes are defined correctly
+	codes := map[string]string{
+		ErrCodeSoftExitFailed:   "SOFT_EXIT_FAILED",
+		ErrCodeHardKillFailed:   "HARD_KILL_FAILED",
+		ErrCodeShellNotReturned: "SHELL_NOT_RETURNED",
+		ErrCodeCCLaunchFailed:   "CC_LAUNCH_FAILED",
+		ErrCodeCCInitTimeout:    "CC_INIT_TIMEOUT",
+		ErrCodeBeadNotFound:     "BEAD_NOT_FOUND",
+		ErrCodePromptSendFailed: "PROMPT_SEND_FAILED",
+	}
+
+	for constant, expected := range codes {
+		if constant != expected {
+			t.Errorf("expected %q, got %q", expected, constant)
+		}
+		// Codes should be SCREAMING_SNAKE_CASE
+		for _, c := range constant {
+			if c >= 'a' && c <= 'z' {
+				t.Errorf("error code %q should be uppercase", constant)
+				break
+			}
+		}
+	}
+}
+
+func TestStructuredErrorTerseKeyMapping(t *testing.T) {
+	// Verify terse key mappings exist for structured error fields
+	expectedMappings := map[string]string{
+		"structured_error": "se",
+		"phase":            "ph",
+		"details":          "d",
+		"recovery_hint":    "rh",
+	}
+
+	for longKey, expectedShort := range expectedMappings {
+		short, ok := TerseKeyFor(longKey)
+		if !ok {
+			t.Errorf("expected terse mapping for %q", longKey)
+			continue
+		}
+		if short != expectedShort {
+			t.Errorf("expected terse key %q for %q, got %q", expectedShort, longKey, short)
+		}
+	}
+
+	// Verify reverse mapping works
+	for longKey, shortKey := range expectedMappings {
+		long, ok := ExpandTerseKey(shortKey)
+		if !ok {
+			t.Errorf("expected reverse mapping for %q", shortKey)
+			continue
+		}
+		if long != longKey {
+			t.Errorf("expected long key %q for %q, got %q", longKey, shortKey, long)
+		}
+	}
+}
+
+func TestRobotResponseWithStructuredError(t *testing.T) {
+	// Test that RobotResponse properly includes structured_error in JSON
+	structErr := NewStructuredError(ErrCodeShellNotReturned, "No shell prompt after exit").
+		WithPhase("post_exit").
+		WithPane(1)
+
+	resp := NewStructuredErrorResponse(structErr)
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("failed to marshal: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	// Check structured_error is present
+	se, ok := parsed["structured_error"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected structured_error in JSON output")
+	}
+	if se["code"] != ErrCodeShellNotReturned {
+		t.Errorf("expected code %q, got %v", ErrCodeShellNotReturned, se["code"])
+	}
+	if se["phase"] != "post_exit" {
+		t.Errorf("expected phase 'post_exit', got %v", se["phase"])
+	}
+
+	// Check backward compatibility - simple fields should also be set
+	if parsed["error"] != "No shell prompt after exit" {
+		t.Errorf("expected error message for backward compatibility, got %v", parsed["error"])
+	}
+	if parsed["error_code"] != ErrCodeShellNotReturned {
+		t.Errorf("expected error_code for backward compatibility, got %v", parsed["error_code"])
+	}
+}

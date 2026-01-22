@@ -110,6 +110,8 @@ type RestartAction struct {
 	PostState       *PostStateInfo    `json:"post_state,omitempty"`
 	WaitInfo        *WaitInfo         `json:"wait_info,omitempty"`
 	Error           string            `json:"error,omitempty"`
+	// StructuredError provides detailed error context for failure diagnosis (bd-3vc3s).
+	StructuredError *StructuredError `json:"structured_error,omitempty"`
 }
 
 // RestartSummary aggregates results across all panes.
@@ -228,6 +230,10 @@ func SmartRestart(opts SmartRestartOptions) (*SmartRestartOutput, error) {
 				action.Action = ActionFailed
 				action.Reason = reason
 				action.Error = restartErr.Error()
+				// Capture structured error if available (bd-3vc3s)
+				if structErr, ok := restartErr.(*StructuredError); ok {
+					action.StructuredError = structErr
+				}
 				output.Summary.Failed++
 				appendPaneToAction(output.Summary.PanesByAction, "FAILED", paneNum)
 			} else {
@@ -350,32 +356,79 @@ func appendPaneToAction(panesByAction map[string][]int, action string, pane int)
 	panesByAction[action] = append(panesByAction[action], pane)
 }
 
+// newRestartError creates a StructuredError for restart failures with context.
+func newRestartError(code, message, phase string, pane int, agentType string, attemptedActions []string, lastOutput string) *StructuredError {
+	details := NewErrorDetails().
+		WithAgentType(agentType).
+		WithAttemptedActions(attemptedActions...)
+
+	if lastOutput != "" {
+		details.WithLastOutput(lastOutput, 500)
+	}
+
+	return NewStructuredError(code, message).
+		WithPhase(phase).
+		WithPane(pane).
+		WithDetails(details)
+}
+
 // executeRestart performs the actual restart sequence for a pane.
 func executeRestart(session string, pane int, agentType string, opts SmartRestartOptions) (*RestartSequence, error) {
 	seq := &RestartSequence{
 		AgentType: agentType,
 	}
+	var attemptedActions []string
 
 	// Step 1: Exit the current agent using agent-specific method
+	attemptedActions = append(attemptedActions, "exit-agent-"+agentType)
 	exitErr := exitAgent(session, pane, agentType, seq)
 	if exitErr != nil {
-		return seq, exitErr
+		structErr := newRestartError(
+			ErrCodeSoftExitFailed,
+			"Agent did not respond to exit within timeout: "+exitErr.Error(),
+			"soft_exit",
+			pane,
+			agentType,
+			attemptedActions,
+			"",
+		).WithRecoveryHint("Try --robot-restart-pane with --force to use kill -9 fallback")
+		return seq, structErr
 	}
 
 	// Step 2: Wait for shell to return
+	attemptedActions = append(attemptedActions, "wait-3s")
 	seq.ExitDurationMs = 3000
 	time.Sleep(3 * time.Second)
 
 	// Step 3: Verify shell prompt
+	attemptedActions = append(attemptedActions, "verify-shell-prompt")
 	target := fmt.Sprintf("%s:1.%d", session, pane)
 	output, err := tmux.CapturePaneOutput(target, 10)
 	if err != nil {
-		return seq, wrapError("capture failed", err)
+		structErr := newRestartError(
+			ErrCodeShellNotReturned,
+			"Failed to capture pane output after exit: "+err.Error(),
+			"post_exit",
+			pane,
+			agentType,
+			attemptedActions,
+			"",
+		).WithRecoveryHint("Check if the pane still exists with ntm status")
+		return seq, structErr
 	}
 
 	seq.ShellConfirmed = looksLikeShellPrompt(output)
 	if !seq.ShellConfirmed {
-		return seq, newError("shell prompt not detected after exit")
+		structErr := newRestartError(
+			ErrCodeShellNotReturned,
+			"Shell prompt not detected after exit - agent may still be running",
+			"post_exit",
+			pane,
+			agentType,
+			attemptedActions,
+			output,
+		).WithRecoveryHint("Try --robot-restart-pane with --force, or manually kill the process")
+		return seq, structErr
 	}
 
 	// Step 4: Launch new agent using alias
@@ -384,9 +437,19 @@ func executeRestart(session string, pane int, agentType string, opts SmartRestar
 		alias = "cc" // Default to Claude Code if unknown
 	}
 
+	attemptedActions = append(attemptedActions, "launch-"+alias)
 	launchErr := sendKeys(session, pane, alias+"\n")
 	if launchErr != nil {
-		return seq, wrapError("launch failed", launchErr)
+		structErr := newRestartError(
+			ErrCodeCCLaunchFailed,
+			"Failed to launch agent: "+launchErr.Error(),
+			"launch",
+			pane,
+			agentType,
+			attemptedActions,
+			output,
+		).WithRecoveryHint("Verify the agent CLI is installed and in PATH")
+		return seq, structErr
 	}
 
 	// Step 5: Wait for agent initialization
@@ -394,10 +457,12 @@ func executeRestart(session string, pane int, agentType string, opts SmartRestar
 	if waitTime == 0 {
 		waitTime = 6 * time.Second
 	}
+	attemptedActions = append(attemptedActions, fmt.Sprintf("wait-%ds", int(waitTime.Seconds())))
 	time.Sleep(waitTime)
 
 	// Step 6: Send prompt if provided
 	if opts.Prompt != "" {
+		attemptedActions = append(attemptedActions, "send-prompt")
 		time.Sleep(500 * time.Millisecond)
 		promptErr := sendKeys(session, pane, opts.Prompt+"\n")
 		if promptErr != nil {
