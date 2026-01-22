@@ -153,7 +153,7 @@ type SpawnOptions struct {
 	// - fixed: Use fixed delay (StaggerDelay)
 	// - none: No staggering (backward compatible default)
 	StaggerMode  string        // "smart", "fixed", or "none"
-	StaggerDelay time.Duration // Delay for fixed mode (default 15s)
+	StaggerDelay time.Duration // Delay for fixed mode (default 30s)
 
 	// Legacy stagger fields (deprecated, kept for backward compatibility)
 	Stagger        time.Duration // Delay between agent prompt delivery
@@ -164,6 +164,10 @@ type SpawnOptions struct {
 	AssignStrategy     string        // Assignment strategy: balanced, speed, quality, dependency, round-robin
 	AssignLimit        int           // Maximum assignments (0 = unlimited)
 	AssignReadyTimeout time.Duration // Timeout waiting for agents to become ready
+	AssignVerbose      bool          // Show detailed scoring/decision logs during assignment
+	AssignQuiet        bool          // Suppress non-essential assignment output
+	AssignTimeout      time.Duration // Timeout for external calls during assignment (bv, br, Agent Mail)
+	AssignAgentType    string        // Filter assignment to specific agent type (claude, codex, gemini)
 
 	// Git worktree isolation configuration
 	UseWorktrees bool // Enable git worktree isolation for agents
@@ -305,6 +309,10 @@ func newSpawnCmd() *cobra.Command {
 	var assignStrategy string
 	var assignLimit int
 	var assignReadyTimeout time.Duration
+	var assignVerbose bool
+	var assignQuiet bool
+	var assignTimeout time.Duration
+	var assignAgentType string
 
 	// Git worktree isolation flag
 	var useWorktrees bool
@@ -374,7 +382,7 @@ Stagger mode (--stagger-mode):
 
   Modes:
     - smart: Adaptive delays from rate limit tracker (learns optimal spacing)
-    - fixed: Use fixed delay (--stagger-delay, default 15s)
+    - fixed: Use fixed delay (--stagger-delay, default 30s)
     - none:  No staggering (default, backward compatible)
 
   Legacy --stagger flag still works for duration-based staggering.
@@ -604,6 +612,10 @@ Examples:
 				AssignStrategy:     assignStrategy,
 				AssignLimit:        assignLimit,
 				AssignReadyTimeout: assignReadyTimeout,
+				AssignVerbose:      assignVerbose,
+				AssignQuiet:        assignQuiet,
+				AssignTimeout:      assignTimeout,
+				AssignAgentType:    assignAgentType,
 				UseWorktrees:       useWorktrees,
 			}
 
@@ -622,13 +634,13 @@ Examples:
 	cmd.Flags().BoolVar(&autoRestart, "auto-restart", false, "monitor and auto-restart crashed agents")
 
 	// Stagger flag for thundering herd prevention
-	// Custom handling: --stagger enables with default 90s, --stagger=2m for custom duration
-	staggerValue := newOptionalDurationValue(90*time.Second, &staggerDuration, &staggerEnabled)
-	cmd.Flags().Var(staggerValue, "stagger", "Stagger prompt delivery between agents (default 90s when enabled)")
+	// Custom handling: --stagger enables with default 30s, --stagger=2m for custom duration
+	staggerValue := newOptionalDurationValue(30*time.Second, &staggerDuration, &staggerEnabled)
+	cmd.Flags().Var(staggerValue, "stagger", "Stagger prompt delivery between agents (default 30s when enabled)")
 
 	// New stagger mode flags (bd-2wih)
 	cmd.Flags().StringVar(&staggerMode, "stagger-mode", "none", "Stagger mode: smart (adaptive), fixed, or none")
-	cmd.Flags().DurationVar(&staggerDelay, "stagger-delay", 15*time.Second, "Fixed delay between agents (used with --stagger-mode=fixed)")
+	cmd.Flags().DurationVar(&staggerDelay, "stagger-delay", 30*time.Second, "Fixed delay between agents (used with --stagger-mode=fixed)")
 
 	// CASS context flags
 	cmd.Flags().StringVar(&contextQuery, "cass-context", "", "Explicit context query for CASS")
@@ -645,6 +657,10 @@ Examples:
 	cmd.Flags().StringVar(&assignStrategy, "strategy", "balanced", "Assignment strategy: balanced, speed, quality, dependency, round-robin")
 	cmd.Flags().IntVar(&assignLimit, "limit", 0, "Maximum beads to assign (0 = unlimited)")
 	cmd.Flags().DurationVar(&assignReadyTimeout, "ready-timeout", 60*time.Second, "Timeout waiting for agents to become ready")
+	cmd.Flags().BoolVarP(&assignVerbose, "assign-verbose", "", false, "Show detailed scoring/decision logs during assignment")
+	cmd.Flags().BoolVarP(&assignQuiet, "assign-quiet", "", false, "Suppress non-essential assignment output")
+	cmd.Flags().DurationVar(&assignTimeout, "assign-timeout", 30*time.Second, "Timeout for external calls during assignment (bv, br, Agent Mail)")
+	cmd.Flags().StringVar(&assignAgentType, "assign-agent", "", "Filter assignment to specific agent type: claude, codex, gemini")
 
 	// Git worktree isolation flag
 	cmd.Flags().BoolVar(&useWorktrees, "worktrees", false, "Enable git worktree isolation for agents (each agent gets isolated working directory)")
@@ -1152,6 +1168,7 @@ func spawnSessionLogic(opts SpawnOptions) error {
 					setupCancel()
 					if !IsJSONOutput() {
 						fmt.Printf("⚠ Warning: Gemini Pro model setup failed for agent %d: %v\n", idx, err)
+						fmt.Printf("  (Agent is running with default model. To disable auto-setup: set gemini_setup.auto_select_pro_model = false in config)\n")
 					}
 					// Don't fail spawn - agent is still running, just possibly with default model
 				} else {
@@ -2624,13 +2641,29 @@ func sendInitPromptToReadyAgents(session, prompt string) (int, error) {
 // runAssignmentPhase executes the assignment phase after spawn.
 // Returns the assignment result or error.
 func runAssignmentPhase(session string, opts SpawnOptions) (*AssignOutputEnhanced, error) {
+	// Use opts.AssignVerbose/Quiet if explicitly set, otherwise use JSON-based defaults
+	verbose := opts.AssignVerbose
+	quiet := opts.AssignQuiet
+	if !opts.AssignVerbose && !opts.AssignQuiet {
+		// Neither explicitly set, use defaults based on output mode
+		verbose = !IsJSONOutput()
+		quiet = IsJSONOutput()
+	}
+
+	// Use opts.AssignTimeout if set, otherwise use default
+	timeout := opts.AssignTimeout
+	if timeout == 0 {
+		timeout = 30 * time.Second
+	}
+
 	assignOpts := &AssignCommandOptions{
-		Session:  session,
-		Strategy: opts.AssignStrategy,
-		Limit:    opts.AssignLimit,
-		Verbose:  !IsJSONOutput(),
-		Quiet:    IsJSONOutput(),
-		Timeout:  30 * time.Second,
+		Session:         session,
+		Strategy:        opts.AssignStrategy,
+		Limit:           opts.AssignLimit,
+		AgentTypeFilter: opts.AssignAgentType,
+		Verbose:         verbose,
+		Quiet:           quiet,
+		Timeout:         timeout,
 	}
 
 	// Get assignment recommendations

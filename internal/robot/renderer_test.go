@@ -436,7 +436,7 @@ func TestGetRenderer(t *testing.T) {
 	}{
 		{FormatJSON, "*robot.JSONRenderer"},
 		{FormatTOON, "*robot.TOONRenderer"},
-		{FormatAuto, "*robot.JSONRenderer"},           // Auto defaults to JSON
+		{FormatAuto, "*robot.JSONRenderer"},             // Auto defaults to JSON
 		{RobotFormat("invalid"), "*robot.JSONRenderer"}, // Invalid falls back to JSON
 	}
 
@@ -701,5 +701,101 @@ func TestOutputFormatAffectsEncodeJSON(t *testing.T) {
 	// TOON output should contain key-value format
 	if !strings.Contains(toonOutput, "key") || !strings.Contains(toonOutput, "value") {
 		t.Errorf("TOON output missing expected content: %q", toonOutput)
+	}
+}
+
+// =============================================================================
+// Snapshot + Error Path Tests (bd-3aejn)
+// =============================================================================
+
+func TestRenderSnapshotsJSONAndTOON(t *testing.T) {
+	type item struct {
+		ID   int    `json:"id"`
+		Name string `json:"name"`
+	}
+
+	items := []item{{ID: 1, Name: "alpha"}, {ID: 2, Name: "beta"}}
+
+	t.Run("json array snapshot", func(t *testing.T) {
+		output, err := Render(items, FormatJSON)
+		if err != nil {
+			t.Fatalf("Render(JSON) error: %v", err)
+		}
+
+		expected := "[\n  {\n    \"id\": 1,\n    \"name\": \"alpha\"\n  },\n  {\n    \"id\": 2,\n    \"name\": \"beta\"\n  }\n]\n"
+		if output != expected {
+			t.Errorf("JSON snapshot mismatch:\n--- got ---\n%s--- want ---\n%s", output, expected)
+		}
+	})
+
+	t.Run("toon array snapshot", func(t *testing.T) {
+		output, err := Render(items, FormatTOON)
+		if err != nil {
+			t.Fatalf("Render(TOON) error: %v", err)
+		}
+
+		expected := "[2]{id,name}:\n 1\talpha\n 2\tbeta\n"
+		if output != expected {
+			t.Errorf("TOON snapshot mismatch:\n--- got ---\n%s--- want ---\n%s", output, expected)
+		}
+	})
+
+	t.Run("robot response snapshot", func(t *testing.T) {
+		payload := RobotResponse{
+			Success:   true,
+			Timestamp: "2026-01-01T00:00:00Z",
+		}
+
+		jsonOutput, err := Render(payload, FormatJSON)
+		if err != nil {
+			t.Fatalf("Render(JSON) error: %v", err)
+		}
+
+		expectedJSON := "{\n  \"success\": true,\n  \"timestamp\": \"2026-01-01T00:00:00Z\"\n}\n"
+		if jsonOutput != expectedJSON {
+			t.Errorf("RobotResponse JSON snapshot mismatch:\n--- got ---\n%s--- want ---\n%s", jsonOutput, expectedJSON)
+		}
+
+		toonOutput, err := Render(payload, FormatTOON)
+		if err != nil {
+			t.Fatalf("Render(TOON) error: %v", err)
+		}
+
+		expectedTOON := "error: \"\"\nerror_code: \"\"\nhint: \"\"\nsuccess: true\ntimestamp: \"2026-01-01T00:00:00Z\"\n"
+		if toonOutput != expectedTOON {
+			t.Errorf("RobotResponse TOON snapshot mismatch:\n--- got ---\n%s--- want ---\n%s", toonOutput, expectedTOON)
+		}
+	})
+}
+
+func TestRenderFormatAutoDefaultsToJSON(t *testing.T) {
+	payload := map[string]string{"key": "value"}
+
+	jsonOutput, err := Render(payload, FormatJSON)
+	if err != nil {
+		t.Fatalf("Render(JSON) error: %v", err)
+	}
+
+	autoOutput, err := Render(payload, FormatAuto)
+	if err != nil {
+		t.Fatalf("Render(Auto) error: %v", err)
+	}
+
+	if autoOutput != jsonOutput {
+		t.Errorf("FormatAuto should match JSON output:\n--- auto ---\n%s--- json ---\n%s", autoOutput, jsonOutput)
+	}
+}
+
+func TestRenderTOONUnsupportedTypeReturnsError(t *testing.T) {
+	type badPayload struct {
+		Ch chan int `json:"ch"`
+	}
+
+	_, err := Render(badPayload{}, FormatTOON)
+	if err == nil {
+		t.Fatal("expected error for unsupported TOON payload, got nil")
+	}
+	if !strings.Contains(err.Error(), "unsupported") {
+		t.Fatalf("expected unsupported error, got: %v", err)
 	}
 }

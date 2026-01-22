@@ -17,7 +17,6 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/alerts"
 	"github.com/Dicklesworthstone/ntm/internal/bv"
 	"github.com/Dicklesworthstone/ntm/internal/cass"
-	"github.com/Dicklesworthstone/ntm/internal/tools"
 	"github.com/Dicklesworthstone/ntm/internal/config"
 	ntmctx "github.com/Dicklesworthstone/ntm/internal/context"
 	"github.com/Dicklesworthstone/ntm/internal/git"
@@ -25,6 +24,7 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/recipe"
 	"github.com/Dicklesworthstone/ntm/internal/status"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/Dicklesworthstone/ntm/internal/tools"
 	"github.com/Dicklesworthstone/ntm/internal/tracker"
 )
 
@@ -1468,7 +1468,7 @@ func parseNTMPanes(panes []tmux.Pane) map[string][]ntmPaneInfo {
 
 		// Convert AgentType to string for map key
 		typ := string(p.Type)
-		
+
 		out[typ] = append(out[typ], ntmPaneInfo{
 			Label:     fmt.Sprintf("%s_%d", typ, idx),
 			Type:      typ,
@@ -2432,7 +2432,7 @@ type SnapshotOutput struct {
 	BeadsSummary   *bv.BeadsSummary   `json:"beads_summary,omitempty"`
 	AgentMail      *SnapshotAgentMail `json:"agent_mail,omitempty"`
 	MailUnread     int                `json:"mail_unread,omitempty"`
-	Tools          []ToolInfoOutput   `json:"tools,omitempty"` // Flywheel tool inventory and health
+	Tools          []ToolInfoOutput   `json:"tools,omitempty"`           // Flywheel tool inventory and health
 	Alerts         []string           `json:"alerts"`                    // Legacy: simple string alerts
 	AlertsDetailed []AlertInfo        `json:"alerts_detailed,omitempty"` // Rich alert objects
 	AlertSummary   *AlertSummaryInfo  `json:"alert_summary,omitempty"`
@@ -2833,6 +2833,7 @@ type SendOptions struct {
 	Exclude    []string // Panes to exclude
 	DelayMs    int      // Delay between sends in milliseconds
 	DryRun     bool     // If true, show what would be sent without actually sending
+	Enter      *bool    // If set, override Enter behavior after paste
 
 	// CASS injection options
 	WithCASS     bool          // Enable CASS context injection
@@ -3010,6 +3011,11 @@ func PrintSend(opts SendOptions) error {
 		return encodeJSON(output)
 	}
 
+	sendEnter := true
+	if opts.Enter != nil {
+		sendEnter = *opts.Enter
+	}
+
 	// Send to all targets
 	for i, pane := range targetPanes {
 		paneKey := fmt.Sprintf("%d", pane.Index)
@@ -3028,7 +3034,7 @@ func PrintSend(opts SendOptions) error {
 			enterDelay = tmux.ShellEnterDelay
 		}
 
-		err := tmux.SendKeysWithDelay(pane.ID, messageToSend, true, enterDelay)
+		err := tmux.SendKeysWithDelay(pane.ID, messageToSend, sendEnter, enterDelay)
 		if err != nil {
 			output.Failed = append(output.Failed, SendError{
 				Pane:  paneKey,
@@ -4984,10 +4990,10 @@ func PrintSearch(query string) error {
 func PrintLabelAttention(opts LabelAttentionOptions) error {
 	output := struct {
 		RobotResponse
-		Available bool                     `json:"available"`
+		Available bool                       `json:"available"`
 		Labels    *bv.LabelAttentionResponse `json:"labels,omitempty"`
-		Limit     int                      `json:"limit"`
-		Error     string                   `json:"error,omitempty"`
+		Limit     int                        `json:"limit"`
+		Error     string                     `json:"error,omitempty"`
 	}{
 		RobotResponse: NewRobotResponse(true),
 		Available:     bv.IsInstalled(),

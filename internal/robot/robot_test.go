@@ -3231,3 +3231,43 @@ func TestTranslateAgentTypeForStatus_Coverage(t *testing.T) {
 		})
 	}
 }
+
+func resetOutputStateForTest() {
+	outputStateMu.Lock()
+	defer outputStateMu.Unlock()
+	paneStates = make(map[string]*paneState)
+}
+
+func TestUpdateActivityLinesDelta(t *testing.T) {
+	resetOutputStateForTest()
+
+	paneID := "%1"
+
+	_, delta := updateActivity(paneID, "a\nb\n")
+	if delta != 2 {
+		t.Fatalf("initial delta = %d, want 2", delta)
+	}
+
+	_, delta = updateActivity(paneID, "a\nb\n")
+	if delta != 0 {
+		t.Fatalf("unchanged delta = %d, want 0", delta)
+	}
+
+	// Same line count, different content should still report activity.
+	_, delta = updateActivity(paneID, "x\ny\n")
+	if delta != 1 {
+		t.Fatalf("changed content delta = %d, want 1", delta)
+	}
+
+	// Normal line increase.
+	_, delta = updateActivity(paneID, "x\ny\nz\n")
+	if delta != 1 {
+		t.Fatalf("line increase delta = %d, want 1", delta)
+	}
+
+	// Buffer clear or wrap should reset to current lines.
+	_, delta = updateActivity(paneID, "p\n")
+	if delta != 1 {
+		t.Fatalf("reset delta = %d, want 1", delta)
+	}
+}

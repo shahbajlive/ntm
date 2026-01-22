@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/signal"
 	"strings"
@@ -1483,7 +1484,14 @@ func sendPromptWithDoubleEnter(paneID, prompt string) error {
 		return err
 	}
 	time.Sleep(agentPromptSecondEnterDelay)
-	return tmux.SendKeys(paneID, "", true)
+	if err := tmux.SendKeys(paneID, "", true); err != nil {
+		return err
+	}
+	// Log confirmation for debugging (bd-1h7g2)
+	if !IsJSONOutput() {
+		log.Printf("  → Sent prompt + Enter (x2) to %s", paneID)
+	}
+	return nil
 }
 
 func logDCGBlocked(command, session string, panes []tmux.Pane, blocked *tools.BlockedCommand) {

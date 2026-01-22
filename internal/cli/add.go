@@ -439,6 +439,7 @@ func runAdd(opts AddOptions) error {
 				if err := gemini.PostSpawnSetup(setupCtx, paneID, geminiCfg); err != nil {
 					if !IsJSONOutput() {
 						fmt.Printf("⚠ Warning: Gemini Pro model setup failed: %v\n", err)
+						fmt.Printf("  (Agent is running with default model. To disable auto-setup: set gemini_setup.auto_select_pro_model = false in config)\n")
 					}
 					// Don't fail spawn
 				} else {

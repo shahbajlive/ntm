@@ -21,8 +21,9 @@ var (
 )
 
 type paneState struct {
-	lastHash string
-	lastTS   time.Time
+	lastHash      string
+	lastTS        time.Time
+	lastLineCount int
 }
 
 // Rate limit patterns
@@ -83,11 +84,9 @@ func enrichAgentStatus(agent *Agent, sessionName, modelName string) {
 		agent.RateLimitMatch = match
 
 		// Output activity
-		updateActivity(agent.Pane, content)
-		agent.LastOutputTS = getLastOutput(agent.Pane)
-
-		// For output_lines_since_last, we would need total line count which is expensive.
-		// We'll skip precise line counting for now to avoid performance hit.
+		lastOutputTS, linesDelta := updateActivity(agent.Pane, content)
+		agent.LastOutputTS = lastOutputTS
+		agent.OutputLinesSinceLast = linesDelta
 
 		if !agent.LastOutputTS.IsZero() {
 			agent.SecondsSinceOutput = int(time.Since(agent.LastOutputTS).Seconds())
@@ -176,22 +175,38 @@ func detectRateLimit(content string) (bool, string) {
 	return false, ""
 }
 
-func updateActivity(paneID, content string) {
+func updateActivity(paneID, content string) (time.Time, int) {
 	outputStateMu.Lock()
 	defer outputStateMu.Unlock()
 
+	currentLines := countNonEmptyLines(content)
 	state, ok := paneStates[paneID]
 	if !ok {
 		state = &paneState{
-			lastTS: time.Now(), // Initialize with current time
+			lastTS:        time.Now(), // Initialize with current time
+			lastHash:      content,
+			lastLineCount: currentLines,
 		}
 		paneStates[paneID] = state
+		return state.lastTS, currentLines
+	}
+
+	linesDelta := currentLines - state.lastLineCount
+	if linesDelta < 0 {
+		// Buffer wrap or clear - treat as reset
+		linesDelta = currentLines
+	} else if linesDelta == 0 && state.lastHash != content {
+		// Output changed but line count stayed flat (window shift). Signal activity.
+		linesDelta = 1
 	}
 
 	if state.lastHash != content {
 		state.lastTS = time.Now()
 		state.lastHash = content
 	}
+	state.lastLineCount = currentLines
+
+	return state.lastTS, linesDelta
 }
 
 func getLastOutput(paneID string) time.Time {

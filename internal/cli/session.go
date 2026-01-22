@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"sort"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -33,6 +35,8 @@ type statusOptions struct {
 	filterAgent     string
 	filterPane      int
 	showSummary     bool
+	watchMode       bool
+	interval        time.Duration
 }
 
 type paneContextUsage struct {
@@ -309,6 +313,8 @@ func newStatusCmd() *cobra.Command {
 	var filterAgent string
 	var filterPane int
 	var showSummary bool
+	var watch bool
+	var interval int
 	cmd := &cobra.Command{
 		Use:   "status <session-name>",
 		Short: "Show detailed status of a session",
@@ -331,7 +337,8 @@ Examples:
   ntm status myproject --assignments --status=working
   ntm status myproject --assignments --agent=claude
   ntm status myproject --assignments --status=failed --agent=codex
-  ntm status myproject --assignments --summary`,
+  ntm status myproject --assignments --summary
+  ntm status myproject --watch`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts := statusOptions{
@@ -341,6 +348,8 @@ Examples:
 				filterAgent:     filterAgent,
 				filterPane:      filterPane,
 				showSummary:     showSummary,
+				watchMode:       watch,
+				interval:        time.Duration(interval) * time.Millisecond,
 			}
 			return runStatus(cmd.OutOrStdout(), args[0], opts)
 		},
@@ -351,10 +360,19 @@ Examples:
 	cmd.Flags().StringVar(&filterAgent, "agent", "", "filter assignments by agent type (claude, codex, gemini)")
 	cmd.Flags().IntVar(&filterPane, "pane", -1, "filter assignments by pane number")
 	cmd.Flags().BoolVar(&showSummary, "summary", false, "show assignment summary statistics only")
+	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "auto-refresh display")
+	cmd.Flags().IntVar(&interval, "interval", 2000, "refresh interval in milliseconds (with --watch)")
 	return cmd
 }
 
 func runStatus(w io.Writer, session string, opts statusOptions) error {
+	if opts.watchMode {
+		return runStatusWatch(w, session, opts)
+	}
+	return runStatusOnce(w, session, opts)
+}
+
+func runStatusOnce(w io.Writer, session string, opts statusOptions) error {
 	// Helper for JSON error output
 	outputError := func(err error) error {
 		if IsJSONOutput() {
@@ -1025,6 +1043,60 @@ func runStatus(w io.Writer, session string, opts statusOptions) error {
 	}
 
 	return nil
+}
+
+func runStatusWatch(w io.Writer, session string, opts statusOptions) error {
+	if opts.interval <= 0 {
+		opts.interval = 2 * time.Second
+	}
+	opts.watchMode = false
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Handle Ctrl+C
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		fmt.Print("\033[?25h") // Show cursor
+		cancel()
+	}()
+
+	// Hide cursor for cleaner display
+	fmt.Print("\033[?25l")
+	defer fmt.Print("\033[?25h")
+
+	ticker := time.NewTicker(opts.interval)
+	defer ticker.Stop()
+
+	firstRun := true
+	for {
+		if !firstRun {
+			select {
+			case <-ctx.Done():
+				fmt.Fprintln(w, "\nWatch mode stopped.")
+				return nil
+			case <-ticker.C:
+			}
+		} else {
+			select {
+			case <-ctx.Done():
+				return nil
+			default:
+			}
+		}
+
+		if !firstRun {
+			fmt.Print("\033[H\033[J")
+		}
+
+		if err := runStatusOnce(w, session, opts); err != nil {
+			fmt.Fprintf(w, "Error: %v\n", err)
+		}
+
+		firstRun = false
+	}
 }
 
 // updateSessionActivity updates the Agent Mail activity for a session.

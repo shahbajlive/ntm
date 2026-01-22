@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Dicklesworthstone/ntm/internal/bv"
@@ -24,6 +25,8 @@ type BulkAssignOptions struct {
 	Strategy           string
 	AllocationJSON     string
 	DryRun             bool
+	Parallel           bool
+	Stagger            time.Duration
 	SkipPanes          []int
 	PromptTemplatePath string
 	Deps               *BulkAssignDependencies
@@ -31,14 +34,22 @@ type BulkAssignOptions struct {
 
 // BulkAssignDependencies allows tests to stub external interactions.
 type BulkAssignDependencies struct {
-	FetchTriage     func(dir string) (*bv.TriageResponse, error)
-	FetchInProgress func(dir string, limit int) ([]bv.BeadInProgress, error)
-	ListPanes       func(session string) ([]tmux.Pane, error)
-	SendKeys        func(paneID, message string, enter bool) error
-	ReadFile        func(path string) ([]byte, error)
-	FetchBeadTitle  func(dir, beadID string) (string, error)
-	Now             func() time.Time
-	Cwd             func() (string, error)
+	FetchTriage      func(dir string) (*bv.TriageResponse, error)
+	FetchInProgress  func(dir string, limit int) ([]bv.BeadInProgress, error)
+	ListPanes        func(session string) ([]tmux.Pane, error)
+	SendKeys         func(paneID, message string, enter bool) error
+	ReadFile         func(path string) ([]byte, error)
+	FetchBeadTitle   func(dir, beadID string) (string, error)
+	FetchBeadDetails func(dir, beadID string) (BeadDetails, error)
+	Now              func() time.Time
+	Cwd              func() (string, error)
+}
+
+// BeadDetails captures metadata used for bulk prompt templating.
+type BeadDetails struct {
+	Title        string
+	Type         string
+	Dependencies []string
 }
 
 // BulkAssignOutput is the structured output for --robot-bulk-assign.
@@ -186,14 +197,15 @@ func PrintBulkAssign(opts BulkAssignOptions) error {
 
 func bulkAssignDeps(custom *BulkAssignDependencies) BulkAssignDependencies {
 	deps := BulkAssignDependencies{
-		FetchTriage:     bv.GetTriage,
-		FetchInProgress: func(dir string, limit int) ([]bv.BeadInProgress, error) { return bv.GetInProgressList(dir, limit), nil },
-		ListPanes:       tmux.GetPanes,
-		SendKeys:        tmux.SendKeys,
-		ReadFile:        os.ReadFile,
-		FetchBeadTitle:  fetchBeadTitle,
-		Now:             time.Now,
-		Cwd:             os.Getwd,
+		FetchTriage:      bv.GetTriage,
+		FetchInProgress:  func(dir string, limit int) ([]bv.BeadInProgress, error) { return bv.GetInProgressList(dir, limit), nil },
+		ListPanes:        tmux.GetPanes,
+		SendKeys:         tmux.SendKeys,
+		ReadFile:         os.ReadFile,
+		FetchBeadTitle:   fetchBeadTitle,
+		FetchBeadDetails: fetchBeadDetails,
+		Now:              time.Now,
+		Cwd:              os.Getwd,
 	}
 
 	if custom == nil {
@@ -216,6 +228,9 @@ func bulkAssignDeps(custom *BulkAssignDependencies) BulkAssignDependencies {
 	}
 	if custom.FetchBeadTitle != nil {
 		deps.FetchBeadTitle = custom.FetchBeadTitle
+	}
+	if custom.FetchBeadDetails != nil {
+		deps.FetchBeadDetails = custom.FetchBeadDetails
 	}
 	if custom.Now != nil {
 		deps.Now = custom.Now
@@ -535,27 +550,86 @@ func applyBulkAssignPlan(opts BulkAssignOptions, deps BulkAssignDependencies, ou
 		}
 	}
 
-	for i := range plan.Assignments {
-		assignment := &plan.Assignments[i]
-		if assignment.Status == "failed" {
-			continue
+	needsDetails := strings.Contains(template, "{bead_type}") || strings.Contains(template, "{bead_deps}")
+
+	if opts.Parallel {
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		for i := range plan.Assignments {
+			assignment := &plan.Assignments[i]
+			if assignment.Status == "failed" {
+				continue
+			}
+			wg.Add(1)
+			go func(a *BulkAssignAssignment) {
+				defer wg.Done()
+				prompt, err := buildBulkAssignPrompt(template, deps, a, output.Session, needsDetails)
+				if err != nil {
+					a.Status = "failed"
+					a.Error = err.Error()
+					a.PromptSent = false
+					mu.Lock()
+					plan.failed++
+					mu.Unlock()
+					return
+				}
+
+				if opts.DryRun {
+					a.Status = "planned"
+					a.PromptSent = false
+					return
+				}
+
+				paneID := fmt.Sprintf("%s:%d", output.Session, a.Pane)
+				if err := deps.SendKeys(paneID, prompt, true); err != nil {
+					a.Status = "failed"
+					a.Error = err.Error()
+					a.PromptSent = false
+					mu.Lock()
+					plan.failed++
+					mu.Unlock()
+					return
+				}
+
+				a.Status = "assigned"
+				a.PromptSent = true
+			}(assignment)
 		}
-		prompt := expandBulkAssignTemplate(template, assignment.Bead, assignment.BeadTitle, output.Session, assignment.Pane)
-		if opts.DryRun {
-			assignment.Status = "planned"
-			assignment.PromptSent = false
-			continue
+		wg.Wait()
+	} else {
+		for i := range plan.Assignments {
+			assignment := &plan.Assignments[i]
+			if assignment.Status == "failed" {
+				continue
+			}
+			prompt, err := buildBulkAssignPrompt(template, deps, assignment, output.Session, needsDetails)
+			if err != nil {
+				assignment.Status = "failed"
+				assignment.Error = err.Error()
+				assignment.PromptSent = false
+				plan.failed++
+				continue
+			}
+			if opts.DryRun {
+				assignment.Status = "planned"
+				assignment.PromptSent = false
+			} else {
+				paneID := fmt.Sprintf("%s:%d", output.Session, assignment.Pane)
+				if err := deps.SendKeys(paneID, prompt, true); err != nil {
+					assignment.Status = "failed"
+					assignment.Error = err.Error()
+					assignment.PromptSent = false
+					plan.failed++
+					continue
+				}
+				assignment.Status = "assigned"
+				assignment.PromptSent = true
+			}
+
+			if opts.Stagger > 0 && i < len(plan.Assignments)-1 {
+				time.Sleep(opts.Stagger)
+			}
 		}
-		paneID := fmt.Sprintf("%s:%d", output.Session, assignment.Pane)
-		if err := deps.SendKeys(paneID, prompt, true); err != nil {
-			assignment.Status = "failed"
-			assignment.Error = err.Error()
-			assignment.PromptSent = false
-			plan.failed++
-			continue
-		}
-		assignment.Status = "assigned"
-		assignment.PromptSent = true
 	}
 
 	output.Assignments = append(output.Assignments, plan.Assignments...)
@@ -581,6 +655,35 @@ func applyBulkAssignPlan(opts BulkAssignOptions, deps BulkAssignDependencies, ou
 	}
 }
 
+func buildBulkAssignPrompt(template string, deps BulkAssignDependencies, assignment *BulkAssignAssignment, session string, needsDetails bool) (string, error) {
+	beadType := ""
+	var beadDeps []string
+	if needsDetails {
+		if deps.FetchBeadDetails == nil {
+			return "", fmt.Errorf("bead details fetcher not configured")
+		}
+		details, err := deps.FetchBeadDetails(getBulkAssignDir(deps), assignment.Bead)
+		if err != nil {
+			return "", err
+		}
+		if assignment.BeadTitle == "" {
+			assignment.BeadTitle = details.Title
+		}
+		beadType = details.Type
+		beadDeps = details.Dependencies
+	}
+
+	return expandBulkAssignTemplate(
+		template,
+		assignment.Bead,
+		assignment.BeadTitle,
+		beadType,
+		beadDeps,
+		session,
+		assignment.Pane,
+	), nil
+}
+
 func loadBulkAssignTemplate(opts BulkAssignOptions, deps BulkAssignDependencies) (string, error) {
 	if opts.PromptTemplatePath == "" {
 		return defaultBulkAssignTemplate, nil
@@ -592,14 +695,27 @@ func loadBulkAssignTemplate(opts BulkAssignOptions, deps BulkAssignDependencies)
 	return string(data), nil
 }
 
-func expandBulkAssignTemplate(template, beadID, beadTitle, session string, pane int) string {
+func expandBulkAssignTemplate(template, beadID, beadTitle, beadType string, beadDeps []string, session string, pane int) string {
+	if beadType == "" {
+		beadType = "unknown"
+	}
+	depsValue := formatBulkAssignDeps(beadDeps)
 	replacer := strings.NewReplacer(
 		"{bead_id}", beadID,
 		"{bead_title}", beadTitle,
+		"{bead_type}", beadType,
+		"{bead_deps}", depsValue,
 		"{session}", session,
 		"{pane}", strconv.Itoa(pane),
 	)
 	return replacer.Replace(template)
+}
+
+func formatBulkAssignDeps(deps []string) string {
+	if len(deps) == 0 {
+		return "none"
+	}
+	return strings.Join(deps, ", ")
 }
 
 func parseBulkAssignAllocation(raw string) (map[int]string, error) {
@@ -634,24 +750,56 @@ func decodeBulkAssignTriage(raw []byte) (*bv.TriageResponse, error) {
 }
 
 func fetchBeadTitle(dir, beadID string) (string, error) {
+	details, err := fetchBeadDetails(dir, beadID)
+	if err != nil {
+		return "", err
+	}
+	return details.Title, nil
+}
+
+func fetchBeadDetails(dir, beadID string) (BeadDetails, error) {
 	cmd := exec.Command("br", "show", beadID, "--json")
 	cmd.Dir = dir
 	output, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("br show %s failed: %w", beadID, err)
+		return BeadDetails{}, fmt.Errorf("br show %s failed: %w", beadID, err)
 	}
 
 	var issues []struct {
-		Title string `json:"title"`
+		Title        string `json:"title"`
+		IssueType    string `json:"issue_type"`
+		Dependencies []struct {
+			ID      string `json:"id"`
+			DepType string `json:"dep_type"`
+		} `json:"dependencies"`
 	}
 	if err := json.Unmarshal(output, &issues); err != nil {
-		return "", fmt.Errorf("parse br show output: %w", err)
+		return BeadDetails{}, fmt.Errorf("parse br show output: %w", err)
 	}
 	if len(issues) == 0 || issues[0].Title == "" {
-		return "", fmt.Errorf("bead %s not found", beadID)
+		return BeadDetails{}, fmt.Errorf("bead %s not found", beadID)
 	}
 
-	return issues[0].Title, nil
+	depSet := make(map[string]struct{})
+	for _, dep := range issues[0].Dependencies {
+		if dep.DepType != "blocks" {
+			continue
+		}
+		if dep.ID != "" {
+			depSet[dep.ID] = struct{}{}
+		}
+	}
+	deps := make([]string, 0, len(depSet))
+	for id := range depSet {
+		deps = append(deps, id)
+	}
+	sort.Strings(deps)
+
+	return BeadDetails{
+		Title:        issues[0].Title,
+		Type:         issues[0].IssueType,
+		Dependencies: deps,
+	}, nil
 }
 
 func getBulkAssignDir(deps BulkAssignDependencies) string {

@@ -12,7 +12,7 @@ GOFLAGS := -trimpath
 # Output directory
 DIST := dist
 
-.PHONY: all build clean install test lint fmt help pre-commit upgrade-contract
+.PHONY: all build clean install test test-short test-all test-e2e lint fmt help pre-commit upgrade-contract
 
 all: build
 
@@ -51,9 +51,17 @@ uninstall:
 	rm -f $(HOME)/.local/bin/$(BINARY_NAME)
 	@echo "Uninstalled $(BINARY_NAME)"
 
-## Run tests
+## Run tests (fast, skips E2E)
 test:
+	$(GO) test -v -short ./...
+
+## Run all tests including E2E (requires agents)
+test-all:
 	$(GO) test -v ./...
+
+## Run E2E tests only (requires agents)
+test-e2e:
+	$(GO) test -v ./e2e/...
 
 ## Validate upgrade asset naming contract
 upgrade-contract:
@@ -130,7 +138,9 @@ help:
 	@echo "  install-user Install to ~/.local/bin"
 	@echo ""
 	@echo "Development:"
-	@echo "  test        Run tests"
+	@echo "  test        Run tests (fast, skips E2E)"
+	@echo "  test-all    Run all tests including E2E"
+	@echo "  test-e2e    Run E2E tests only (requires agents)"
 	@echo "  lint        Run linter"
 	@echo "  fmt         Format code"
 	@echo "  clean       Remove build artifacts"

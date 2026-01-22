@@ -256,7 +256,9 @@ func buildCommandRegistry() []RobotCommandInfo {
 			Description: "Send message to panes atomically. Supports type filtering and tracking.",
 			Parameters: []RobotParameter{
 				{Name: "session", Flag: "--robot-send", Type: "string", Required: true, Description: "Session name"},
-				{Name: "msg", Flag: "--msg", Type: "string", Required: true, Description: "Message content to send"},
+				{Name: "msg", Flag: "--msg", Type: "string", Required: true, Description: "Message content to send (or use --msg-file)"},
+				{Name: "msg-file", Flag: "--msg-file", Type: "string", Required: false, Description: "Read message content from file"},
+				{Name: "enter", Flag: "--enter", Type: "bool", Required: false, Description: "Send Enter after paste (default true). Alias: --submit"},
 				{Name: "type", Flag: "--type", Type: "string", Required: false, Description: "Filter by agent type: claude|cc, codex|cod, gemini|gmi"},
 				{Name: "all", Flag: "--all", Type: "bool", Required: false, Description: "Include user pane (default: agents only)"},
 				{Name: "panes", Flag: "--panes", Type: "string", Required: false, Description: "Filter to specific pane indices"},
@@ -267,6 +269,8 @@ func buildCommandRegistry() []RobotCommandInfo {
 			},
 			Examples: []string{
 				"ntm --robot-send=proj --msg='Fix auth' --type=claude",
+				"ntm --robot-send=proj --msg-file=/tmp/prompt.txt --type=codex",
+				"ntm --robot-send=proj --msg='draft' --enter=false",
 				"ntm --robot-send=proj --msg='hello' --track --ack-timeout=30s",
 			},
 		},

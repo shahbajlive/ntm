@@ -35,8 +35,8 @@ type SetupConfig struct {
 func DefaultSetupConfig() SetupConfig {
 	return SetupConfig{
 		AutoSelectProModel: true,
-		ReadyTimeout:       30 * time.Second,
-		ModelSelectTimeout: 10 * time.Second,
+		ReadyTimeout:       60 * time.Second, // Increased from 30s for slower networks/systems
+		ModelSelectTimeout: 20 * time.Second, // Increased from 10s for reliability
 		PollInterval:       500 * time.Millisecond,
 		Verbose:            false,
 	}
@@ -93,15 +93,33 @@ func WaitForReady(ctx context.Context, paneID string, timeout time.Duration, pol
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
+	var lastOutput string
+	var lastErr error
+
 	for {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("timeout waiting for Gemini prompt")
+			// Provide helpful context in timeout error
+			errMsg := fmt.Sprintf("timeout after %v waiting for Gemini prompt", timeout)
+			if lastErr != nil {
+				errMsg += fmt.Sprintf(" (last capture error: %v)", lastErr)
+			} else if lastOutput != "" {
+				// Include last few chars of output for debugging
+				snippet := lastOutput
+				if len(snippet) > 100 {
+					snippet = "..." + snippet[len(snippet)-100:]
+				}
+				errMsg += fmt.Sprintf(" (last output: %q)", snippet)
+			}
+			return fmt.Errorf("%s - consider increasing gemini_setup.ready_timeout_seconds in config", errMsg)
 		case <-ticker.C:
 			output, err := tmux.CapturePaneOutput(paneID, 20)
 			if err != nil {
+				lastErr = err
 				continue
 			}
+			lastOutput = output
+			lastErr = nil
 
 			// Check for Gemini prompt
 			if isGeminiReady(output) {
@@ -190,15 +208,27 @@ func waitForModelMenu(ctx context.Context, paneID string, timeout time.Duration,
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
+	var lastOutput string
+
 	for {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("timeout waiting for model menu")
+			// Non-fatal timeout - model menu might not appear if /model command isn't supported
+			errMsg := fmt.Sprintf("timeout after %v waiting for model menu", timeout)
+			if lastOutput != "" {
+				snippet := lastOutput
+				if len(snippet) > 100 {
+					snippet = "..." + snippet[len(snippet)-100:]
+				}
+				errMsg += fmt.Sprintf(" (last output: %q)", snippet)
+			}
+			return fmt.Errorf("%s", errMsg)
 		case <-ticker.C:
 			output, err := tmux.CapturePaneOutput(paneID, 30)
 			if err != nil {
 				continue
 			}
+			lastOutput = output
 
 			if isModelMenuVisible(output) {
 				return nil

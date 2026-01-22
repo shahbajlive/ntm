@@ -30,6 +30,9 @@ var (
 	// Global JSON output flag - inherited by all subcommands
 	jsonOutput bool
 
+	// Global color control flag - inherited by all subcommands
+	noColor bool
+
 	// Build information - set by goreleaser via ldflags
 	Version = "dev"
 	Commit  = "none"
@@ -58,6 +61,12 @@ Shell Integration:
 		// Configure remote client if requested
 		if sshHost != "" {
 			tmux.DefaultClient = tmux.NewClient(sshHost)
+		}
+
+		// Handle --no-color flag by setting environment variable
+		// This integrates with the existing theme.NoColorEnabled() system
+		if noColor {
+			os.Setenv("NTM_NO_COLOR", "1")
 		}
 
 		// Phase 1: Critical startup (always runs, minimal overhead)
@@ -653,9 +662,17 @@ Shell Integration:
 			return
 		}
 		if robotSend != "" {
+			// Load message from --msg or --msg-file
+			msg, err := loadRobotSendMessage(robotSendMsg, robotSendMsgFile)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			robotSendMsg = msg
+
 			// Validate message is provided
 			if robotSendMsg == "" {
-				fmt.Fprintf(os.Stderr, "Error: --msg is required with --robot-send\n")
+				fmt.Fprintf(os.Stderr, "Error: --msg or --msg-file is required with --robot-send\n")
 				os.Exit(1)
 			}
 			// Parse pane filter
@@ -672,6 +689,11 @@ Shell Integration:
 			var agentTypes []string
 			if robotSendType != "" {
 				agentTypes = strings.Split(robotSendType, ",")
+			}
+			// Determine enter behavior (default true unless explicitly overridden)
+			var enterOverride *bool
+			if cmd.Flags().Changed("enter") || cmd.Flags().Changed("submit") {
+				enterOverride = &robotSendEnter
 			}
 
 			// Check if --track flag is set for combined send+ack mode
@@ -691,6 +713,7 @@ Shell Integration:
 						AgentTypes: agentTypes,
 						Exclude:    excludeList,
 						DelayMs:    robotSendDelay,
+						Enter:      enterOverride,
 						DryRun:     robotDryRunEffective,
 					},
 					AckTimeoutMs: int(ackTimeout.Milliseconds()),
@@ -711,6 +734,7 @@ Shell Integration:
 				AgentTypes: agentTypes,
 				Exclude:    excludeList,
 				DelayMs:    robotSendDelay,
+				Enter:      enterOverride,
 				DryRun:     robotDryRunEffective,
 			}
 			if err := robot.PrintSend(opts); err != nil {
@@ -796,6 +820,30 @@ Shell Integration:
 				Strategy: robotAssignStrategy,
 			}
 			if err := robot.PrintAssign(opts); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+		if robotBulkAssign != "" {
+			var skipPanes []int
+			if robotBulkAssignSkip != "" {
+				for _, p := range strings.Split(robotBulkAssignSkip, ",") {
+					if idx, err := strconv.Atoi(strings.TrimSpace(p)); err == nil {
+						skipPanes = append(skipPanes, idx)
+					}
+				}
+			}
+			opts := robot.BulkAssignOptions{
+				Session:            robotBulkAssign,
+				FromBV:             robotBulkAssignFromBV,
+				Strategy:           robotBulkAssignStrategy,
+				AllocationJSON:     robotBulkAssignAlloc,
+				DryRun:             robotDryRunEffective,
+				SkipPanes:          skipPanes,
+				PromptTemplatePath: robotBulkAssignTemplate,
+			}
+			if err := robot.PrintBulkAssign(opts); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
@@ -1226,6 +1274,23 @@ func goPlatform() string {
 	return fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
 }
 
+func loadRobotSendMessage(msg, msgFile string) (string, error) {
+	if msg != "" && msgFile != "" {
+		return "", fmt.Errorf("use either --msg or --msg-file, not both")
+	}
+	if msgFile == "" {
+		return msg, nil
+	}
+	data, err := os.ReadFile(msgFile)
+	if err != nil {
+		return "", fmt.Errorf("read msg file: %w", err)
+	}
+	if strings.TrimSpace(string(data)) == "" {
+		return "", fmt.Errorf("message file is empty")
+	}
+	return string(data), nil
+}
+
 // Robot output flags for AI agent integration
 var (
 	robotHelp         bool
@@ -1246,6 +1311,8 @@ var (
 	// Robot-send flags
 	robotSend        string // session name for send
 	robotSendMsg     string // message to send
+	robotSendMsgFile string // file containing message to send
+	robotSendEnter   bool   // send Enter after pasting message
 	robotSendAll     bool   // send to all panes
 	robotSendType    string // filter by agent type (e.g., "claude")
 	robotSendExclude string // comma-separated panes to exclude
@@ -1255,6 +1322,14 @@ var (
 	robotAssign         string // session name for work assignment
 	robotAssignBeads    string // comma-separated bead IDs to assign
 	robotAssignStrategy string // assignment strategy: balanced, speed, quality, dependency
+
+	// Robot-bulk-assign flags for batch work distribution
+	robotBulkAssign         string // session name for bulk assignment
+	robotBulkAssignFromBV   bool   // use bv triage for bead selection
+	robotBulkAssignAlloc    string // explicit allocation JSON
+	robotBulkAssignStrategy string // assignment strategy: impact, ready, stale, balanced
+	robotBulkAssignSkip     string // comma-separated panes to skip
+	robotBulkAssignTemplate string // prompt template file path
 
 	// Robot-health flag
 	robotHealth string // session health or project health (empty = project)
@@ -1501,14 +1576,14 @@ var (
 	robotSmartRestartVerbose bool   // include extra debugging info
 
 	// Robot-monitor flags for proactive usage limit warnings (bd-3gh5m)
-	robotMonitor          string // session name to monitor
-	robotMonitorInterval  string // polling interval (e.g. "30s", "1m")
-	robotMonitorWarn      string // warning threshold percentage
-	robotMonitorCrit      string // critical threshold percentage
-	robotMonitorInfo      string // info threshold percentage
-	robotMonitorAlert     string // provider usage alert threshold
-	robotMonitorIncludeCaut bool // include caut provider data
-	robotMonitorOutput    string // output file path (empty = stdout)
+	robotMonitor            string // session name to monitor
+	robotMonitorInterval    string // polling interval (e.g. "30s", "1m")
+	robotMonitorWarn        string // warning threshold percentage
+	robotMonitorCrit        string // critical threshold percentage
+	robotMonitorInfo        string // info threshold percentage
+	robotMonitorAlert       string // provider usage alert threshold
+	robotMonitorIncludeCaut bool   // include caut provider data
+	robotMonitorOutput      string // output file path (empty = stdout)
 
 	// Help verbosity flags
 	helpMinimal bool // show minimal help with essential commands only
@@ -1519,10 +1594,10 @@ var (
 	robotSwitchAccountPane string // optional pane filter
 
 	// Robot-account-status and robot-accounts-list flags for CAAM
-	robotAccountStatus       bool   // --robot-account-status flag
+	robotAccountStatus         bool   // --robot-account-status flag
 	robotAccountStatusProvider string // --provider filter for account-status
-	robotAccountsList        bool   // --robot-accounts-list flag
-	robotAccountsListProvider string // --provider filter for accounts-list
+	robotAccountsList          bool   // --robot-accounts-list flag
+	robotAccountsListProvider  string // --provider filter for accounts-list
 
 	// Robot-dcg-status flag for DCG status
 	robotDCGStatus bool // --robot-dcg-status flag
@@ -1539,6 +1614,9 @@ func init() {
 	// Global JSON output flag - applies to all commands
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output in JSON format (machine-readable)")
 	rootCmd.PersistentFlags().StringVar(&sshHost, "ssh", "", "Remote host for SSH execution (e.g. user@host)")
+
+	// Global no-color flag - disables colored output (respects NO_COLOR env var standard)
+	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable colored output")
 
 	// Profiling flag for startup timing analysis
 	rootCmd.PersistentFlags().BoolVar(&profileStartup, "profile-startup", false, "Enable startup profiling (outputs timing data)")
@@ -1602,8 +1680,11 @@ func init() {
 	rootCmd.Flags().Float64Var(&robotRelationsThreshold, "relations-threshold", 0.5, "Correlation threshold (0.0-1.0). Optional with --robot-file-relations")
 
 	// Robot-send flags for batch messaging
-	rootCmd.Flags().StringVar(&robotSend, "robot-send", "", "Send message to panes atomically. Required: SESSION, --msg. Example: ntm --robot-send=proj --msg='Fix auth'")
-	rootCmd.Flags().StringVar(&robotSendMsg, "msg", "", "Message content to send. Required with --robot-send. Optional with --robot-ack (enables echo detection)")
+	rootCmd.Flags().StringVar(&robotSend, "robot-send", "", "Send message to panes atomically. Required: SESSION, --msg or --msg-file. Example: ntm --robot-send=proj --msg='Fix auth'")
+	rootCmd.Flags().StringVar(&robotSendMsg, "msg", "", "Message content to send. Required with --robot-send unless --msg-file is set. Optional with --robot-ack (enables echo detection)")
+	rootCmd.Flags().StringVar(&robotSendMsgFile, "msg-file", "", "Read message content from file (use with --robot-send)")
+	rootCmd.Flags().BoolVar(&robotSendEnter, "enter", true, "Send Enter after pasting message (default: true). Use --enter=false to paste without submitting")
+	rootCmd.Flags().BoolVar(&robotSendEnter, "submit", true, "Alias for --enter")
 	rootCmd.Flags().BoolVar(&robotSendAll, "all", false, "Include user pane (default: agents only). Optional with --robot-send, --robot-interrupt")
 	rootCmd.Flags().StringVar(&robotSendType, "type", "", "Filter by agent type: claude|cc, codex|cod, gemini|gmi, cursor, windsurf, aider. Works with --robot-send, --robot-ack, --robot-interrupt")
 	rootCmd.Flags().StringVar(&robotSendExclude, "exclude", "", "Exclude pane indices (comma-separated). Optional with --robot-send. Example: --exclude=0,3")
@@ -1613,6 +1694,14 @@ func init() {
 	rootCmd.Flags().StringVar(&robotAssign, "robot-assign", "", "Get work distribution recommendations. Required: SESSION. Example: ntm --robot-assign=proj --strategy=speed")
 	rootCmd.Flags().StringVar(&robotAssignBeads, "beads", "", "Specific bead IDs to assign (comma-separated). Optional with --robot-assign. Example: --beads=ntm-abc,ntm-xyz")
 	rootCmd.Flags().StringVar(&robotAssignStrategy, "strategy", "balanced", "Assignment strategy: balanced (default), speed, quality, dependency. Optional with --robot-assign")
+
+	// Robot-bulk-assign flags for batch work distribution
+	rootCmd.Flags().StringVar(&robotBulkAssign, "robot-bulk-assign", "", "Bulk assign beads to all idle agents. Required: SESSION. Example: ntm --robot-bulk-assign=proj --from-bv")
+	rootCmd.Flags().BoolVar(&robotBulkAssignFromBV, "from-bv", false, "Use bv triage for bead selection. Use with --robot-bulk-assign")
+	rootCmd.Flags().StringVar(&robotBulkAssignAlloc, "allocation", "", "Explicit pane->bead allocation JSON. Alternative to --from-bv. Example: --allocation='{\"2\":\"bd-abc\"}'")
+	rootCmd.Flags().StringVar(&robotBulkAssignStrategy, "bulk-strategy", "impact", "Bulk assignment strategy: impact (default), ready, stale, balanced. Use with --from-bv")
+	rootCmd.Flags().StringVar(&robotBulkAssignSkip, "skip-panes", "", "Comma-separated pane indices to skip. Use with --robot-bulk-assign. Example: --skip-panes=0,3")
+	rootCmd.Flags().StringVar(&robotBulkAssignTemplate, "prompt-template", "", "Custom prompt template file. Use with --robot-bulk-assign")
 
 	// Robot-health flag for session/project health summary
 	rootCmd.Flags().StringVar(&robotHealth, "robot-health", "", "Get session or project health (JSON). SESSION for per-agent health, empty for project health. Example: ntm --robot-health=myproject")

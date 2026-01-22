@@ -24,6 +24,7 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/cass"
 	"github.com/Dicklesworthstone/ntm/internal/checkpoint"
 	"github.com/Dicklesworthstone/ntm/internal/config"
+	ctxmon "github.com/Dicklesworthstone/ntm/internal/context"
 	"github.com/Dicklesworthstone/ntm/internal/health"
 	"github.com/Dicklesworthstone/ntm/internal/history"
 	"github.com/Dicklesworthstone/ntm/internal/robot"
@@ -211,6 +212,13 @@ type DCGStatusUpdateMsg struct {
 	LastBlocked string // Last blocked command
 	Err        error
 	Gen        uint64
+}
+
+// PendingRotationsUpdateMsg is sent when pending rotations data is fetched
+type PendingRotationsUpdateMsg struct {
+	Pending []*ctxmon.PendingRotation
+	Err     error
+	Gen     uint64
 }
 
 // RoutingScore holds routing info for a single agent
@@ -408,15 +416,16 @@ type Model struct {
 	showHelp bool
 
 	// Panels
-	beadsPanel     *panels.BeadsPanel
-	alertsPanel    *panels.AlertsPanel
-	metricsPanel   *panels.MetricsPanel
-	historyPanel   *panels.HistoryPanel
-	cassPanel      *panels.CASSPanel
-	filesPanel     *panels.FilesPanel
-	tickerPanel    *panels.TickerPanel
-	spawnPanel     *panels.SpawnPanel
-	conflictsPanel *panels.ConflictsPanel
+	beadsPanel           *panels.BeadsPanel
+	alertsPanel          *panels.AlertsPanel
+	metricsPanel         *panels.MetricsPanel
+	historyPanel         *panels.HistoryPanel
+	cassPanel            *panels.CASSPanel
+	filesPanel           *panels.FilesPanel
+	tickerPanel          *panels.TickerPanel
+	spawnPanel           *panels.SpawnPanel
+	conflictsPanel       *panels.ConflictsPanel
+	rotationConfirmPanel *panels.RotationConfirmPanel
 
 	// Data for new panels
 	beadsSummary  bv.BeadsSummary
@@ -429,6 +438,12 @@ type Model struct {
 	fileChanges   []tracker.RecordedFileChange
 	cassContext   []cass.SearchHit
 	routingScores map[string]RoutingScore // keyed by pane ID
+
+	// Pending rotation confirmations
+	pendingRotations     []*ctxmon.PendingRotation
+	pendingRotationsErr  error
+	lastPendingFetch     time.Time
+	fetchingPendingRot   bool
 
 	// Checkpoint status
 	checkpointCount     int                    // Number of checkpoints for this session
@@ -650,15 +665,16 @@ func New(session, projectDir string) Model {
 				return CassSelectMsg{Hit: hit}
 			}
 		}),
-		beadsPanel:     panels.NewBeadsPanel(),
-		alertsPanel:    panels.NewAlertsPanel(),
-		metricsPanel:   panels.NewMetricsPanel(),
-		historyPanel:   panels.NewHistoryPanel(),
-		cassPanel:      panels.NewCASSPanel(),
-		filesPanel:     panels.NewFilesPanel(),
-		tickerPanel:    panels.NewTickerPanel(),
-		spawnPanel:     panels.NewSpawnPanel(),
-		conflictsPanel: panels.NewConflictsPanel(),
+		beadsPanel:           panels.NewBeadsPanel(),
+		alertsPanel:          panels.NewAlertsPanel(),
+		metricsPanel:         panels.NewMetricsPanel(),
+		historyPanel:         panels.NewHistoryPanel(),
+		cassPanel:            panels.NewCASSPanel(),
+		filesPanel:           panels.NewFilesPanel(),
+		tickerPanel:          panels.NewTickerPanel(),
+		spawnPanel:           panels.NewSpawnPanel(),
+		conflictsPanel:       panels.NewConflictsPanel(),
+		rotationConfirmPanel: panels.NewRotationConfirmPanel(),
 
 		// Init() kicks off these fetches immediately; mark as fetching so the tick loop
 		// doesn't pile on duplicates if the first round is still in flight.

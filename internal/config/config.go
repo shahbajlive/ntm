@@ -469,8 +469,8 @@ type GeminiSetupConfig struct {
 func DefaultGeminiSetupConfig() GeminiSetupConfig {
 	return GeminiSetupConfig{
 		AutoSelectProModel:        true,  // Select Pro by default
-		ReadyTimeoutSeconds:       30,    // 30 seconds to wait for ready
-		ModelSelectTimeoutSeconds: 10,    // 10 seconds for model menu
+		ReadyTimeoutSeconds:       60,    // 60 seconds to wait for ready (increased from 30 for slower networks)
+		ModelSelectTimeoutSeconds: 20,    // 20 seconds for model menu (increased from 10 for reliability)
 		Verbose:                   false, // Quiet by default
 	}
 }

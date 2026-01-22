@@ -14,12 +14,14 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/Dicklesworthstone/ntm/internal/robot"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
 // resetFlags resets global flags to default values between tests
 func resetFlags() {
 	jsonOutput = false
+	noColor = false
 	robotHelp = false
 	robotStatus = false
 	robotVersion = false
@@ -31,12 +33,60 @@ func resetFlags() {
 	robotPanes = ""
 	robotSend = ""
 	robotSendMsg = ""
+	robotSendMsgFile = ""
+	robotSendEnter = true
 	robotSendAll = false
 	robotSendType = ""
 	robotSendExclude = ""
 	robotSendDelay = 0
 	robotDiff = ""
 	robotDiffSince = "15m"
+	robotFormat = ""
+}
+
+func TestResolveRobotFormat_DefaultAuto(t *testing.T) {
+	resetFlags()
+	t.Setenv("NTM_ROBOT_FORMAT", "")
+
+	resolveRobotFormat()
+
+	if robot.OutputFormat != robot.FormatAuto {
+		t.Errorf("OutputFormat default = %q, want %q", robot.OutputFormat, robot.FormatAuto)
+	}
+}
+
+func TestResolveRobotFormat_EnvFallback(t *testing.T) {
+	resetFlags()
+	t.Setenv("NTM_ROBOT_FORMAT", "toon")
+
+	resolveRobotFormat()
+
+	if robot.OutputFormat != robot.FormatTOON {
+		t.Errorf("OutputFormat from env = %q, want %q", robot.OutputFormat, robot.FormatTOON)
+	}
+}
+
+func TestResolveRobotFormat_FlagOverridesEnv(t *testing.T) {
+	resetFlags()
+	t.Setenv("NTM_ROBOT_FORMAT", "toon")
+	robotFormat = "json"
+
+	resolveRobotFormat()
+
+	if robot.OutputFormat != robot.FormatJSON {
+		t.Errorf("OutputFormat from flag = %q, want %q", robot.OutputFormat, robot.FormatJSON)
+	}
+}
+
+func TestResolveRobotFormat_InvalidValueFallsBack(t *testing.T) {
+	resetFlags()
+	robotFormat = "xml"
+
+	resolveRobotFormat()
+
+	if robot.OutputFormat != robot.FormatAuto {
+		t.Errorf("OutputFormat invalid = %q, want %q", robot.OutputFormat, robot.FormatAuto)
+	}
 }
 
 // sessionAutoSelectPossible returns true if the CLI would auto-select a session.
@@ -1476,6 +1526,44 @@ func TestRobotSendRequiresMsg(t *testing.T) {
 	// The error is handled internally by printing to stderr and os.Exit
 	// We can't easily test this without capturing os.Exit
 	_ = rootCmd.Execute()
+}
+
+func TestLoadRobotSendMessageFromFile(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "prompt.txt")
+	content := "line one\nline two\n"
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+
+	got, err := loadRobotSendMessage("", path)
+	if err != nil {
+		t.Fatalf("loadRobotSendMessage error: %v", err)
+	}
+	if got != content {
+		t.Fatalf("loadRobotSendMessage = %q, want %q", got, content)
+	}
+}
+
+func TestLoadRobotSendMessageConflict(t *testing.T) {
+	_, err := loadRobotSendMessage("hi", "/tmp/unused")
+	if err == nil {
+		t.Fatal("expected error when both --msg and --msg-file are set")
+	}
+}
+
+func TestLoadRobotSendMessageEmptyFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "empty.txt")
+	if err := os.WriteFile(path, []byte(" \n\t"), 0600); err != nil {
+		t.Fatalf("write empty file: %v", err)
+	}
+
+	_, err := loadRobotSendMessage("", path)
+	if err == nil {
+		t.Fatal("expected error for empty message file")
+	}
 }
 
 // TestRobotSnapshotWithSince tests robot-snapshot with --since flag

@@ -180,13 +180,24 @@ func TestBulkAssignExactCounts(t *testing.T) {
 }
 
 func TestBulkAssignTemplateSubstitution(t *testing.T) {
-	template := "{bead_id}:{bead_title}:{session}:{pane}"
-	result := expandBulkAssignTemplate(template, "bd-1", "Title", "proj", 2)
-	expected := "bd-1:Title:proj:2"
+	template := "{bead_id}:{bead_title}:{bead_type}:{bead_deps}:{session}:{pane}"
+	result := expandBulkAssignTemplate(template, "bd-1", "Title", "task", []string{"bd-2", "bd-3"}, "proj", 2)
+	expected := "bd-1:Title:task:bd-2, bd-3:proj:2"
 
 	t.Logf("template=%q result=%q", template, result)
 	if result != expected {
 		t.Fatalf("template substitution mismatch: got %q want %q", result, expected)
+	}
+}
+
+func TestBulkAssignTemplateSubstitutionDefaults(t *testing.T) {
+	template := "{bead_id}:{bead_type}:{bead_deps}"
+	result := expandBulkAssignTemplate(template, "bd-1", "Title", "", nil, "proj", 2)
+	expected := "bd-1:unknown:none"
+
+	t.Logf("template=%q result=%q", template, result)
+	if result != expected {
+		t.Fatalf("default substitution mismatch: got %q want %q", result, expected)
 	}
 }
 
@@ -213,9 +224,9 @@ func TestBulkAssignSequentialDeliveryOrdering(t *testing.T) {
 	callOrder := []string{}
 	deps := BulkAssignDependencies{
 		FetchBeadTitle: func(_ string, beadID string) (string, error) { return "Title " + beadID, nil },
-		Cwd: func() (string, error) { return "/tmp", nil },
-		Now: func() time.Time { return time.Date(2026, 1, 20, 0, 0, 0, 0, time.UTC) },
-		ReadFile: func(path string) ([]byte, error) { return []byte(defaultBulkAssignTemplate), nil },
+		Cwd:            func() (string, error) { return "/tmp", nil },
+		Now:            func() time.Time { return time.Date(2026, 1, 20, 0, 0, 0, 0, time.UTC) },
+		ReadFile:       func(path string) ([]byte, error) { return []byte(defaultBulkAssignTemplate), nil },
 	}
 
 	plan := planBulkAssignFromAllocation(BulkAssignOptions{}, bulkAssignDeps(&deps), panes, mustParseAllocation(t, allocation))
