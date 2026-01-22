@@ -1338,6 +1338,78 @@ func (m Model) createCheckpointCmd() tea.Cmd {
 	}
 }
 
+// RotationConfirmResultMsg is sent after a rotation confirmation action completes.
+type RotationConfirmResultMsg struct {
+	AgentID string
+	Action  ctxmon.ConfirmAction
+	Success bool
+	Message string
+	Err     error
+}
+
+// executeRotationConfirmAction executes a rotation confirmation action.
+func (m Model) executeRotationConfirmAction(agentID string, action ctxmon.ConfirmAction) tea.Cmd {
+	return func() tea.Msg {
+		// Get the pending rotation
+		pending, err := ctxmon.GetPendingRotationByID(agentID)
+		if err != nil {
+			return RotationConfirmResultMsg{
+				AgentID: agentID,
+				Action:  action,
+				Success: false,
+				Err:     err,
+			}
+		}
+		if pending == nil {
+			return RotationConfirmResultMsg{
+				AgentID: agentID,
+				Action:  action,
+				Success: false,
+				Message: fmt.Sprintf("No pending rotation found for agent %s", agentID),
+			}
+		}
+
+		var resultMsg string
+		switch action {
+		case ctxmon.ConfirmRotate:
+			// Remove pending and mark for rotation on next check
+			if err := ctxmon.RemovePendingRotation(agentID); err != nil {
+				return RotationConfirmResultMsg{AgentID: agentID, Action: action, Success: false, Err: err}
+			}
+			resultMsg = fmt.Sprintf("Rotation confirmed for %s", agentID)
+
+		case ctxmon.ConfirmCompact:
+			// Remove pending and mark for compaction
+			if err := ctxmon.RemovePendingRotation(agentID); err != nil {
+				return RotationConfirmResultMsg{AgentID: agentID, Action: action, Success: false, Err: err}
+			}
+			resultMsg = fmt.Sprintf("Compaction requested for %s", agentID)
+
+		case ctxmon.ConfirmIgnore:
+			// Simply remove the pending rotation
+			if err := ctxmon.RemovePendingRotation(agentID); err != nil {
+				return RotationConfirmResultMsg{AgentID: agentID, Action: action, Success: false, Err: err}
+			}
+			resultMsg = fmt.Sprintf("Rotation cancelled for %s", agentID)
+
+		case ctxmon.ConfirmPostpone:
+			// Extend the timeout by 30 minutes
+			pending.TimeoutAt = pending.TimeoutAt.Add(30 * time.Minute)
+			if err := ctxmon.AddPendingRotation(pending); err != nil {
+				return RotationConfirmResultMsg{AgentID: agentID, Action: action, Success: false, Err: err}
+			}
+			resultMsg = fmt.Sprintf("Rotation postponed 30 minutes for %s", agentID)
+		}
+
+		return RotationConfirmResultMsg{
+			AgentID: agentID,
+			Action:  action,
+			Success: true,
+			Message: resultMsg,
+		}
+	}
+}
+
 // Helper struct to carry output data
 type PaneOutputData struct {
 	PaneID       string
@@ -1525,6 +1597,11 @@ func (m *Model) fullRefresh(cancelInFlight bool) []tea.Cmd {
 		m.fetchingMailInbox = true
 		m.lastMailInboxFetch = now
 		cmds = append(cmds, m.fetchAgentMailInboxes())
+	}
+	if !m.fetchingPendingRot {
+		m.fetchingPendingRot = true
+		m.lastPendingFetch = now
+		cmds = append(cmds, m.fetchPendingRotations())
 	}
 
 	// Agent mail status is light enough to refresh on demand.
@@ -2464,6 +2541,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle rotation confirmation action from the panel
 		return m, m.executeRotationConfirmAction(msg.AgentID, msg.Action)
 
+	case RotationConfirmResultMsg:
+		// Handle the result of a rotation confirmation action
+		if msg.Err != nil {
+			m.healthMessage = fmt.Sprintf("Rotation action failed: %v", msg.Err)
+		} else if !msg.Success {
+			m.healthMessage = msg.Message
+		} else {
+			m.healthMessage = msg.Message
+		}
+		// Refresh the pending rotations list
+		return m, m.fetchPendingRotations()
+
 	case HandoffUpdateMsg:
 		if !m.acceptUpdate(refreshHandoff, msg.Gen) {
 			return m, nil
@@ -2663,6 +2752,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if cmd != nil {
 					cmds = append(cmds, cmd)
 				}
+			}
+		}
+
+		// Also forward to rotation confirm panel when it has pending rotations
+		if m.rotationConfirmPanel != nil && m.rotationConfirmPanel.HasPending() && m.rotationConfirmPanel.IsFocused() {
+			var cmd tea.Cmd
+			_, cmd = m.rotationConfirmPanel.Update(keyMsg)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
 			}
 		}
 	}
