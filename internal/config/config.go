@@ -45,6 +45,7 @@ type Config struct {
 	FileReservation    FileReservationConfig `toml:"file_reservation"` // Auto file reservation via Agent Mail
 	Memory             MemoryConfig          `toml:"memory"`           // CASS Memory (cm) integration
 	Assign             AssignConfig          `toml:"assign"`           // Assignment strategy configuration
+	Swarm              SwarmConfig           `toml:"swarm"`            // Weighted multi-project agent swarm
 
 	// Runtime-only fields (populated by project config merging)
 	ProjectDefaults map[string]int `toml:"-"`
@@ -1231,6 +1232,7 @@ func Default() *Config {
 		FileReservation: DefaultFileReservationConfig(),
 		Memory:          DefaultMemoryConfig(),
 		Assign:          DefaultAssignConfig(),
+		Swarm:           DefaultSwarmConfig(),
 	}
 
 	// Try to load palette from markdown file
