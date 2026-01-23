@@ -245,11 +245,11 @@ func TestSendOptionsTargetFiltering(t *testing.T) {
 // TestSendErrorTracking tests error tracking functionality
 func TestSendErrorTracking(t *testing.T) {
 	tests := []struct {
-		name             string
-		sendResults      []mockSendResult
-		expectedSuccess  []string
-		expectedFailed   []SendError
-		description      string
+		name            string
+		sendResults     []mockSendResult
+		expectedSuccess []string
+		expectedFailed  []SendError
+		description     string
 	}{
 		{
 			name: "all_successful",
@@ -518,7 +518,7 @@ func processResults(results []mockSendResult) ([]string, []SendError) {
 			successful = append(successful, result.Pane)
 		} else {
 			failed = append(failed, SendError{
-				Pane:   result.Pane,
+				Pane:  result.Pane,
 				Error: result.Error,
 			})
 		}

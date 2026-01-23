@@ -159,18 +159,18 @@ func TestEffectivenessScore_WithWeights(t *testing.T) {
 
 func TestRawMetrics_ToEffectivenessScore(t *testing.T) {
 	raw := RawMetrics{
-		TasksAssigned:   10,
-		TasksCompleted:  8,
-		RetryCount:      1,
+		TasksAssigned:    10,
+		TasksCompleted:   8,
+		RetryCount:       1,
 		EstimatedMinutes: 60,
-		ActualMinutes:   50,
-		BaselineTokens:  10000,
-		ActualTokens:    8000,
-		TestsPassing:    0.9,
-		HasRegressions:  false,
-		ErrorCount:      2,
-		SuccessCount:    98,
-		AvgContextUsage: 0.3,
+		ActualMinutes:    50,
+		BaselineTokens:   10000,
+		ActualTokens:     8000,
+		TestsPassing:     0.9,
+		HasRegressions:   false,
+		ErrorCount:       2,
+		SuccessCount:     98,
+		AvgContextUsage:  0.3,
 	}
 
 	score := raw.ToEffectivenessScore(DefaultWeights())
@@ -402,11 +402,11 @@ func TestPerTaskTypeWeights(t *testing.T) {
 	config := &WeightsConfig{
 		Default: DefaultWeights(),
 		TaskTypeWeights: map[string]Weights{
-			"bug_fix":    QualityFocusedWeights(),
-			"feature":    DefaultWeights(),
-			"refactor":   EconomyFocusedWeights(),
-			"chore":      SpeedFocusedWeights(),
-			"hotfix":     QualityFocusedWeights(),
+			"bug_fix":  QualityFocusedWeights(),
+			"feature":  DefaultWeights(),
+			"refactor": EconomyFocusedWeights(),
+			"chore":    SpeedFocusedWeights(),
+			"hotfix":   QualityFocusedWeights(),
 		},
 	}
 
@@ -414,12 +414,12 @@ func TestPerTaskTypeWeights(t *testing.T) {
 		taskType      string
 		expectQuality float64 // expected quality weight
 	}{
-		{"bug_fix", 0.35},    // QualityFocused
-		{"feature", 0.25},    // Default
-		{"refactor", 0.20},   // EconomyFocused
-		{"chore", 0.15},      // SpeedFocused
-		{"hotfix", 0.35},     // QualityFocused
-		{"unknown", 0.25},    // Falls back to Default
+		{"bug_fix", 0.35},  // QualityFocused
+		{"feature", 0.25},  // Default
+		{"refactor", 0.20}, // EconomyFocused
+		{"chore", 0.15},    // SpeedFocused
+		{"hotfix", 0.35},   // QualityFocused
+		{"unknown", 0.25},  // Falls back to Default
 	}
 
 	for _, tt := range taskTypes {
@@ -460,10 +460,10 @@ func TestTaskTypeScoreVariation(t *testing.T) {
 	}
 
 	weightSets := map[string]Weights{
-		"default":  DefaultWeights(),
-		"quality":  QualityFocusedWeights(),
-		"speed":    SpeedFocusedWeights(),
-		"economy":  EconomyFocusedWeights(),
+		"default": DefaultWeights(),
+		"quality": QualityFocusedWeights(),
+		"speed":   SpeedFocusedWeights(),
+		"economy": EconomyFocusedWeights(),
 	}
 
 	scores := make(map[string]float64)
@@ -501,10 +501,10 @@ func TestRetryCountAccuracy(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		retryCount   int
-		expectScore  float64
-		tolerance    float64
+		name        string
+		retryCount  int
+		expectScore float64
+		tolerance   float64
 	}{
 		{"zero retries", 0, 1.0, 0.01},
 		{"one retry", 1, 0.67, 0.02},
@@ -544,11 +544,11 @@ func TestErrorRateAccuracy(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		errorCount  int
+		name         string
+		errorCount   int
 		successCount int
-		expectScore float64
-		tolerance   float64
+		expectScore  float64
+		tolerance    float64
 	}{
 		{"no errors", 0, 100, 1.0, 0.01},
 		{"5% error rate", 5, 95, 0.95, 0.01},
@@ -594,7 +594,7 @@ func TestTimeEfficiencyAccuracy(t *testing.T) {
 		expectScore float64
 		tolerance   float64
 	}{
-		{"completed faster", 60, 30, 1.0, 0.01},     // Capped at 1.0
+		{"completed faster", 60, 30, 1.0, 0.01}, // Capped at 1.0
 		{"completed on time", 60, 60, 1.0, 0.01},
 		{"slightly overtime", 60, 80, 0.75, 0.01},
 		{"double overtime", 60, 120, 0.50, 0.01},
@@ -638,7 +638,7 @@ func TestTokenEfficiencyAccuracy(t *testing.T) {
 		expectScore float64
 		tolerance   float64
 	}{
-		{"under budget", 10000, 5000, 1.0, 0.01},    // Capped at 1.0
+		{"under budget", 10000, 5000, 1.0, 0.01}, // Capped at 1.0
 		{"on budget", 10000, 10000, 1.0, 0.01},
 		{"20% over", 10000, 12500, 0.80, 0.01},
 		{"double budget", 10000, 20000, 0.50, 0.01},

@@ -13,19 +13,19 @@ import (
 // ToolsOutput represents the output for --robot-tools
 type ToolsOutput struct {
 	RobotResponse
-	Tools        []ToolInfoOutput       `json:"tools"`
-	HealthReport *tools.HealthReport    `json:"health_report"`
+	Tools        []ToolInfoOutput    `json:"tools"`
+	HealthReport *tools.HealthReport `json:"health_report"`
 }
 
 // ToolInfoOutput represents a single tool's info in robot output
 type ToolInfoOutput struct {
-	Name         string             `json:"name"`
-	Installed    bool               `json:"installed"`
-	Version      string             `json:"version,omitempty"`
-	Path         string             `json:"path,omitempty"`
-	Capabilities []string           `json:"capabilities"`
-	Health       *ToolHealthOutput  `json:"health"`
-	Required     bool               `json:"required,omitempty"`
+	Name         string            `json:"name"`
+	Installed    bool              `json:"installed"`
+	Version      string            `json:"version,omitempty"`
+	Path         string            `json:"path,omitempty"`
+	Capabilities []string          `json:"capabilities"`
+	Health       *ToolHealthOutput `json:"health"`
+	Required     bool              `json:"required,omitempty"`
 }
 
 // ToolHealthOutput represents tool health in robot output

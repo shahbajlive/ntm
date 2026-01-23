@@ -652,9 +652,9 @@ func TestAlertTriggerLogic(t *testing.T) {
 		id     string
 		tokens int64 // Raw tokens (before 0.7 discount)
 	}{
-		{"low-usage", 50000},     // 50k * 0.7 / 200k = 17.5%
-		{"medium-usage", 180000}, // 180k * 0.7 / 200k = 63%
-		{"high-usage", 240000},   // 240k * 0.7 / 200k = 84%
+		{"low-usage", 50000},       // 50k * 0.7 / 200k = 17.5%
+		{"medium-usage", 180000},   // 180k * 0.7 / 200k = 63%
+		{"high-usage", 240000},     // 240k * 0.7 / 200k = 84%
 		{"critical-usage", 280000}, // 280k * 0.7 / 200k = 98%
 	}
 

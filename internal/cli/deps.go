@@ -280,14 +280,14 @@ func checkFlywheelTools(t theme.Theme, verbose bool) int {
 
 	// Key flywheel tools to display (in priority order)
 	keyTools := []tools.ToolName{
-		tools.ToolBV,    // Required for triage
-		tools.ToolBD,    // Beads issue tracker
-		tools.ToolCAAM,  // Multi-account management
-		tools.ToolCaut,  // Quota monitoring
-		tools.ToolDCG,   // Destructive command guard
-		tools.ToolUBS,   // Bug scanner
-		tools.ToolCASS,  // Cross-agent search
-		tools.ToolCM,    // CASS memory
+		tools.ToolBV,   // Required for triage
+		tools.ToolBD,   // Beads issue tracker
+		tools.ToolCAAM, // Multi-account management
+		tools.ToolCaut, // Quota monitoring
+		tools.ToolDCG,  // Destructive command guard
+		tools.ToolUBS,  // Bug scanner
+		tools.ToolCASS, // Cross-agent search
+		tools.ToolCM,   // CASS memory
 	}
 
 	// Build a map for quick lookup

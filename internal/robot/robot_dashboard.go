@@ -42,10 +42,10 @@ func PrintDashboard(jsonMode bool) error {
 
 	output := DashboardOutput{
 		RobotResponse: NewRobotResponse(true),
-		GeneratedAt: time.Now().UTC(),
-		Fleet:       fleet,
-		Agents:      []SnapshotSession{},
-		Metrics:     map[string]any{},
+		GeneratedAt:   time.Now().UTC(),
+		Fleet:         fleet,
+		Agents:        []SnapshotSession{},
+		Metrics:       map[string]any{},
 		System: SystemInfo{
 			OS:        runtime.GOOS,
 			Arch:      runtime.GOARCH,

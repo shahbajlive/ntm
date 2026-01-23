@@ -212,13 +212,13 @@ type FileConflictMsg struct {
 
 // DCGStatusUpdateMsg is sent when DCG status is fetched
 type DCGStatusUpdateMsg struct {
-	Enabled    bool   // Whether DCG is enabled in config
-	Available  bool   // Whether DCG binary is available
-	Version    string // DCG version string
-	Blocked    int    // Commands blocked this session
+	Enabled     bool   // Whether DCG is enabled in config
+	Available   bool   // Whether DCG binary is available
+	Version     string // DCG version string
+	Blocked     int    // Commands blocked this session
 	LastBlocked string // Last blocked command
-	Err        error
-	Gen        uint64
+	Err         error
+	Gen         uint64
 }
 
 // PendingRotationsUpdateMsg is sent when pending rotations data is fetched
@@ -453,10 +453,10 @@ type Model struct {
 	healthStates map[string]*pt.AgentState // pane -> health state
 
 	// Pending rotation confirmations
-	pendingRotations     []*ctxmon.PendingRotation
-	pendingRotationsErr  error
-	lastPendingFetch     time.Time
-	fetchingPendingRot   bool
+	pendingRotations    []*ctxmon.PendingRotation
+	pendingRotationsErr error
+	lastPendingFetch    time.Time
+	fetchingPendingRot  bool
 
 	// Checkpoint status
 	checkpointCount     int                    // Number of checkpoints for this session
@@ -482,14 +482,14 @@ type Model struct {
 	bugsScanned  bool // Whether a scan has been run
 
 	// DCG (Destructive Command Guard) status
-	dcgEnabled      bool   // Whether DCG is enabled in config
-	dcgAvailable    bool   // Whether DCG binary is available
-	dcgVersion      string // DCG version string
-	dcgBlocked      int    // Commands blocked this session
-	dcgLastBlocked  string // Last blocked command (for tooltip)
-	dcgError        error  // Any error from DCG check
-	fetchingDCG     bool   // Whether we're currently fetching DCG status
-	lastDCGFetch    time.Time
+	dcgEnabled         bool   // Whether DCG is enabled in config
+	dcgAvailable       bool   // Whether DCG binary is available
+	dcgVersion         string // DCG version string
+	dcgBlocked         int    // Commands blocked this session
+	dcgLastBlocked     string // Last blocked command (for tooltip)
+	dcgError           error  // Any error from DCG check
+	fetchingDCG        bool   // Whether we're currently fetching DCG status
+	lastDCGFetch       time.Time
 	dcgRefreshInterval time.Duration // How often to refresh DCG status
 
 	// Error tracking for data sources (displayed as badges)

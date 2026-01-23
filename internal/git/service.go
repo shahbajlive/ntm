@@ -28,8 +28,8 @@ func NewWorktreeService(cfg *config.Config) *WorktreeService {
 
 // AutoProvisionRequest represents a request for automatic worktree provisioning
 type AutoProvisionRequest struct {
-	SessionName string    `json:"session_name"`
-	ProjectDir  string    `json:"project_dir"`
+	SessionName string      `json:"session_name"`
+	ProjectDir  string      `json:"project_dir"`
 	AgentPanes  []AgentPane `json:"agent_panes"`
 }
 
@@ -43,11 +43,11 @@ type AgentPane struct {
 
 // AutoProvisionResponse represents the result of automatic provisioning
 type AutoProvisionResponse struct {
-	SessionName    string               `json:"session_name"`
-	ProjectDir     string               `json:"project_dir"`
-	Provisions     []WorktreeProvision  `json:"provisions"`
-	Skipped        []SkippedProvision   `json:"skipped"`
-	Errors         []ProvisionError     `json:"errors"`
+	SessionName     string              `json:"session_name"`
+	ProjectDir      string              `json:"project_dir"`
+	Provisions      []WorktreeProvision `json:"provisions"`
+	Skipped         []SkippedProvision  `json:"skipped"`
+	Errors          []ProvisionError    `json:"errors"`
 	TotalProvisions int                 `json:"total_provisions"`
 	SuccessCount    int                 `json:"success_count"`
 	ProcessingTime  string              `json:"processing_time"`
@@ -55,12 +55,12 @@ type AutoProvisionResponse struct {
 
 // WorktreeProvision represents a successful worktree provision
 type WorktreeProvision struct {
-	PaneID        string `json:"pane_id"`
-	AgentType     string `json:"agent_type"`
-	WorktreePath  string `json:"worktree_path"`
-	Branch        string `json:"branch"`
-	Commit        string `json:"commit"`
-	ChangeDir     string `json:"change_dir_command"`
+	PaneID       string `json:"pane_id"`
+	AgentType    string `json:"agent_type"`
+	WorktreePath string `json:"worktree_path"`
+	Branch       string `json:"branch"`
+	Commit       string `json:"commit"`
+	ChangeDir    string `json:"change_dir_command"`
 }
 
 // SkippedProvision represents a skipped provision (e.g., not a git repo)
@@ -141,12 +141,12 @@ func (ws *WorktreeService) AutoProvisionSession(ctx context.Context, sessionName
 		changeDirCommand := fmt.Sprintf("cd %s", worktreeInfo.Path)
 
 		provision := WorktreeProvision{
-			PaneID:        agentPane.PaneID,
-			AgentType:     agentPane.AgentType,
-			WorktreePath:  worktreeInfo.Path,
-			Branch:        worktreeInfo.Branch,
-			Commit:        worktreeInfo.Commit,
-			ChangeDir:     changeDirCommand,
+			PaneID:       agentPane.PaneID,
+			AgentType:    agentPane.AgentType,
+			WorktreePath: worktreeInfo.Path,
+			Branch:       worktreeInfo.Branch,
+			Commit:       worktreeInfo.Commit,
+			ChangeDir:    changeDirCommand,
 		}
 
 		response.Provisions = append(response.Provisions, provision)

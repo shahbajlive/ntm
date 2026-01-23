@@ -235,10 +235,10 @@ func TestGlobalPIDMap(t *testing.T) {
 func TestProcStatParsing(t *testing.T) {
 	// Test edge cases in stat parsing
 	tests := []struct {
-		name    string
+		name     string
 		statLine string
 		wantPPID int
-		wantErr bool
+		wantErr  bool
 	}{
 		{
 			name:     "normal process",

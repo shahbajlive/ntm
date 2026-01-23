@@ -221,12 +221,12 @@ func TestShouldWarnThresholds(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		currentTokens   int64
-		modelLimit      int64
-		tokensPerMin    int64
-		expectWarn      bool
-		expectCompact   bool
+		name          string
+		currentTokens int64
+		modelLimit    int64
+		tokensPerMin  int64
+		expectWarn    bool
+		expectCompact bool
 	}{
 		{
 			name:          "low usage slow growth - no warn",

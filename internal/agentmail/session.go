@@ -262,12 +262,12 @@ func IsNameTakenError(err error) bool {
 // for a session. This enables message routing and reservation management across
 // session restarts.
 type SessionAgentRegistry struct {
-	SessionName string            `json:"session_name"`
-	ProjectKey  string            `json:"project_key"`
-	Agents      map[string]string `json:"agents"`       // pane_title -> agent_name
-	PaneIDMap   map[string]string `json:"pane_id_map"`  // pane_id -> agent_name (backup)
-	RegisteredAt time.Time        `json:"registered_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
+	SessionName  string            `json:"session_name"`
+	ProjectKey   string            `json:"project_key"`
+	Agents       map[string]string `json:"agents"`      // pane_title -> agent_name
+	PaneIDMap    map[string]string `json:"pane_id_map"` // pane_id -> agent_name (backup)
+	RegisteredAt time.Time         `json:"registered_at"`
+	UpdatedAt    time.Time         `json:"updated_at"`
 }
 
 // NewSessionAgentRegistry creates a new empty registry.

@@ -570,12 +570,11 @@ type SuccessResponse struct {
 	RobotResponse
 }
 
-// outputJSON encodes the value as pretty-printed JSON to stdout.
+// outputJSON encodes the value to stdout using the current robot output settings.
+// It honors OutputFormat and OutputVerbosity (including terse key mapping).
 // This is the internal helper used by Print* functions.
 func outputJSON(v interface{}) error {
-	encoder := json.NewEncoder(os.Stdout)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(v)
+	return encodeJSON(v)
 }
 
 // WithAgentHints is a wrapper that adds _agent_hints to any response.

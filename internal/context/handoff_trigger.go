@@ -68,7 +68,7 @@ type HandoffTrigger struct {
 	activeAgents map[string]bool      // agentID -> currently generating handoff
 
 	// Event handlers
-	onWarning  func(HandoffTriggerEvent)
+	onWarning   func(HandoffTriggerEvent)
 	onTriggered func(HandoffTriggerEvent)
 
 	// Control

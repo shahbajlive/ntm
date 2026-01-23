@@ -138,11 +138,11 @@ func (a *RUAdapter) Info(ctx context.Context) (*ToolInfo, error) {
 
 // RUStatus represents the current ru status output
 type RUStatus struct {
-	Repos       []RURepoStatus `json:"repos,omitempty"`
-	TotalRepos  int            `json:"total_repos"`
-	NeedsSync   int            `json:"needs_sync"`
-	UpToDate    int            `json:"up_to_date"`
-	HasChanges  int            `json:"has_changes"`
+	Repos      []RURepoStatus `json:"repos,omitempty"`
+	TotalRepos int            `json:"total_repos"`
+	NeedsSync  int            `json:"needs_sync"`
+	UpToDate   int            `json:"up_to_date"`
+	HasChanges int            `json:"has_changes"`
 }
 
 // RURepoStatus represents the status of a single repo

@@ -59,11 +59,11 @@ type AgentState struct {
 	MemoryMB         *float64 `json:"memory_mb,omitempty"`         // Memory usage (Gemini)
 
 	// Qualitative state flags
-	IsWorking     bool `json:"is_working"`     // Actively producing output (DO NOT INTERRUPT)
-	IsRateLimited bool `json:"rate_limited"`   // Hit API usage limit (wait for reset)
-	IsContextLow  bool `json:"context_low"`    // Below configured threshold
-	IsIdle        bool `json:"is_idle"`        // Waiting for user input (safe to restart)
-	IsInError     bool `json:"is_in_error"`    // Error state detected
+	IsWorking     bool `json:"is_working"`   // Actively producing output (DO NOT INTERRUPT)
+	IsRateLimited bool `json:"rate_limited"` // Hit API usage limit (wait for reset)
+	IsContextLow  bool `json:"context_low"`  // Below configured threshold
+	IsIdle        bool `json:"is_idle"`      // Waiting for user input (safe to restart)
+	IsInError     bool `json:"is_in_error"`  // Error state detected
 
 	// Evidence for debugging and confidence calculation
 	WorkIndicators  []string `json:"work_indicators,omitempty"`  // Patterns that indicate working

@@ -35,16 +35,16 @@ const (
 
 // AuditEntry represents a single audit log entry
 type AuditEntry struct {
-	Timestamp    time.Time              `json:"timestamp"`
-	SessionID    string                 `json:"session_id"`
-	EventType    EventType              `json:"event_type"`
-	Actor        Actor                  `json:"actor"`
-	Target       string                 `json:"target"`
-	Payload      map[string]interface{} `json:"payload"`
-	Metadata     map[string]interface{} `json:"metadata"`
-	PrevHash     string                 `json:"prev_hash,omitempty"`
-	Checksum     string                 `json:"checksum"`
-	SequenceNum  uint64                 `json:"sequence_num"`
+	Timestamp   time.Time              `json:"timestamp"`
+	SessionID   string                 `json:"session_id"`
+	EventType   EventType              `json:"event_type"`
+	Actor       Actor                  `json:"actor"`
+	Target      string                 `json:"target"`
+	Payload     map[string]interface{} `json:"payload"`
+	Metadata    map[string]interface{} `json:"metadata"`
+	PrevHash    string                 `json:"prev_hash,omitempty"`
+	Checksum    string                 `json:"checksum"`
+	SequenceNum uint64                 `json:"sequence_num"`
 }
 
 // AuditLogger provides append-only audit logging with tamper evidence
@@ -76,8 +76,8 @@ type LoggerConfig struct {
 func DefaultConfig(sessionID string) *LoggerConfig {
 	return &LoggerConfig{
 		SessionID:     sessionID,
-		BufferSize:    10,                // Flush every 10 entries
-		FlushInterval: 5 * time.Second,   // Or every 5 seconds
+		BufferSize:    10,              // Flush every 10 entries
+		FlushInterval: 5 * time.Second, // Or every 5 seconds
 	}
 }
 

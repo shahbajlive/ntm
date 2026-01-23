@@ -142,10 +142,10 @@ func PrintCASSSearch(query, agent, workspace, since string, limit int) error {
 
 	output := CASSSearchOutput{
 		RobotResponse: NewRobotResponse(true),
-		Query:        resp.Query,
-		Count:        resp.Count,
-		TotalMatches: resp.TotalMatches,
-		Hits:         make([]CASSSearchHit, len(resp.Hits)),
+		Query:         resp.Query,
+		Count:         resp.Count,
+		TotalMatches:  resp.TotalMatches,
+		Hits:          make([]CASSSearchHit, len(resp.Hits)),
 	}
 
 	for i, hit := range resp.Hits {
@@ -216,10 +216,10 @@ func PrintCASSInsights() error {
 
 	output := CASSInsightsOutput{
 		RobotResponse: NewRobotResponse(true),
-		Period: "7d",
-		Agents: map[string]interface{}{},
-		Topics: []map[string]interface{}{},
-		Errors: []map[string]interface{}{},
+		Period:        "7d",
+		Agents:        map[string]interface{}{},
+		Topics:        []map[string]interface{}{},
+		Errors:        []map[string]interface{}{},
 	}
 
 	if resp.Aggregations != nil {
@@ -288,7 +288,7 @@ func PrintCASSContext(query string) error {
 	}
 
 	output := CASSContextOutput{
-		RobotResponse:     NewRobotResponse(true),
+		RobotResponse:    NewRobotResponse(true),
 		Query:            query,
 		RelevantSessions: []CASSContextSession{},
 	}
@@ -1134,7 +1134,7 @@ func PrintStatus() error {
 
 	output := StatusOutput{
 		RobotResponse: NewRobotResponse(true),
-		GeneratedAt: time.Now().UTC(),
+		GeneratedAt:   time.Now().UTC(),
 		System: SystemInfo{
 			Version:   Version,
 			Commit:    Commit,
@@ -1848,9 +1848,9 @@ func PrintSessions() error {
 func PrintPlan() error {
 	plan := PlanOutput{
 		RobotResponse: NewRobotResponse(true),
-		GeneratedAt: time.Now().UTC(),
-		Actions:     []PlanAction{},
-		BeadActions: []BeadAction{},
+		GeneratedAt:   time.Now().UTC(),
+		Actions:       []PlanAction{},
+		BeadActions:   []BeadAction{},
 	}
 
 	// Check tmux availability
@@ -2612,9 +2612,9 @@ func PrintSnapshot(cfg *config.Config) error {
 	}
 	output := SnapshotOutput{
 		RobotResponse: NewRobotResponse(true),
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		Sessions:  []SnapshotSession{},
-		Alerts:    []string{},
+		Timestamp:     time.Now().UTC().Format(time.RFC3339),
+		Sessions:      []SnapshotSession{},
+		Alerts:        []string{},
 	}
 
 	// Check tmux availability
@@ -3229,9 +3229,9 @@ type Change struct {
 func PrintSnapshotDelta(since time.Time) error {
 	output := SnapshotDeltaOutput{
 		RobotResponse: NewRobotResponse(true),
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		Since:     since.Format(time.RFC3339),
-		Changes:   []Change{},
+		Timestamp:     time.Now().UTC().Format(time.RFC3339),
+		Since:         since.Format(time.RFC3339),
+		Changes:       []Change{},
 	}
 
 	// Query the state tracker for changes since the given timestamp
@@ -3327,8 +3327,8 @@ type GraphMailSummary struct {
 func PrintGraph() error {
 	output := GraphOutput{
 		RobotResponse: NewRobotResponse(true),
-		GeneratedAt: time.Now().UTC(),
-		Available:   bv.IsInstalled(),
+		GeneratedAt:   time.Now().UTC(),
+		Available:     bv.IsInstalled(),
 	}
 
 	if !bv.IsInstalled() {
@@ -3752,9 +3752,9 @@ func PrintAlertsDetailed(includeResolved bool) error {
 
 	output := AlertsOutput{
 		RobotResponse: NewRobotResponse(true),
-		GeneratedAt: time.Now().UTC(),
-		Enabled:     alertCfg.Enabled,
-		Active:      make([]AlertInfo, len(active)),
+		GeneratedAt:   time.Now().UTC(),
+		Enabled:       alertCfg.Enabled,
+		Active:        make([]AlertInfo, len(active)),
 		Summary: AlertSummaryInfo{
 			TotalActive: summary.TotalActive,
 			BySeverity:  summary.BySeverity,
@@ -3845,9 +3845,9 @@ func PrintRecipes() error {
 
 	output := RecipesOutput{
 		RobotResponse: NewRobotResponse(true),
-		GeneratedAt: time.Now().UTC(),
-		Count:       len(recipes),
-		Recipes:     make([]RecipeInfo, len(recipes)),
+		GeneratedAt:   time.Now().UTC(),
+		Count:         len(recipes),
+		Recipes:       make([]RecipeInfo, len(recipes)),
 	}
 
 	for i, r := range recipes {
@@ -4918,8 +4918,8 @@ func PrintTriage(opts TriageOptions) error {
 
 	output := TriageOutput{
 		RobotResponse: NewRobotResponse(true),
-		GeneratedAt: time.Now().UTC(),
-		Available:   bv.IsInstalled(),
+		GeneratedAt:   time.Now().UTC(),
+		Available:     bv.IsInstalled(),
 	}
 
 	if !bv.IsInstalled() {

@@ -68,7 +68,7 @@ func PrintInterrupt(opts InterruptOptions) error {
 
 	interruptedAt := time.Now().UTC()
 	output := InterruptOutput{
-		RobotResponse: NewRobotResponse(true),
+		RobotResponse:  NewRobotResponse(true),
 		Session:        opts.Session,
 		InterruptedAt:  interruptedAt,
 		Interrupted:    []string{},

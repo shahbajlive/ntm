@@ -117,7 +117,7 @@ func PrintRestartPane(opts RestartPaneOptions) error {
 	// Restart targets
 	for _, pane := range targetPanes {
 		paneKey := fmt.Sprintf("%d", pane.Index)
-		
+
 		// Always use kill=true for restart to ensure process is cycled
 		err := tmux.RespawnPane(pane.ID, true)
 		if err != nil {

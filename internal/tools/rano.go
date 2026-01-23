@@ -160,10 +160,10 @@ type RanoAvailability struct {
 type RanoStatus struct {
 	Running      bool   `json:"running"`
 	Monitoring   bool   `json:"monitoring"`
-	ProcessCount int    `json:"process_count"`  // Number of processes being tracked
-	RequestCount int    `json:"request_count"`  // Total API requests observed
-	BytesIn      int64  `json:"bytes_in"`       // Total bytes received
-	BytesOut     int64  `json:"bytes_out"`      // Total bytes sent
+	ProcessCount int    `json:"process_count"` // Number of processes being tracked
+	RequestCount int    `json:"request_count"` // Total API requests observed
+	BytesIn      int64  `json:"bytes_in"`      // Total bytes received
+	BytesOut     int64  `json:"bytes_out"`     // Total bytes sent
 	Error        string `json:"error,omitempty"`
 }
 

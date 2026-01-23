@@ -69,11 +69,11 @@ func TestDefaultProbeFlags(t *testing.T) {
 
 func TestParseProbeFlags(t *testing.T) {
 	tests := []struct {
-		name       string
-		method     string
-		timeout    int
-		aggressive bool
-		wantErr    bool
+		name        string
+		method      string
+		timeout     int
+		aggressive  bool
+		wantErr     bool
 		errContains string
 	}{
 		{
@@ -659,12 +659,12 @@ func TestProbeDetailsStruct(t *testing.T) {
 func TestProbeOutputIntegration(t *testing.T) {
 	// Test that ProbeOutput correctly includes ProbeResult fields
 	output := ProbeOutput{
-		RobotResponse:  NewRobotResponse(true),
-		Session:        "test-session",
-		Pane:           0,
-		Responsive:     true,
-		ProbeMethod:    ProbeMethodKeystrokeEcho,
-		ProbeDetails:   ProbeDetails{
+		RobotResponse: NewRobotResponse(true),
+		Session:       "test-session",
+		Pane:          0,
+		Responsive:    true,
+		ProbeMethod:   ProbeMethodKeystrokeEcho,
+		ProbeDetails: ProbeDetails{
 			InputSent:        "Space+Backspace",
 			OutputChanged:    true,
 			LatencyMs:        100,
@@ -1020,11 +1020,11 @@ func TestTimeoutBoundaries(t *testing.T) {
 		timeout int
 		wantErr bool
 	}{
-		{"below_min", 50, true},       // Below 100ms min
-		{"at_min", 100, false},        // Exactly at minimum
-		{"normal", 5000, false},       // Normal value
-		{"at_max", 60000, false},      // Exactly at maximum
-		{"above_max", 100000, true},   // Above 60000ms max
+		{"below_min", 50, true},         // Below 100ms min
+		{"at_min", 100, false},          // Exactly at minimum
+		{"normal", 5000, false},         // Normal value
+		{"at_max", 60000, false},        // Exactly at maximum
+		{"above_max", 100000, true},     // Above 60000ms max
 		{"zero_uses_default", 0, false}, // Zero means use default
 	}
 
@@ -1435,18 +1435,18 @@ func TestProbeMethodStringConversion(t *testing.T) {
 // =============================================================================
 
 type MockTmuxClient struct {
-	CaptureOutput   string
-	CaptureError    error
-	SendKeysError   error
-	InterruptError  error
+	CaptureOutput    string
+	CaptureError     error
+	SendKeysError    error
+	InterruptError   error
 	SessionExistsVal bool
-	Panes           []tmux.Pane
-	PanesError      error
-	
+	Panes            []tmux.Pane
+	PanesError       error
+
 	// Call counters
-	CaptureCount    int
-	SendKeysCount   int
-	InterruptCount  int
+	CaptureCount   int
+	SendKeysCount  int
+	InterruptCount int
 }
 
 func (m *MockTmuxClient) CaptureForStatusDetection(target string) (string, error) {
@@ -1481,7 +1481,7 @@ func (m *MockTmuxClient) GetPanes(session string) ([]tmux.Pane, error) {
 func setupMock(t *testing.T) *MockTmuxClient {
 	mock := &MockTmuxClient{
 		SessionExistsVal: true,
-		Panes: []tmux.Pane{{ID: "0", Index: 0}},
+		Panes:            []tmux.Pane{{ID: "0", Index: 0}},
 	}
 	original := CurrentTmuxClient
 	CurrentTmuxClient = mock
@@ -1550,9 +1550,9 @@ func TestProbeKeystrokeEcho_Responsive(t *testing.T) {
 	// First capture (baseline)
 	// Second capture (current) - different content
 	// Since we can't easily change mock output between calls in this simple mock,
-	// we assume the implementation calls Capture twice. 
+	// we assume the implementation calls Capture twice.
 	// We need a smarter mock that returns sequence of outputs.
-	
+
 	// Improving mock for this test
 	mockSeq := &MockTmuxClientSequence{
 		Outputs: []string{"baseline", "changed output"},
@@ -1629,7 +1629,7 @@ func TestProbeInterruptTest_Unresponsive(t *testing.T) {
 // Mock with sequential outputs
 type MockTmuxClientSequence struct {
 	MockTmuxClient
-	Outputs []string
+	Outputs   []string
 	CallIndex int
 }
 

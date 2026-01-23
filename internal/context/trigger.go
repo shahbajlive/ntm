@@ -39,11 +39,11 @@ func DefaultCompactionTriggerConfig() CompactionTriggerConfig {
 
 // CompactionTriggerEvent represents a compaction trigger event.
 type CompactionTriggerEvent struct {
-	AgentID          string           `json:"agent_id"`
-	PaneID           string           `json:"pane_id"`
-	AgentType        tmux.AgentType   `json:"agent_type"`
-	Prediction       *Prediction      `json:"prediction"`
-	TriggeredAt      time.Time        `json:"triggered_at"`
+	AgentID          string            `json:"agent_id"`
+	PaneID           string            `json:"pane_id"`
+	AgentType        tmux.AgentType    `json:"agent_type"`
+	Prediction       *Prediction       `json:"prediction"`
+	TriggeredAt      time.Time         `json:"triggered_at"`
 	CompactionResult *CompactionResult `json:"compaction_result,omitempty"`
 }
 

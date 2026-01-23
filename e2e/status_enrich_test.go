@@ -16,16 +16,16 @@ import (
 
 // StatusResponse represents the full response from --robot-status.
 type StatusResponse struct {
-	GeneratedAt string             `json:"generated_at"`
-	System      SystemInfo         `json:"system"`
-	Sessions    []StatusSession    `json:"sessions"`
-	Error       string             `json:"error,omitempty"`
+	GeneratedAt string          `json:"generated_at"`
+	System      SystemInfo      `json:"system"`
+	Sessions    []StatusSession `json:"sessions"`
+	Error       string          `json:"error,omitempty"`
 }
 
 // SystemInfo contains system information from status.
 type SystemInfo struct {
-	Version      string `json:"version"`
-	TmuxAvailable bool  `json:"tmux_available"`
+	Version       string `json:"version"`
+	TmuxAvailable bool   `json:"tmux_available"`
 }
 
 // StatusSession represents a session in the status response.

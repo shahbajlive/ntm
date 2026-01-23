@@ -11,14 +11,14 @@ import (
 
 // mockPaneSpawner implements context.PaneSpawner for testing.
 type mockPaneSpawner struct {
-	mu           sync.Mutex
-	spawnCalls   []spawnCall
-	killCalls    []string
+	mu            sync.Mutex
+	spawnCalls    []spawnCall
+	killCalls     []string
 	sendKeysCalls []sendKeysCall
-	spawnErr     error
-	killErr      error
-	sendKeysErr  error
-	panes        []tmux.Pane
+	spawnErr      error
+	killErr       error
+	sendKeysErr   error
+	panes         []tmux.Pane
 }
 
 type spawnCall struct {
@@ -118,9 +118,9 @@ func (m *mockAccountRotator) CurrentAccount(agentType string) string {
 
 // mockTmuxClient implements a minimal mock for tmux.Client operations.
 type mockTmuxClient struct {
-	mu           sync.Mutex
+	mu            sync.Mutex
 	sendKeysCalls []sendKeysCall
-	sendKeysErr  error
+	sendKeysErr   error
 }
 
 func (m *mockTmuxClient) recordSendKeys(paneID, text string, enter bool) {

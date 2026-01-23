@@ -175,7 +175,7 @@ func PrintDiagnose(opts DiagnoseOptions) error {
 				// Treat as degraded
 				output.Summary.Degraded++
 				output.Panes.Degraded = append(output.Panes.Degraded, pane.Index)
-				
+
 				// If stalled, add recommendation
 				if check.StallCheck != nil && check.StallCheck.Stalled {
 					output.Recommendations = append(output.Recommendations, DiagnoseRecommendation{

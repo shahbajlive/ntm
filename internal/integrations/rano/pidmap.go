@@ -22,11 +22,11 @@ var pidmapLogger = slog.Default().With("component", "integrations.rano.pidmap")
 
 // PaneIdentity represents a pane's identity for attribution.
 type PaneIdentity struct {
-	Session   string        // Session name
-	PaneIndex int           // Pane index within session
-	PaneTitle string        // Full pane title (e.g., "myproject__cc_1")
+	Session   string         // Session name
+	PaneIndex int            // Pane index within session
+	PaneTitle string         // Full pane title (e.g., "myproject__cc_1")
 	AgentType tmux.AgentType // Parsed agent type
-	NTMIndex  int           // NTM-specific index (e.g., 1 for cc_1)
+	NTMIndex  int            // NTM-specific index (e.g., 1 for cc_1)
 }
 
 // String returns a readable representation of the pane identity.
@@ -225,13 +225,13 @@ func (m *PIDMap) LastRefresh() time.Time {
 
 // Stats returns statistics about the current PID map.
 type Stats struct {
-	PaneCount        int       `json:"pane_count"`
-	TotalPIDCount    int       `json:"total_pid_count"`
-	ShellPIDCount    int       `json:"shell_pid_count"`
-	ChildPIDCount    int       `json:"child_pid_count"`
-	LastRefresh      time.Time `json:"last_refresh"`
-	Session          string    `json:"session,omitempty"`
-	ByAgentType      map[string]int `json:"by_agent_type,omitempty"`
+	PaneCount     int            `json:"pane_count"`
+	TotalPIDCount int            `json:"total_pid_count"`
+	ShellPIDCount int            `json:"shell_pid_count"`
+	ChildPIDCount int            `json:"child_pid_count"`
+	LastRefresh   time.Time      `json:"last_refresh"`
+	Session       string         `json:"session,omitempty"`
+	ByAgentType   map[string]int `json:"by_agent_type,omitempty"`
 }
 
 // GetStats returns statistics about the current PID map.

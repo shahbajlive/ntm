@@ -19,12 +19,12 @@ type SessionStructure struct {
 	WindowNames []string `json:"window_names"` // Window names if set
 
 	// Pane layout
-	ControlPane     int   `json:"control_pane"`       // Control shell pane (typically 1)
-	AgentPaneStart  int   `json:"agent_pane_start"`   // First agent pane index
-	AgentPaneEnd    int   `json:"agent_pane_end"`     // Last agent pane index
-	TotalAgentPanes int   `json:"total_agent_panes"`  // Count of agent panes
-	PaneIndices     []int `json:"pane_indices"`       // All pane indices in primary window
-	TotalPanes      int   `json:"total_panes"`        // Total panes across all windows
+	ControlPane     int   `json:"control_pane"`      // Control shell pane (typically 1)
+	AgentPaneStart  int   `json:"agent_pane_start"`  // First agent pane index
+	AgentPaneEnd    int   `json:"agent_pane_end"`    // Last agent pane index
+	TotalAgentPanes int   `json:"total_agent_panes"` // Count of agent panes
+	PaneIndices     []int `json:"pane_indices"`      // All pane indices in primary window
+	TotalPanes      int   `json:"total_panes"`       // Total panes across all windows
 
 	// Session metadata
 	SessionName string `json:"session_name"`
@@ -32,7 +32,7 @@ type SessionStructure struct {
 	Layout      string `json:"layout"`        // tmux layout string
 
 	// Detection notes
-	DetectionMethod string `json:"detection_method"` // How structure was determined
+	DetectionMethod string   `json:"detection_method"` // How structure was determined
 	Warnings        []string `json:"warnings,omitempty"`
 }
 

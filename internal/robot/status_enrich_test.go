@@ -16,76 +16,76 @@ import (
 
 func TestDetectRateLimit(t *testing.T) {
 	tests := []struct {
-		name           string
-		content        string
-		wantDetected   bool
-		wantMatchHas   string // substring that should be in match
+		name         string
+		content      string
+		wantDetected bool
+		wantMatchHas string // substring that should be in match
 	}{
 		{
-			name:           "Claude rate limit message",
-			content:        "Error: You've hit your limit for the day. Please try again tomorrow.",
-			wantDetected:   true,
-			wantMatchHas:   "hit your limit",
+			name:         "Claude rate limit message",
+			content:      "Error: You've hit your limit for the day. Please try again tomorrow.",
+			wantDetected: true,
+			wantMatchHas: "hit your limit",
 		},
 		{
-			name:           "Claude rate limit case insensitive",
-			content:        "YOU'VE HIT YOUR LIMIT",
-			wantDetected:   true,
-			wantMatchHas:   "HIT YOUR LIMIT",
+			name:         "Claude rate limit case insensitive",
+			content:      "YOU'VE HIT YOUR LIMIT",
+			wantDetected: true,
+			wantMatchHas: "HIT YOUR LIMIT",
 		},
 		{
-			name:           "Rate limit generic",
-			content:        "API rate limit exceeded, please slow down",
-			wantDetected:   true,
-			wantMatchHas:   "rate limit",
+			name:         "Rate limit generic",
+			content:      "API rate limit exceeded, please slow down",
+			wantDetected: true,
+			wantMatchHas: "rate limit",
 		},
 		{
-			name:           "Too many requests",
-			content:        "Error 429: Too many requests. Retry after 60 seconds.",
-			wantDetected:   true,
-			wantMatchHas:   "Too many requests",
+			name:         "Too many requests",
+			content:      "Error 429: Too many requests. Retry after 60 seconds.",
+			wantDetected: true,
+			wantMatchHas: "Too many requests",
 		},
 		{
-			name:           "Google resource exhausted",
-			content:        "Error: RESOURCE_EXHAUSTED: Quota exceeded",
-			wantDetected:   true,
-			wantMatchHas:   "RESOURCE_EXHAUSTED",
+			name:         "Google resource exhausted",
+			content:      "Error: RESOURCE_EXHAUSTED: Quota exceeded",
+			wantDetected: true,
+			wantMatchHas: "RESOURCE_EXHAUSTED",
 		},
 		{
-			name:           "Reset time pattern AM",
-			content:        "Your limit resets 6am Pacific time",
-			wantDetected:   true,
-			wantMatchHas:   "resets 6am",
+			name:         "Reset time pattern AM",
+			content:      "Your limit resets 6am Pacific time",
+			wantDetected: true,
+			wantMatchHas: "resets 6am",
 		},
 		{
-			name:           "Reset time pattern PM",
-			content:        "Usage resets 10pm",
-			wantDetected:   true,
-			wantMatchHas:   "resets 10pm",
+			name:         "Reset time pattern PM",
+			content:      "Usage resets 10pm",
+			wantDetected: true,
+			wantMatchHas: "resets 10pm",
 		},
 		{
-			name:           "No rate limit - normal output",
-			content:        "Successfully completed the task.\nAll tests passed.",
-			wantDetected:   false,
-			wantMatchHas:   "",
+			name:         "No rate limit - normal output",
+			content:      "Successfully completed the task.\nAll tests passed.",
+			wantDetected: false,
+			wantMatchHas: "",
 		},
 		{
-			name:           "No rate limit - empty",
-			content:        "",
-			wantDetected:   false,
-			wantMatchHas:   "",
+			name:         "No rate limit - empty",
+			content:      "",
+			wantDetected: false,
+			wantMatchHas: "",
 		},
 		{
-			name:           "No rate limit - code discussing rate limits",
-			content:        "// TODO: implement rate limiting for the API",
-			wantDetected:   true, // This is a known false positive, but pattern matches
-			wantMatchHas:   "rate limit",
+			name:         "No rate limit - code discussing rate limits",
+			content:      "// TODO: implement rate limiting for the API",
+			wantDetected: true, // This is a known false positive, but pattern matches
+			wantMatchHas: "rate limit",
 		},
 		{
-			name:           "Multiline with rate limit buried",
-			content:        "Working on feature...\nCompiling...\nError: Rate limit reached\nRetrying...",
-			wantDetected:   true,
-			wantMatchHas:   "Rate limit",
+			name:         "Multiline with rate limit buried",
+			content:      "Working on feature...\nCompiling...\nError: Rate limit reached\nRetrying...",
+			wantDetected: true,
+			wantMatchHas: "Rate limit",
 		},
 	}
 

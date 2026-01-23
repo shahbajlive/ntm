@@ -286,11 +286,11 @@ func TestGetWarningLevel(t *testing.T) {
 		contextPct float64
 		expected   WarningLevel
 	}{
-		{50, ""},           // No warning
-		{39, LevelInfo},    // Below 40%
-		{24, LevelWarning}, // Below 25%
+		{50, ""},            // No warning
+		{39, LevelInfo},     // Below 40%
+		{24, LevelWarning},  // Below 25%
 		{14, LevelCritical}, // Below 15%
-		{5, LevelCritical}, // Well below all thresholds
+		{5, LevelCritical},  // Well below all thresholds
 	}
 
 	for _, tt := range tests {
@@ -448,11 +448,11 @@ func TestParseIntervalArg(t *testing.T) {
 		expected time.Duration
 		wantErr  bool
 	}{
-		{"", 30 * time.Second, false},       // Default
+		{"", 30 * time.Second, false}, // Default
 		{"30s", 30 * time.Second, false},
 		{"1m", time.Minute, false},
 		{"5m", 5 * time.Minute, false},
-		{"500ms", 0, true},                  // Too short
+		{"500ms", 0, true}, // Too short
 		{"invalid", 0, true},
 	}
 
@@ -481,12 +481,12 @@ func TestParseThresholdArg(t *testing.T) {
 		expected   float64
 		wantErr    bool
 	}{
-		{"", 25.0, 25.0, false},    // Use default
+		{"", 25.0, 25.0, false}, // Use default
 		{"30", 25.0, 30.0, false},
 		{"15.5", 25.0, 15.5, false},
-		{"-5", 25.0, 0, true},      // Below 0
-		{"150", 25.0, 0, true},     // Above 100
-		{"abc", 25.0, 0, true},     // Invalid
+		{"-5", 25.0, 0, true},  // Below 0
+		{"150", 25.0, 0, true}, // Above 100
+		{"abc", 25.0, 0, true}, // Invalid
 	}
 
 	for _, tt := range tests {

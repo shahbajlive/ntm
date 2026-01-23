@@ -8,11 +8,11 @@ import (
 
 func TestCalculateHealthScore(t *testing.T) {
 	tests := []struct {
-		name         string
-		localState   *PaneWorkStatus
+		name          string
+		localState    *PaneWorkStatus
 		providerUsage *caut.ProviderPayload
-		wantMin      int
-		wantMax      int
+		wantMin       int
+		wantMax       int
 	}{
 		{
 			name: "perfect health - working agent, no issues",

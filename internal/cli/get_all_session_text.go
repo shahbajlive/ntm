@@ -49,13 +49,13 @@ Examples:
 
 // paneStatus holds captured status for a single pane
 type paneStatus struct {
-	Index      int
-	Type       string // cc, cod, gmi, user
-	LastLine   string
-	State      string // WAITING, GENERATING, THINKING, ERROR, UNKNOWN
-	Errors     []string
-	RateLimit  bool
-	HasError   bool
+	Index     int
+	Type      string // cc, cod, gmi, user
+	LastLine  string
+	State     string // WAITING, GENERATING, THINKING, ERROR, UNKNOWN
+	Errors    []string
+	RateLimit bool
+	HasError  bool
 }
 
 // sessionStatus holds status for an entire session

@@ -81,11 +81,11 @@ const noOutputThreshold = 300 // 5 minutes
 func PrintHealth() error {
 	output := HealthOutput{
 		RobotResponse: NewRobotResponse(true),
-		CheckedAt:   time.Now().UTC(),
-		BvAvailable: bv.IsInstalled(),
-		BdAvailable: bv.IsBdInstalled(),
-		Sessions:    make(map[string]SessionHealthInfo),
-		Alerts:      []string{},
+		CheckedAt:     time.Now().UTC(),
+		BvAvailable:   bv.IsInstalled(),
+		BdAvailable:   bv.IsBdInstalled(),
+		Sessions:      make(map[string]SessionHealthInfo),
+		Alerts:        []string{},
 	}
 
 	// Get system health
@@ -753,10 +753,10 @@ type SessionHealthSummary struct {
 func PrintSessionHealth(session string) error {
 	output := SessionHealthOutput{
 		RobotResponse: NewRobotResponse(true),
-		Session:   session,
-		CheckedAt: time.Now().UTC(),
-		Agents:    []SessionAgentHealth{},
-		Summary:   SessionHealthSummary{},
+		Session:       session,
+		CheckedAt:     time.Now().UTC(),
+		Agents:        []SessionAgentHealth{},
+		Summary:       SessionHealthSummary{},
 	}
 
 	// Check if session exists

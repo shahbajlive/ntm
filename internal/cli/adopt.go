@@ -89,23 +89,23 @@ type AdoptOptions struct {
 
 // AdoptResult represents the result of an adopt operation
 type AdoptResult struct {
-	Success      bool                `json:"success"`
-	Session      string              `json:"session"`
-	AdoptedPanes []AdoptedPaneInfo   `json:"adopted_panes"`
-	TotalPanes   int                 `json:"total_panes"`
-	Agents       AdoptedAgentCounts  `json:"agents"`
-	DryRun       bool                `json:"dry_run"`
-	Error        string              `json:"error,omitempty"`
+	Success      bool               `json:"success"`
+	Session      string             `json:"session"`
+	AdoptedPanes []AdoptedPaneInfo  `json:"adopted_panes"`
+	TotalPanes   int                `json:"total_panes"`
+	Agents       AdoptedAgentCounts `json:"agents"`
+	DryRun       bool               `json:"dry_run"`
+	Error        string             `json:"error,omitempty"`
 }
 
 // AdoptedPaneInfo describes a pane that was adopted
 type AdoptedPaneInfo struct {
-	PaneID      string `json:"pane_id"`
-	PaneIndex   int    `json:"pane_index"`
-	AgentType   string `json:"agent_type"`
-	OldTitle    string `json:"old_title,omitempty"`
-	NewTitle    string `json:"new_title"`
-	NTMIndex    int    `json:"ntm_index"`
+	PaneID    string `json:"pane_id"`
+	PaneIndex int    `json:"pane_index"`
+	AgentType string `json:"agent_type"`
+	OldTitle  string `json:"old_title,omitempty"`
+	NewTitle  string `json:"new_title"`
+	NTMIndex  int    `json:"ntm_index"`
 }
 
 // AdoptedAgentCounts tracks agent counts by type

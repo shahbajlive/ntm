@@ -92,8 +92,8 @@ type RestartSequence struct {
 
 // PostStateInfo contains the verified state after restart.
 type PostStateInfo struct {
-	AgentRunning bool   `json:"agent_running"`
-	AgentType    string `json:"agent_type"`
+	AgentRunning bool    `json:"agent_running"`
+	AgentType    string  `json:"agent_type"`
 	Confidence   float64 `json:"confidence"`
 }
 
@@ -120,12 +120,12 @@ type RestartAction struct {
 
 // RestartSummary aggregates results across all panes.
 type RestartSummary struct {
-	Restarted     int                `json:"restarted"`
-	Skipped       int                `json:"skipped"`
-	Waiting       int                `json:"waiting"`
-	Failed        int                `json:"failed"`
-	WouldRestart  int                `json:"would_restart,omitempty"`
-	PanesByAction map[string][]int   `json:"panes_by_action"`
+	Restarted     int              `json:"restarted"`
+	Skipped       int              `json:"skipped"`
+	Waiting       int              `json:"waiting"`
+	Failed        int              `json:"failed"`
+	WouldRestart  int              `json:"would_restart,omitempty"`
+	PanesByAction map[string][]int `json:"panes_by_action"`
 }
 
 // SmartRestartOutput is the response for --robot-smart-restart.

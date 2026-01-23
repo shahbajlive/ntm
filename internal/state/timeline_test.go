@@ -577,10 +577,10 @@ func TestRecordEvent_StateTransitionDetails(t *testing.T) {
 
 	t.Run("with details and trigger", func(t *testing.T) {
 		event := tracker.RecordEvent(AgentEvent{
-			AgentID:   "cc_1",
-			State:     TimelineWorking,
-			Details:   map[string]string{"task": "code review", "file": "main.go"},
-			Trigger:   "user_command",
+			AgentID: "cc_1",
+			State:   TimelineWorking,
+			Details: map[string]string{"task": "code review", "file": "main.go"},
+			Trigger: "user_command",
 		})
 
 		if event.Details["task"] != "code review" {
@@ -811,9 +811,9 @@ func TestAddMarker(t *testing.T) {
 
 	t.Run("preserves custom ID", func(t *testing.T) {
 		marker := tracker.AddMarker(TimelineMarker{
-			ID:        "custom-id",
-			AgentID:   "cc_1",
-			Type:      MarkerCompletion,
+			ID:      "custom-id",
+			AgentID: "cc_1",
+			Type:    MarkerCompletion,
 		})
 
 		if marker.ID != "custom-id" {

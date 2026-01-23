@@ -32,9 +32,10 @@ type SwitchAccountOptions struct {
 
 // PrintSwitchAccount handles the --robot-switch-account command
 // Usage:
-//   ntm --robot-switch-account claude         # Switch to next Claude account
-//   ntm --robot-switch-account openai:acc123  # Switch to specific account
-//   ntm --robot-switch-account claude --pane agent-1  # Switch for specific pane
+//
+//	ntm --robot-switch-account claude         # Switch to next Claude account
+//	ntm --robot-switch-account openai:acc123  # Switch to specific account
+//	ntm --robot-switch-account claude --pane agent-1  # Switch for specific pane
 func PrintSwitchAccount(opts SwitchAccountOptions) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

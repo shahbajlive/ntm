@@ -675,10 +675,10 @@ func TestTimelinePanel_GetVisibleMarkers(t *testing.T) {
 	panel.timeWindow = 30 * time.Minute
 
 	markers := []state.TimelineMarker{
-		{ID: "m1", AgentID: "cc_1", Type: state.MarkerPrompt, Timestamp: now.Add(-60 * time.Minute)}, // Outside window
-		{ID: "m2", AgentID: "cc_1", Type: state.MarkerPrompt, Timestamp: now.Add(-20 * time.Minute)}, // Inside
+		{ID: "m1", AgentID: "cc_1", Type: state.MarkerPrompt, Timestamp: now.Add(-60 * time.Minute)},     // Outside window
+		{ID: "m2", AgentID: "cc_1", Type: state.MarkerPrompt, Timestamp: now.Add(-20 * time.Minute)},     // Inside
 		{ID: "m3", AgentID: "cc_1", Type: state.MarkerCompletion, Timestamp: now.Add(-10 * time.Minute)}, // Inside
-		{ID: "m4", AgentID: "cc_1", Type: state.MarkerPrompt, Timestamp: now.Add(10 * time.Minute)},  // Future, outside
+		{ID: "m4", AgentID: "cc_1", Type: state.MarkerPrompt, Timestamp: now.Add(10 * time.Minute)},      // Future, outside
 	}
 
 	panel.SetData(TimelineData{Markers: markers}, nil)
@@ -956,11 +956,11 @@ func TestTimelinePanel_GetMarkersForAgentInWindow(t *testing.T) {
 	now := time.Now()
 
 	markers := []state.TimelineMarker{
-		{ID: "m1", AgentID: "cc_1", Type: state.MarkerPrompt, Timestamp: now.Add(-40 * time.Minute)},  // Outside
-		{ID: "m2", AgentID: "cc_1", Type: state.MarkerPrompt, Timestamp: now.Add(-20 * time.Minute)},  // Inside
-		{ID: "m3", AgentID: "cc_2", Type: state.MarkerPrompt, Timestamp: now.Add(-15 * time.Minute)},  // Different agent
-		{ID: "m4", AgentID: "cc_1", Type: state.MarkerError, Timestamp: now.Add(-5 * time.Minute)},    // Inside
-		{ID: "m5", AgentID: "cc_1", Type: state.MarkerPrompt, Timestamp: now.Add(10 * time.Minute)},   // Future
+		{ID: "m1", AgentID: "cc_1", Type: state.MarkerPrompt, Timestamp: now.Add(-40 * time.Minute)}, // Outside
+		{ID: "m2", AgentID: "cc_1", Type: state.MarkerPrompt, Timestamp: now.Add(-20 * time.Minute)}, // Inside
+		{ID: "m3", AgentID: "cc_2", Type: state.MarkerPrompt, Timestamp: now.Add(-15 * time.Minute)}, // Different agent
+		{ID: "m4", AgentID: "cc_1", Type: state.MarkerError, Timestamp: now.Add(-5 * time.Minute)},   // Inside
+		{ID: "m5", AgentID: "cc_1", Type: state.MarkerPrompt, Timestamp: now.Add(10 * time.Minute)},  // Future
 	}
 
 	panel.SetData(TimelineData{Markers: markers}, nil)

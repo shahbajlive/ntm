@@ -379,10 +379,10 @@ func TestExportPNG_EmptyEvents(t *testing.T) {
 // TestParseHexColor parses valid hex colors
 func TestParseHexColor(t *testing.T) {
 	tests := []struct {
-		input   string
-		wantR   uint8
-		wantG   uint8
-		wantB   uint8
+		input string
+		wantR uint8
+		wantG uint8
+		wantB uint8
 	}{
 		{"#ffffff", 255, 255, 255},
 		{"#000000", 0, 0, 0},

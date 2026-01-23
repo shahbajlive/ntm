@@ -189,9 +189,9 @@ type BeadHistoryEntry struct {
 	AgentType    string     `json:"agent_type,omitempty"` // cc, cod, gmi
 	AgentName    string     `json:"agent_name,omitempty"` // Agent Mail name
 	Pane         int        `json:"pane,omitempty"`
-	Trigger      string     `json:"trigger,omitempty"`      // What caused the transition
-	Reason       string     `json:"reason,omitempty"`       // Additional context
-	PromptSent   string     `json:"prompt_sent,omitempty"`  // Prompt at time of assignment
+	Trigger      string     `json:"trigger,omitempty"`     // What caused the transition
+	Reason       string     `json:"reason,omitempty"`      // Additional context
+	PromptSent   string     `json:"prompt_sent,omitempty"` // Prompt at time of assignment
 	RetryCount   int        `json:"retry_count,omitempty"`
 	TransitionAt time.Time  `json:"transition_at"`
 }

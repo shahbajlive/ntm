@@ -24,8 +24,8 @@ type HooksSection struct {
 
 // HookEntry represents a single hook configuration.
 type HookEntry struct {
-	Matcher string `json:"matcher"`          // Tool name to match (e.g., "Bash")
-	Command string `json:"command"`          // Command to run
+	Matcher string `json:"matcher"`           // Tool name to match (e.g., "Bash")
+	Command string `json:"command"`           // Command to run
 	Timeout int    `json:"timeout,omitempty"` // Optional timeout in ms
 }
 

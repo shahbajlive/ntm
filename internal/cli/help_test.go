@@ -87,10 +87,10 @@ func TestPrintMinimalHelp(t *testing.T) {
 		"Create session and launch agents",         // spawn description
 		"Send prompt to agents",                    // send description
 		"Show detailed session status",             // status description
-		"Kill a session",                          // kill description
-		"Show help information",                   // help description
-		"QUICK START",                             // Quick start section
-		"For all commands: ntm --full",            // Instructions for full help
+		"Kill a session",                           // kill description
+		"Show help information",                    // help description
+		"QUICK START",                              // Quick start section
+		"For all commands: ntm --full",             // Instructions for full help
 	}
 
 	for _, exp := range expected {
@@ -101,8 +101,8 @@ func TestPrintMinimalHelp(t *testing.T) {
 
 	// Verify that non-essential commands are NOT present
 	shouldNotContain := []string{
-		"SESSION CREATION",  // This is from full help
-		"AGENT MANAGEMENT",  // This is from full help
+		"SESSION CREATION", // This is from full help
+		"AGENT MANAGEMENT", // This is from full help
 		"create",           // Non-essential command
 		"quick",            // Non-essential command
 		"add",              // Non-essential command

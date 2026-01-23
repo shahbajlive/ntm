@@ -550,7 +550,7 @@ func TestStorageDir(t *testing.T) {
 	// Test with HOME set
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
-	
+
 	dir := StorageDir()
 	// New behavior: ~/.ntm/sessions
 	expected := filepath.Join(tmpDir, ".ntm", "sessions")

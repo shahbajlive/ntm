@@ -351,7 +351,7 @@ func TestSpawnOptions_MultipleAgentTypes(t *testing.T) {
 		CCCount:    1,
 		CodCount:   1,
 		GmiCount:   1,
-		NoUserPane: false,      // Include user pane
+		NoUserPane: false,       // Include user pane
 		WorkingDir: t.TempDir(), // Use temp dir to avoid creating dirs in /data/projects
 	}
 
@@ -827,7 +827,7 @@ func TestNormalizeAssignStrategy(t *testing.T) {
 		{"dependency", "dependency-aware"},
 		{"skill-matched", "skill-matched"},
 		{"skill", "skill-matched"},
-		{"", "top-n"},           // Default
+		{"", "top-n"},          // Default
 		{"invalid", "top-n"},   // Invalid falls back to default
 		{"  top-n  ", "top-n"}, // Whitespace trimmed
 	}
@@ -1055,9 +1055,9 @@ func TestSpawnOutput_RecoveryField(t *testing.T) {
 	t.Parallel()
 
 	output := SpawnOutput{
-		Session:   "test-session",
+		Session:    "test-session",
 		WorkingDir: "/tmp/test",
-		Layout:    "tiled",
+		Layout:     "tiled",
 		Recovery: &SpawnRecovery{
 			HandoffPath: "/tmp/handoff.yaml",
 			HandoffAge:  "10m ago",
@@ -1103,10 +1103,10 @@ func TestSpawnOutput_RecoveryOmittedWhenNil(t *testing.T) {
 	t.Parallel()
 
 	output := SpawnOutput{
-		Session:   "test-session",
+		Session:    "test-session",
 		WorkingDir: "/tmp/test",
-		Layout:    "tiled",
-		Recovery:  nil, // No recovery context
+		Layout:     "tiled",
+		Recovery:   nil, // No recovery context
 	}
 
 	data, err := json.Marshal(output)

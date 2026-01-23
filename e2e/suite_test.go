@@ -225,24 +225,24 @@ func (s *TestSuite) CaptureOutput(pane int, lines int) (string, error) {
 
 // IsWorkingResult represents the parsed response from --robot-is-working.
 type IsWorkingResult struct {
-	Success bool                       `json:"success"`
-	Session string                     `json:"session"`
-	Panes   map[string]PaneWorkStatus  `json:"panes"`
-	Summary IsWorkingSummary           `json:"summary"`
-	Error   string                     `json:"error,omitempty"`
+	Success bool                      `json:"success"`
+	Session string                    `json:"session"`
+	Panes   map[string]PaneWorkStatus `json:"panes"`
+	Summary IsWorkingSummary          `json:"summary"`
+	Error   string                    `json:"error,omitempty"`
 }
 
 // PaneWorkStatus represents the work state for a single pane.
 type PaneWorkStatus struct {
-	AgentType            string         `json:"agent_type"`
-	IsWorking            bool           `json:"is_working"`
-	IsIdle               bool           `json:"is_idle"`
-	IsRateLimited        bool           `json:"is_rate_limited"`
-	IsContextLow         bool           `json:"is_context_low"`
-	ContextRemaining     *float64       `json:"context_remaining,omitempty"`
-	Confidence           float64        `json:"confidence"`
-	Recommendation       string         `json:"recommendation"`
-	RecommendationReason string         `json:"recommendation_reason"`
+	AgentType            string   `json:"agent_type"`
+	IsWorking            bool     `json:"is_working"`
+	IsIdle               bool     `json:"is_idle"`
+	IsRateLimited        bool     `json:"is_rate_limited"`
+	IsContextLow         bool     `json:"is_context_low"`
+	ContextRemaining     *float64 `json:"context_remaining,omitempty"`
+	Confidence           float64  `json:"confidence"`
+	Recommendation       string   `json:"recommendation"`
+	RecommendationReason string   `json:"recommendation_reason"`
 }
 
 // IsWorkingSummary provides aggregate statistics.
@@ -288,13 +288,13 @@ func (s *TestSuite) CallIsWorking(panes []int) (*IsWorkingResult, error) {
 
 // SmartRestartResult represents the parsed response from --robot-smart-restart.
 type SmartRestartResult struct {
-	Success   bool                      `json:"success"`
-	Session   string                    `json:"session"`
-	DryRun    bool                      `json:"dry_run"`
-	Force     bool                      `json:"force"`
-	Actions   map[string]RestartAction  `json:"actions"`
-	Summary   RestartSummary            `json:"summary"`
-	Error     string                    `json:"error,omitempty"`
+	Success bool                     `json:"success"`
+	Session string                   `json:"session"`
+	DryRun  bool                     `json:"dry_run"`
+	Force   bool                     `json:"force"`
+	Actions map[string]RestartAction `json:"actions"`
+	Summary RestartSummary           `json:"summary"`
+	Error   string                   `json:"error,omitempty"`
 }
 
 // RestartAction documents the action taken for a single pane.
@@ -307,11 +307,11 @@ type RestartAction struct {
 
 // RestartSummary aggregates results across all panes.
 type RestartSummary struct {
-	Restarted    int              `json:"restarted"`
-	Skipped      int              `json:"skipped"`
-	Waiting      int              `json:"waiting"`
-	Failed       int              `json:"failed"`
-	WouldRestart int              `json:"would_restart,omitempty"`
+	Restarted     int              `json:"restarted"`
+	Skipped       int              `json:"skipped"`
+	Waiting       int              `json:"waiting"`
+	Failed        int              `json:"failed"`
+	WouldRestart  int              `json:"would_restart,omitempty"`
 	PanesByAction map[string][]int `json:"panes_by_action"`
 }
 
@@ -353,12 +353,12 @@ func (s *TestSuite) CallSmartRestart(panes []int, force bool, dryRun bool) (*Sma
 
 // AgentHealthResult represents the parsed response from --robot-agent-health.
 type AgentHealthResult struct {
-	Success         bool                       `json:"success"`
-	Session         string                     `json:"session"`
-	CautAvailable   bool                       `json:"caut_available"`
-	Panes           map[string]PaneHealthStatus `json:"panes"`
-	FleetHealth     FleetHealthSummary         `json:"fleet_health"`
-	Error           string                     `json:"error,omitempty"`
+	Success       bool                        `json:"success"`
+	Session       string                      `json:"session"`
+	CautAvailable bool                        `json:"caut_available"`
+	Panes         map[string]PaneHealthStatus `json:"panes"`
+	FleetHealth   FleetHealthSummary          `json:"fleet_health"`
+	Error         string                      `json:"error,omitempty"`
 }
 
 // PaneHealthStatus contains health info for a single pane.

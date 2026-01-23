@@ -137,7 +137,7 @@ func (a *CautAdapter) Info(ctx context.Context) (*ToolInfo, error) {
 type CautAvailability struct {
 	Available   bool      `json:"available"`
 	Compatible  bool      `json:"compatible"`
-	HasData     bool      `json:"has_data"`     // Has been initialized with usage data
+	HasData     bool      `json:"has_data"` // Has been initialized with usage data
 	Version     Version   `json:"version,omitempty"`
 	Path        string    `json:"path,omitempty"`
 	Providers   []string  `json:"providers,omitempty"` // Configured providers
@@ -155,14 +155,14 @@ type CautProvider struct {
 
 // CautStatus represents the current caut status
 type CautStatus struct {
-	Running      bool           `json:"running"`
-	Tracking     bool           `json:"tracking"`
-	ProviderCount int           `json:"provider_count"`
-	Providers    []CautProvider `json:"providers,omitempty"`
-	TotalSpend   float64        `json:"total_spend,omitempty"`   // Total spend in USD
-	QuotaPercent float64        `json:"quota_percent,omitempty"` // Overall quota usage 0-100
-	LastUpdated  string         `json:"last_updated,omitempty"`  // ISO timestamp
-	Error        string         `json:"error,omitempty"`
+	Running       bool           `json:"running"`
+	Tracking      bool           `json:"tracking"`
+	ProviderCount int            `json:"provider_count"`
+	Providers     []CautProvider `json:"providers,omitempty"`
+	TotalSpend    float64        `json:"total_spend,omitempty"`   // Total spend in USD
+	QuotaPercent  float64        `json:"quota_percent,omitempty"` // Overall quota usage 0-100
+	LastUpdated   string         `json:"last_updated,omitempty"`  // ISO timestamp
+	Error         string         `json:"error,omitempty"`
 }
 
 // CautUsage represents usage data for a specific time period

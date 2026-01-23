@@ -10,27 +10,27 @@ import (
 // DefaultPredictorConfig returns the default configuration for ContextPredictor.
 func DefaultPredictorConfig() PredictorConfig {
 	return PredictorConfig{
-		Window:          5 * time.Minute,  // Velocity averaging window
-		PollInterval:    30 * time.Second, // How often to sample
-		MaxSamples:      64,               // Ring buffer size
-		WarnMinutes:     15.0,             // Warn when < 15 min to exhaustion
-		WarnUsage:       0.70,             // Warn when > 70% usage
-		CompactMinutes:  8.0,              // Compact when < 8 min to exhaustion
-		CompactUsage:    0.75,             // Compact when > 75% usage
-		MinSamples:      3,                // Minimum samples for valid prediction
+		Window:         5 * time.Minute,  // Velocity averaging window
+		PollInterval:   30 * time.Second, // How often to sample
+		MaxSamples:     64,               // Ring buffer size
+		WarnMinutes:    15.0,             // Warn when < 15 min to exhaustion
+		WarnUsage:      0.70,             // Warn when > 70% usage
+		CompactMinutes: 8.0,              // Compact when < 8 min to exhaustion
+		CompactUsage:   0.75,             // Compact when > 75% usage
+		MinSamples:     3,                // Minimum samples for valid prediction
 	}
 }
 
 // PredictorConfig configures the ContextPredictor.
 type PredictorConfig struct {
-	Window          time.Duration // Velocity averaging window
-	PollInterval    time.Duration // Polling interval
-	MaxSamples      int           // Maximum samples to retain
-	WarnMinutes     float64       // Minutes threshold for warning
-	WarnUsage       float64       // Usage threshold for warning
-	CompactMinutes  float64       // Minutes threshold for compaction
-	CompactUsage    float64       // Usage threshold for compaction
-	MinSamples      int           // Minimum samples for valid prediction
+	Window         time.Duration // Velocity averaging window
+	PollInterval   time.Duration // Polling interval
+	MaxSamples     int           // Maximum samples to retain
+	WarnMinutes    float64       // Minutes threshold for warning
+	WarnUsage      float64       // Usage threshold for warning
+	CompactMinutes float64       // Minutes threshold for compaction
+	CompactUsage   float64       // Usage threshold for compaction
+	MinSamples     int           // Minimum samples for valid prediction
 }
 
 // TokenSample represents a single token count sample at a point in time.
@@ -54,11 +54,11 @@ type Prediction struct {
 
 // ContextPredictor tracks token velocity and predicts context exhaustion.
 type ContextPredictor struct {
-	mu           sync.RWMutex
-	samples      []TokenSample // Ring buffer of samples
-	head         int           // Next write position
-	count        int           // Number of valid samples
-	config       PredictorConfig
+	mu      sync.RWMutex
+	samples []TokenSample // Ring buffer of samples
+	head    int           // Next write position
+	count   int           // Number of valid samples
+	config  PredictorConfig
 }
 
 // NewContextPredictor creates a new predictor with the given configuration.

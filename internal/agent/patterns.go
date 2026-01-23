@@ -39,34 +39,34 @@ var (
 	// ccWorkingPatterns indicates the agent is actively producing output.
 	// CRITICAL: When these patterns match, DO NOT INTERRUPT the agent.
 	ccWorkingPatterns = []string{
-		"```",          // Code block delimiter (most reliable indicator)
-		"writing to ",  // File write operation
-		"created ",     // File creation
-		"modified ",    // File modification
-		"deleted ",     // File deletion
-		"reading ",     // File read operation
-		"searching ",   // Search in progress
-		"running ",     // Command execution
-		"executing ",   // Command execution
-		"installing ",  // Package installation
-		"thinking",     // Processing indicator
-		"processing",   // Processing indicator
-		"analyzing",    // Analysis in progress
-		"compiling",    // Compilation
-		"building",     // Build process
-		"testing",      // Test execution
-		"fetching",     // Network operation
-		"downloading",  // Download operation
-		"uploading",    // Upload operation
+		"```",         // Code block delimiter (most reliable indicator)
+		"writing to ", // File write operation
+		"created ",    // File creation
+		"modified ",   // File modification
+		"deleted ",    // File deletion
+		"reading ",    // File read operation
+		"searching ",  // Search in progress
+		"running ",    // Command execution
+		"executing ",  // Command execution
+		"installing ", // Package installation
+		"thinking",    // Processing indicator
+		"processing",  // Processing indicator
+		"analyzing",   // Analysis in progress
+		"compiling",   // Compilation
+		"building",    // Build process
+		"testing",     // Test execution
+		"fetching",    // Network operation
+		"downloading", // Download operation
+		"uploading",   // Upload operation
 	}
 
 	// ccIdlePatterns indicates the agent is waiting for user input.
 	// When these match at the end of output, it's safe to restart or send new work.
 	ccIdlePatterns = []*regexp.Regexp{
-		regexp.MustCompile(`>\s*$`),            // Prompt waiting for input
-		regexp.MustCompile(`Human:\s*$`),       // Conversation mode prompt
+		regexp.MustCompile(`>\s*$`),      // Prompt waiting for input
+		regexp.MustCompile(`Human:\s*$`), // Conversation mode prompt
 		regexp.MustCompile(`waiting for input`),
-		regexp.MustCompile(`\?\s*$`),           // Question prompt
+		regexp.MustCompile(`\?\s*$`), // Question prompt
 	}
 
 	// ccErrorPatterns indicates an error condition.
@@ -112,16 +112,16 @@ var (
 
 	// codWorkingPatterns indicates active output production.
 	codWorkingPatterns = []string{
-		"```",        // Code block
-		"editing ",   // File edit
-		"creating ",  // File creation
-		"writing ",   // File write
-		"reading ",   // File read
-		"running ",   // Command execution
-		"$ ",         // Shell command output indicator
-		"applying ",  // Applying changes
-		"patching ",  // Patch application
-		"deleting ",  // File deletion
+		"```",       // Code block
+		"editing ",  // File edit
+		"creating ", // File creation
+		"writing ",  // File write
+		"reading ",  // File read
+		"running ",  // Command execution
+		"$ ",        // Shell command output indicator
+		"applying ", // Applying changes
+		"patching ", // Patch application
+		"deleting ", // File deletion
 	}
 
 	// codIdlePatterns indicates waiting for input.
@@ -290,7 +290,7 @@ type PatternSet struct {
 	WorkingPatterns   []string
 	IdlePatterns      []*regexp.Regexp
 	ErrorPatterns     []string
-	ContextWarnings   []string // Only used by Claude Code
+	ContextWarnings   []string       // Only used by Claude Code
 	ContextPattern    *regexp.Regexp // Explicit context extraction (Codex)
 	TokenPattern      *regexp.Regexp // Token usage extraction
 	MemoryPattern     *regexp.Regexp // Memory usage (Gemini)

@@ -86,14 +86,14 @@ func parseJFPVersion(output string) (Version, error) {
 // Capabilities returns the list of jfp capabilities
 func (a *JFPAdapter) Capabilities(ctx context.Context) ([]Capability, error) {
 	caps := []Capability{
-		CapRobotMode,  // jfp supports --json output
-		CapSearch,     // jfp search <query>
-		"list",        // jfp list
-		"show",        // jfp show <id>
-		"install",     // jfp install [...ids]
-		"export",      // jfp export [...ids]
-		"suggest",     // jfp suggest <task>
-		"mcp_server",  // jfp serve (MCP server mode)
+		CapRobotMode, // jfp supports --json output
+		CapSearch,    // jfp search <query>
+		"list",       // jfp list
+		"show",       // jfp show <id>
+		"install",    // jfp install [...ids]
+		"export",     // jfp export [...ids]
+		"suggest",    // jfp suggest <task>
+		"mcp_server", // jfp serve (MCP server mode)
 	}
 
 	return caps, nil

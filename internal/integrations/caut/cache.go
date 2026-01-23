@@ -175,13 +175,13 @@ func (c *UsageCache) IsStale(maxAge time.Duration) bool {
 
 // CacheSnapshot represents a point-in-time snapshot of the cache.
 type CacheSnapshot struct {
-	Status       *tools.CautStatus  `json:"status,omitempty"`
-	Usage        []tools.CautUsage  `json:"usage,omitempty"`
-	LastUpdated  time.Time          `json:"last_updated"`
-	UpdateCount  int64              `json:"update_count"`
-	HasError     bool               `json:"has_error"`
-	ErrorMessage string             `json:"error_message,omitempty"`
-	ErrorTime    *time.Time         `json:"error_time,omitempty"`
+	Status       *tools.CautStatus `json:"status,omitempty"`
+	Usage        []tools.CautUsage `json:"usage,omitempty"`
+	LastUpdated  time.Time         `json:"last_updated"`
+	UpdateCount  int64             `json:"update_count"`
+	HasError     bool              `json:"has_error"`
+	ErrorMessage string            `json:"error_message,omitempty"`
+	ErrorTime    *time.Time        `json:"error_time,omitempty"`
 }
 
 // Snapshot returns a complete snapshot of the cache state.

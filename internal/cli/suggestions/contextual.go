@@ -6,14 +6,14 @@ import (
 
 // State captures the current NTM system state for suggestion logic.
 type State struct {
-	SessionCount    int
-	ActiveSessions  []string
-	BusyAgents      int
-	IdleAgents      int
-	HasBeads        bool
-	RecentError     bool
-	LastCommand     string
-	CurrentSession  string
+	SessionCount   int
+	ActiveSessions []string
+	BusyAgents     int
+	IdleAgents     int
+	HasBeads       bool
+	RecentError    bool
+	LastCommand    string
+	CurrentSession string
 }
 
 // Suggestion represents a recommended next action.

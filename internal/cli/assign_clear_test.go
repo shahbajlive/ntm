@@ -71,12 +71,12 @@ func TestClearAssignmentResultNotFound(t *testing.T) {
 // TestClearAssignmentResultJSON tests JSON marshaling
 func TestClearAssignmentResultJSON(t *testing.T) {
 	result := ClearAssignmentResult{
-		BeadID:           "bd-json",
-		PreviousPane:     2,
-		PreviousAgent:    "BlueLake",
-		AssignmentFound:  true,
-		Success:          true,
-		FilesReleased:    []string{"a.go", "b.go"},
+		BeadID:          "bd-json",
+		PreviousPane:    2,
+		PreviousAgent:   "BlueLake",
+		AssignmentFound: true,
+		Success:         true,
+		FilesReleased:   []string{"a.go", "b.go"},
 	}
 
 	data, err := json.Marshal(result)

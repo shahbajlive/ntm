@@ -11,12 +11,12 @@ import (
 // TestDecideRestart tests the decision matrix for restart actions.
 func TestDecideRestart(t *testing.T) {
 	tests := []struct {
-		name           string
-		status         PaneWorkStatus
-		force          bool
-		wantRestart    bool
+		name               string
+		status             PaneWorkStatus
+		force              bool
+		wantRestart        bool
 		wantReasonContains string
-		wantWarning    bool
+		wantWarning        bool
 	}{
 		// Working agent scenarios
 		{
@@ -25,8 +25,8 @@ func TestDecideRestart(t *testing.T) {
 				IsWorking:      true,
 				Recommendation: "DO_NOT_INTERRUPT",
 			},
-			force:       false,
-			wantRestart: false,
+			force:              false,
+			wantRestart:        false,
 			wantReasonContains: "actively working",
 		},
 		{
@@ -35,10 +35,10 @@ func TestDecideRestart(t *testing.T) {
 				IsWorking:      true,
 				Recommendation: "DO_NOT_INTERRUPT",
 			},
-			force:       true,
-			wantRestart: true,
+			force:              true,
+			wantRestart:        true,
 			wantReasonContains: "FORCED",
-			wantWarning: true,
+			wantWarning:        true,
 		},
 
 		// Idle agent scenarios
@@ -49,8 +49,8 @@ func TestDecideRestart(t *testing.T) {
 				IsWorking:      false,
 				Recommendation: "SAFE_TO_RESTART",
 			},
-			force:       false,
-			wantRestart: true,
+			force:              false,
+			wantRestart:        true,
 			wantReasonContains: "idle",
 		},
 
@@ -62,8 +62,8 @@ func TestDecideRestart(t *testing.T) {
 				IsContextLow:   true,
 				Recommendation: "CONTEXT_LOW_CONTINUE",
 			},
-			force:       false,
-			wantRestart: false,
+			force:              false,
+			wantRestart:        false,
 			wantReasonContains: "working", // IsWorking check comes first
 		},
 		{
@@ -75,8 +75,8 @@ func TestDecideRestart(t *testing.T) {
 				ContextRemaining: float64Ptr(12.0),
 				Recommendation:   "CONTEXT_LOW_CONTINUE",
 			},
-			force:       false,
-			wantRestart: true,
+			force:              false,
+			wantRestart:        true,
 			wantReasonContains: "low context",
 		},
 
@@ -87,8 +87,8 @@ func TestDecideRestart(t *testing.T) {
 				IsRateLimited:  true,
 				Recommendation: "RATE_LIMITED_WAIT",
 			},
-			force:       false,
-			wantRestart: false,
+			force:              false,
+			wantRestart:        false,
 			wantReasonContains: "Rate limited",
 		},
 		{
@@ -97,10 +97,10 @@ func TestDecideRestart(t *testing.T) {
 				IsRateLimited:  true,
 				Recommendation: "RATE_LIMITED_WAIT",
 			},
-			force:       true,
-			wantRestart: true,
+			force:              true,
+			wantRestart:        true,
 			wantReasonContains: "FORCED",
-			wantWarning: true,
+			wantWarning:        true,
 		},
 
 		// Error state scenarios
@@ -109,8 +109,8 @@ func TestDecideRestart(t *testing.T) {
 			status: PaneWorkStatus{
 				Recommendation: "ERROR_STATE",
 			},
-			force:       false,
-			wantRestart: true,
+			force:              false,
+			wantRestart:        true,
 			wantReasonContains: "error state",
 		},
 
@@ -120,8 +120,8 @@ func TestDecideRestart(t *testing.T) {
 			status: PaneWorkStatus{
 				Recommendation: "UNKNOWN",
 			},
-			force:       false,
-			wantRestart: false,
+			force:              false,
+			wantRestart:        false,
 			wantReasonContains: "manual inspection",
 		},
 		{
@@ -129,10 +129,10 @@ func TestDecideRestart(t *testing.T) {
 			status: PaneWorkStatus{
 				Recommendation: "UNKNOWN",
 			},
-			force:       true,
-			wantRestart: true,
+			force:              true,
+			wantRestart:        true,
 			wantReasonContains: "FORCED",
-			wantWarning: true,
+			wantWarning:        true,
 		},
 	}
 
@@ -393,7 +393,7 @@ func TestFormatReasonWithPercent(t *testing.T) {
 		want   string
 	}{
 		{"Idle with low context (%.0f%%)", 12.0, "Idle with low context (12%)"},
-		{"Usage at %.0f%%", 85.5, "Usage at 86%"},  // Rounds up
+		{"Usage at %.0f%%", 85.5, "Usage at 86%"}, // Rounds up
 		{"%.0f%% remaining", 0.0, "0% remaining"},
 		{"No format", 50.0, "No format"},
 	}

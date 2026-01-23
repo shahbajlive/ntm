@@ -16,13 +16,13 @@ type QuotaStatusOutput struct {
 
 // QuotaInfo contains quota and usage information from caut
 type QuotaInfo struct {
-	LastUpdated    string                    `json:"last_updated"`
-	CautAvailable  bool                      `json:"caut_available"`
-	Providers      map[string]ProviderQuota  `json:"providers"`
-	TotalCostToday float64                   `json:"total_cost_today_usd"`
-	TotalCostMonth float64                   `json:"total_cost_month_usd,omitempty"`
-	HasWarning     bool                      `json:"has_warning"`
-	HasCritical    bool                      `json:"has_critical"`
+	LastUpdated    string                   `json:"last_updated"`
+	CautAvailable  bool                     `json:"caut_available"`
+	Providers      map[string]ProviderQuota `json:"providers"`
+	TotalCostToday float64                  `json:"total_cost_today_usd"`
+	TotalCostMonth float64                  `json:"total_cost_month_usd,omitempty"`
+	HasWarning     bool                     `json:"has_warning"`
+	HasCritical    bool                     `json:"has_critical"`
 }
 
 // ProviderQuota contains quota information for a single provider

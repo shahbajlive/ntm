@@ -85,13 +85,13 @@ func TestAnalyzeOutputClaudePatterns(t *testing.T) {
 			wantNext: "refactor the error handling",
 		},
 		{
-			name:     "Error blocker",
-			input:    "Error: connection refused to database",
+			name:         "Error blocker",
+			input:        "Error: connection refused to database",
 			wantBlockers: 1,
 		},
 		{
-			name:     "Multiple blockers",
-			input:    "Error: first issue\nFailed: second issue\nBlocked by: third issue",
+			name:         "Multiple blockers",
+			input:        "Error: first issue\nFailed: second issue\nBlocked by: third issue",
 			wantBlockers: 3,
 		},
 	}
@@ -852,28 +852,28 @@ func TestGenerateHandoffStatusInference(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name       string
-		output     []byte
-		goal       string
-		wantStatus string
+		name        string
+		output      []byte
+		goal        string
+		wantStatus  string
 		wantOutcome string
 	}{
 		{
-			name:       "complete with goal",
-			goal:       "Completed task",
-			wantStatus: StatusComplete,
+			name:        "complete with goal",
+			goal:        "Completed task",
+			wantStatus:  StatusComplete,
 			wantOutcome: OutcomeSucceeded,
 		},
 		{
-			name:       "blocked with errors",
-			output:     []byte("Error: something failed\nFailed: another thing"),
-			wantStatus: StatusBlocked,
+			name:        "blocked with errors",
+			output:      []byte("Error: something failed\nFailed: another thing"),
+			wantStatus:  StatusBlocked,
 			wantOutcome: OutcomePartialMinus,
 		},
 		{
-			name:       "partial without goal",
-			output:     []byte("Did some work but no completion marker"),
-			wantStatus: StatusPartial,
+			name:        "partial without goal",
+			output:      []byte("Did some work but no completion marker"),
+			wantStatus:  StatusPartial,
 			wantOutcome: OutcomePartialPlus,
 		},
 	}

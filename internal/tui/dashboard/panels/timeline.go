@@ -50,7 +50,7 @@ type TimelinePanel struct {
 	selectedTime time.Time     // Time position for details
 
 	// Marker navigation
-	markerIndex    int                  // Currently selected marker index (-1 = none)
+	markerIndex    int                   // Currently selected marker index (-1 = none)
 	selectedMarker *state.TimelineMarker // Currently selected marker for overlay
 	showOverlay    bool                  // Whether to show marker details overlay
 }
@@ -276,8 +276,8 @@ func (m *TimelinePanel) View() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderColor).
 		Background(bgColor).
-		Width(w - 2).
-		Height(h - 2).
+		Width(w-2).
+		Height(h-2).
 		Padding(0, 1)
 
 	var content strings.Builder

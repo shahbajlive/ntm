@@ -716,8 +716,8 @@ func TestGetCredentialEnvVar(t *testing.T) {
 
 func TestGetCredentialPath(t *testing.T) {
 	tests := []struct {
-		provider    string
-		wantSuffix  string
+		provider   string
+		wantSuffix string
 	}{
 		{"claude", ".config/caam/current/claude.json"},
 		{"openai", ".config/caam/current/openai.json"},

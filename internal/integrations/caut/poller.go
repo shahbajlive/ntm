@@ -217,10 +217,10 @@ func (p *UsagePoller) checkAlerts(status *tools.CautStatus) {
 			Source:   "caut-poller",
 			Message:  fmt.Sprintf("API quota critical: %.1f%% used (threshold: %.1f%%)", status.QuotaPercent, criticalThreshold),
 			Context: map[string]interface{}{
-				"quota_percent":   status.QuotaPercent,
-				"threshold":       criticalThreshold,
-				"total_spend":     status.TotalSpend,
-				"provider_count":  status.ProviderCount,
+				"quota_percent":  status.QuotaPercent,
+				"threshold":      criticalThreshold,
+				"total_spend":    status.TotalSpend,
+				"provider_count": status.ProviderCount,
 			},
 		}
 		p.alerter.AddAlert(alert)
@@ -233,10 +233,10 @@ func (p *UsagePoller) checkAlerts(status *tools.CautStatus) {
 			Source:   "caut-poller",
 			Message:  fmt.Sprintf("API quota warning: %.1f%% used (threshold: %.1f%%)", status.QuotaPercent, threshold),
 			Context: map[string]interface{}{
-				"quota_percent":   status.QuotaPercent,
-				"threshold":       threshold,
-				"total_spend":     status.TotalSpend,
-				"provider_count":  status.ProviderCount,
+				"quota_percent":  status.QuotaPercent,
+				"threshold":      threshold,
+				"total_spend":    status.TotalSpend,
+				"provider_count": status.ProviderCount,
 			},
 		}
 		p.alerter.AddAlert(alert)

@@ -102,10 +102,10 @@ func (m *ScoreMetrics) ComputeOverall() float64 {
 type Trend string
 
 const (
-	TrendImproving  Trend = "improving"
-	TrendDeclining  Trend = "declining"
-	TrendStable     Trend = "stable"
-	TrendUnknown    Trend = "unknown"
+	TrendImproving Trend = "improving"
+	TrendDeclining Trend = "declining"
+	TrendStable    Trend = "stable"
+	TrendUnknown   Trend = "unknown"
 )
 
 // TrendAnalysis provides statistical trend information.

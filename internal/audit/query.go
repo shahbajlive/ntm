@@ -42,11 +42,11 @@ type Query struct {
 
 // QueryResult contains search results with metadata
 type QueryResult struct {
-	Entries    []AuditEntry `json:"entries"`
-	TotalCount int          `json:"total_count"`
-	Scanned    int          `json:"scanned"`
+	Entries    []AuditEntry  `json:"entries"`
+	TotalCount int           `json:"total_count"`
+	Scanned    int           `json:"scanned"`
 	Duration   time.Duration `json:"duration"`
-	Truncated  bool         `json:"truncated"`
+	Truncated  bool          `json:"truncated"`
 }
 
 // StreamResult wraps an entry or error for streaming

@@ -62,10 +62,10 @@ type LocalStateInfo struct {
 
 // ProviderUsageInfo contains the caut provider usage data.
 type ProviderUsageInfo struct {
-	Provider      string             `json:"provider"`
-	Account       string             `json:"account,omitempty"`
-	Source        string             `json:"source,omitempty"`
-	PrimaryWindow *RateWindowInfo    `json:"primary_window,omitempty"`
+	Provider      string              `json:"provider"`
+	Account       string              `json:"account,omitempty"`
+	Source        string              `json:"source,omitempty"`
+	PrimaryWindow *RateWindowInfo     `json:"primary_window,omitempty"`
 	Status        *ProviderStatusInfo `json:"status,omitempty"`
 }
 
@@ -85,10 +85,10 @@ type ProviderStatusInfo struct {
 
 // PTHealthSignals contains process_triage signals for an agent.
 type PTHealthSignals struct {
-	CPUPercent    *float64 `json:"cpu_percent,omitempty"`    // CPU usage percentage (if available)
-	IOActive      bool     `json:"io_active"`                // Whether IO is active
-	NetworkActive bool     `json:"network_active"`           // Whether network is active (from rano)
-	OutputRecent  bool     `json:"output_recent"`            // Whether there was recent output
+	CPUPercent    *float64 `json:"cpu_percent,omitempty"` // CPU usage percentage (if available)
+	IOActive      bool     `json:"io_active"`             // Whether IO is active
+	NetworkActive bool     `json:"network_active"`        // Whether network is active (from rano)
+	OutputRecent  bool     `json:"output_recent"`         // Whether there was recent output
 }
 
 // PTHealthInfo contains process_triage classification data for a pane.
@@ -501,4 +501,3 @@ func updatePTSummary(summary *PTHealthSummary, classification pt.Classification)
 		summary.Unknown++
 	}
 }
-

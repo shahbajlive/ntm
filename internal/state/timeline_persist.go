@@ -19,27 +19,27 @@ import (
 
 // TimelineInfo contains metadata about a persisted timeline.
 type TimelineInfo struct {
-	SessionID   string    `json:"session_id"`
-	Path        string    `json:"path"`
-	EventCount  int       `json:"event_count"`
-	FirstEvent  time.Time `json:"first_event,omitempty"`
-	LastEvent   time.Time `json:"last_event,omitempty"`
-	AgentCount  int       `json:"agent_count"`
-	Size        int64     `json:"size_bytes"`
-	Compressed  bool      `json:"compressed"`
-	CreatedAt   time.Time `json:"created_at"`
-	ModifiedAt  time.Time `json:"modified_at"`
+	SessionID  string    `json:"session_id"`
+	Path       string    `json:"path"`
+	EventCount int       `json:"event_count"`
+	FirstEvent time.Time `json:"first_event,omitempty"`
+	LastEvent  time.Time `json:"last_event,omitempty"`
+	AgentCount int       `json:"agent_count"`
+	Size       int64     `json:"size_bytes"`
+	Compressed bool      `json:"compressed"`
+	CreatedAt  time.Time `json:"created_at"`
+	ModifiedAt time.Time `json:"modified_at"`
 }
 
 // TimelineHeader contains metadata stored at the beginning of a timeline file.
 type TimelineHeader struct {
-	Version     string    `json:"version"`
-	SessionID   string    `json:"session_id"`
-	CreatedAt   time.Time `json:"created_at"`
-	AgentCount  int       `json:"agent_count"`
-	EventCount  int       `json:"event_count"`
-	FirstEvent  time.Time `json:"first_event,omitempty"`
-	LastEvent   time.Time `json:"last_event,omitempty"`
+	Version    string    `json:"version"`
+	SessionID  string    `json:"session_id"`
+	CreatedAt  time.Time `json:"created_at"`
+	AgentCount int       `json:"agent_count"`
+	EventCount int       `json:"event_count"`
+	FirstEvent time.Time `json:"first_event,omitempty"`
+	LastEvent  time.Time `json:"last_event,omitempty"`
 }
 
 // TimelinePersistConfig configures timeline persistence behavior.

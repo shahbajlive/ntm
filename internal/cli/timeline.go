@@ -170,20 +170,20 @@ func newTimelineShowCmd() *cobra.Command {
 
 // TimelineShowResult contains timeline details
 type TimelineShowResult struct {
-	Info   *state.TimelineInfo  `json:"info"`
-	Events []state.AgentEvent   `json:"events,omitempty"`
-	Stats  *TimelineEventStats  `json:"stats"`
+	Info   *state.TimelineInfo `json:"info"`
+	Events []state.AgentEvent  `json:"events,omitempty"`
+	Stats  *TimelineEventStats `json:"stats"`
 }
 
 // TimelineEventStats contains aggregated statistics
 type TimelineEventStats struct {
-	TotalEvents      int                       `json:"total_events"`
-	UniqueAgents     int                       `json:"unique_agents"`
-	AgentBreakdown   map[string]int            `json:"agent_breakdown"`
-	StateBreakdown   map[state.TimelineState]int `json:"state_breakdown"`
-	Duration         time.Duration             `json:"duration"`
-	FirstEvent       time.Time                 `json:"first_event"`
-	LastEvent        time.Time                 `json:"last_event"`
+	TotalEvents    int                         `json:"total_events"`
+	UniqueAgents   int                         `json:"unique_agents"`
+	AgentBreakdown map[string]int              `json:"agent_breakdown"`
+	StateBreakdown map[state.TimelineState]int `json:"state_breakdown"`
+	Duration       time.Duration               `json:"duration"`
+	FirstEvent     time.Time                   `json:"first_event"`
+	LastEvent      time.Time                   `json:"last_event"`
 }
 
 func (r *TimelineShowResult) Text(w io.Writer) error {
@@ -475,15 +475,15 @@ func runTimelineCleanup(force bool) error {
 
 func newTimelineExportCmd() *cobra.Command {
 	var (
-		format    string
+		format     string
 		outputFile string
-		scale     int
-		since     string
-		until     string
-		width     int
+		scale      int
+		since      string
+		until      string
+		width      int
 		lightTheme bool
-		noLegend  bool
-		noMeta    bool
+		noLegend   bool
+		noMeta     bool
 	)
 
 	cmd := &cobra.Command{
@@ -694,11 +694,11 @@ func newTimelineStatsCmd() *cobra.Command {
 
 // TimelineStatsResult contains overall statistics
 type TimelineStatsResult struct {
-	TotalTimelines  int   `json:"total_timelines"`
-	TotalEvents     int   `json:"total_events"`
-	TotalAgents     int   `json:"total_agents"`
-	TotalSize       int64 `json:"total_size_bytes"`
-	CompressedCount int   `json:"compressed_count"`
+	TotalTimelines  int    `json:"total_timelines"`
+	TotalEvents     int    `json:"total_events"`
+	TotalAgents     int    `json:"total_agents"`
+	TotalSize       int64  `json:"total_size_bytes"`
+	CompressedCount int    `json:"compressed_count"`
 	OldestTimeline  string `json:"oldest_timeline,omitempty"`
 	NewestTimeline  string `json:"newest_timeline,omitempty"`
 }

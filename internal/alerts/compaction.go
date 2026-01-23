@@ -115,19 +115,19 @@ func EmitCompactionFailed(data CompactionAlertData) {
 // CompactionEventOutput provides structured JSON output for compaction events.
 // This is used for robot mode output.
 type CompactionEventOutput struct {
-	Type           string  `json:"type"`
-	AgentID        string  `json:"agent_id"`
-	Method         string  `json:"method,omitempty"`
-	UsageBefore    float64 `json:"usage_before,omitempty"`
-	UsageAfter     float64 `json:"usage_after,omitempty"`
-	TokensBefore   int64   `json:"tokens_before,omitempty"`
-	TokensAfter    int64   `json:"tokens_after,omitempty"`
+	Type            string  `json:"type"`
+	AgentID         string  `json:"agent_id"`
+	Method          string  `json:"method,omitempty"`
+	UsageBefore     float64 `json:"usage_before,omitempty"`
+	UsageAfter      float64 `json:"usage_after,omitempty"`
+	TokensBefore    int64   `json:"tokens_before,omitempty"`
+	TokensAfter     int64   `json:"tokens_after,omitempty"`
 	TokensReclaimed int64   `json:"tokens_reclaimed,omitempty"`
-	Status         string  `json:"status"` // "triggered", "completed", "failed"
-	Error          string  `json:"error,omitempty"`
-	DurationMs     int64   `json:"duration_ms,omitempty"`
-	GeneratedAt    string  `json:"generated_at"`
-	SessionName    string  `json:"session_name,omitempty"`
+	Status          string  `json:"status"` // "triggered", "completed", "failed"
+	Error           string  `json:"error,omitempty"`
+	DurationMs      int64   `json:"duration_ms,omitempty"`
+	GeneratedAt     string  `json:"generated_at"`
+	SessionName     string  `json:"session_name,omitempty"`
 }
 
 // NewCompactionEventOutput creates a CompactionEventOutput for robot mode JSON.

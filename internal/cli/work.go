@@ -887,25 +887,25 @@ Examples:
 
 // HistoryResponse contains bead-to-commit correlation data
 type HistoryResponse struct {
-	Stats        HistoryStats             `json:"stats"`
-	Histories    []BeadHistory           `json:"histories"`
-	CommitIndex  map[string]CommitInfo    `json:"commit_index"`
+	Stats       HistoryStats          `json:"stats"`
+	Histories   []BeadHistory         `json:"histories"`
+	CommitIndex map[string]CommitInfo `json:"commit_index"`
 }
 
 // HistoryStats contains overall history statistics
 type HistoryStats struct {
-	TotalBeads    int `json:"total_beads"`
-	TotalCommits  int `json:"total_commits"`
+	TotalBeads      int `json:"total_beads"`
+	TotalCommits    int `json:"total_commits"`
 	CorrelatedCount int `json:"correlated_count"`
 }
 
 // BeadHistory contains history for a single bead
 type BeadHistory struct {
-	ID        string         `json:"id"`
-	Title     string         `json:"title"`
-	Events    []BeadEvent    `json:"events"`
-	Commits   []string       `json:"commits"`
-	Milestones []string      `json:"milestones"`
+	ID         string      `json:"id"`
+	Title      string      `json:"title"`
+	Events     []BeadEvent `json:"events"`
+	Commits    []string    `json:"commits"`
+	Milestones []string    `json:"milestones"`
 }
 
 // BeadEvent represents a bead state change
@@ -930,13 +930,13 @@ type ForecastResponse struct {
 
 // ForecastItem represents a forecast for a single issue
 type ForecastItem struct {
-	ID               string    `json:"id"`
-	Title            string    `json:"title"`
-	EstimatedETA     time.Time `json:"estimated_eta"`
-	ConfidenceLevel  float64   `json:"confidence_level"`
-	DependencyCount  int       `json:"dependency_count"`
-	CriticalPath     bool      `json:"critical_path"`
-	BlockingFactors  []string  `json:"blocking_factors,omitempty"`
+	ID              string    `json:"id"`
+	Title           string    `json:"title"`
+	EstimatedETA    time.Time `json:"estimated_eta"`
+	ConfidenceLevel float64   `json:"confidence_level"`
+	DependencyCount int       `json:"dependency_count"`
+	CriticalPath    bool      `json:"critical_path"`
+	BlockingFactors []string  `json:"blocking_factors,omitempty"`
 }
 
 // GraphResponse contains dependency graph data
@@ -973,18 +973,18 @@ type LabelFlowResponse struct {
 
 // LabelDependency represents a dependency between labels
 type LabelDependency struct {
-	From   string `json:"from"`
-	To     string `json:"to"`
-	Count  int    `json:"count"`
+	From   string  `json:"from"`
+	To     string  `json:"to"`
+	Count  int     `json:"count"`
 	Weight float64 `json:"weight"`
 }
 
 // BurndownResponse contains sprint burndown data
 type BurndownResponse struct {
-	Sprint      string          `json:"sprint"`
-	Progress    BurndownProgress `json:"progress"`
-	ScopeChanges []ScopeChange   `json:"scope_changes,omitempty"`
-	AtRisk      []AtRiskItem    `json:"at_risk,omitempty"`
+	Sprint       string           `json:"sprint"`
+	Progress     BurndownProgress `json:"progress"`
+	ScopeChanges []ScopeChange    `json:"scope_changes,omitempty"`
+	AtRisk       []AtRiskItem     `json:"at_risk,omitempty"`
 }
 
 // BurndownProgress contains progress metrics
@@ -1005,10 +1005,10 @@ type ScopeChange struct {
 
 // AtRiskItem represents an at-risk sprint item
 type AtRiskItem struct {
-	ID       string   `json:"id"`
-	Title    string   `json:"title"`
-	Risk     string   `json:"risk"` // behind_schedule, blocked, scope_creep
-	Reasons  []string `json:"reasons"`
+	ID      string   `json:"id"`
+	Title   string   `json:"title"`
+	Risk    string   `json:"risk"` // behind_schedule, blocked, scope_creep
+	Reasons []string `json:"reasons"`
 }
 
 // Implementation functions for the new commands

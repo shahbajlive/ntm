@@ -137,7 +137,7 @@ func runSSHContext(ctx context.Context, args ...string) (string, error) {
 	// args[1] is "--"
 	// args[2] is remote host
 	// args[3] is the command string
-	
+
 	if len(args) > 0 {
 		commandIndex := len(args) - 1
 		originalCommand := args[commandIndex]

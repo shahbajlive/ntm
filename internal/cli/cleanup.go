@@ -58,29 +58,29 @@ Examples:
 
 // cleanupResult represents the result of cleanup for a single file/directory
 type cleanupResult struct {
-	Path      string    `json:"path"`
-	Type      string    `json:"type"` // "file" or "directory"
-	Size      int64     `json:"size_bytes"`
-	Age       string    `json:"age"`
-	AgeHours  float64   `json:"age_hours"`
-	ModTime   time.Time `json:"mod_time"`
-	Deleted   bool      `json:"deleted"`
-	Error     string    `json:"error,omitempty"`
-	Pattern   string    `json:"pattern"` // which pattern matched
+	Path     string    `json:"path"`
+	Type     string    `json:"type"` // "file" or "directory"
+	Size     int64     `json:"size_bytes"`
+	Age      string    `json:"age"`
+	AgeHours float64   `json:"age_hours"`
+	ModTime  time.Time `json:"mod_time"`
+	Deleted  bool      `json:"deleted"`
+	Error    string    `json:"error,omitempty"`
+	Pattern  string    `json:"pattern"` // which pattern matched
 }
 
 // cleanupResponse is the JSON response for cleanup command
 type cleanupResponse struct {
 	output.TimestampedResponse
-	DryRun        bool            `json:"dry_run"`
-	MaxAgeHours   int             `json:"max_age_hours"`
-	Results       []cleanupResult `json:"results"`
-	TotalFiles    int             `json:"total_files"`
-	TotalSize     int64           `json:"total_size_bytes"`
-	DeletedFiles  int             `json:"deleted_files"`
-	DeletedSize   int64           `json:"deleted_size_bytes"`
-	SkippedFiles  int             `json:"skipped_files"`
-	ErrorCount    int             `json:"error_count"`
+	DryRun       bool            `json:"dry_run"`
+	MaxAgeHours  int             `json:"max_age_hours"`
+	Results      []cleanupResult `json:"results"`
+	TotalFiles   int             `json:"total_files"`
+	TotalSize    int64           `json:"total_size_bytes"`
+	DeletedFiles int             `json:"deleted_files"`
+	DeletedSize  int64           `json:"deleted_size_bytes"`
+	SkippedFiles int             `json:"skipped_files"`
+	ErrorCount   int             `json:"error_count"`
 }
 
 // ntmTempPatterns defines patterns to match NTM temp files
@@ -182,7 +182,7 @@ func runCleanup(dryRun bool, maxAgeHrs int, verbose bool, forceClean bool) error
 			}
 		} else {
 			result.Deleted = false // Would be deleted
-			deletedCount++ // Count as would-be-deleted for reporting
+			deletedCount++         // Count as would-be-deleted for reporting
 			deletedSize += size
 		}
 

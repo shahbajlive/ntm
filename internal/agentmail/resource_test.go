@@ -26,7 +26,7 @@ func TestReadResource(t *testing.T) {
 		if req.Method != "resources/read" {
 			t.Errorf("expected method resources/read, got %s", req.Method)
 		}
-		
+
 		params, ok := req.Params.(map[string]interface{})
 		if !ok {
 			t.Fatal("expected params to be a map")
@@ -60,11 +60,11 @@ func TestReadResource(t *testing.T) {
 	if err := json.Unmarshal(result, &resourceResp); err != nil {
 		t.Fatalf("failed to unmarshal result: %v", err)
 	}
-	
+
 	if len(resourceResp.Contents) != 1 {
 		t.Errorf("expected 1 content item, got %d", len(resourceResp.Contents))
 	}
-	
+
 	if resourceResp.Contents[0].Text != `{"key": "value"}` {
 		t.Errorf("unexpected text content: %s", resourceResp.Contents[0].Text)
 	}
@@ -81,20 +81,20 @@ func TestListProjectAgents(t *testing.T) {
 		if req.Method != "resources/read" {
 			t.Errorf("expected method resources/read, got %s", req.Method)
 		}
-		
+
 		// Return agents list
 		agents := []Agent{
 			{ID: 1, Name: "Agent1", Program: "prog1"},
 			{ID: 2, Name: "Agent2", Program: "prog2"},
 		}
 		agentsJSON, _ := json.Marshal(agents)
-		
+
 		respContent := map[string]interface{}{
 			"contents": []map[string]interface{}{
 				{
-					"uri": "resource://agents/test-project",
+					"uri":      "resource://agents/test-project",
 					"mimeType": "application/json",
-					"text": string(agentsJSON),
+					"text":     string(agentsJSON),
 				},
 			},
 		}

@@ -127,17 +127,17 @@ func DefaultProbeFlags() ProbeFlags {
 
 // ProbeOptions configures the probe command
 type ProbeOptions struct {
-	Session string      // Session name (required)
-	Pane    int         // Pane index to probe (required)
-	Flags   ProbeFlags  // Parsed probe flags
+	Session string     // Session name (required)
+	Pane    int        // Pane index to probe (required)
+	Flags   ProbeFlags // Parsed probe flags
 }
 
 // ProbeDetails contains detailed probe results
 type ProbeDetails struct {
-	InputSent        string `json:"input_sent"`          // What was sent (e.g., "\\x00")
-	OutputChanged    bool   `json:"output_changed"`      // Whether output changed
-	LatencyMs        int64  `json:"latency_ms"`          // Time between probe and response
-	OutputDeltaLines int    `json:"output_delta_lines"`  // How many lines changed
+	InputSent        string `json:"input_sent"`         // What was sent (e.g., "\\x00")
+	OutputChanged    bool   `json:"output_changed"`     // Whether output changed
+	LatencyMs        int64  `json:"latency_ms"`         // Time between probe and response
+	OutputDeltaLines int    `json:"output_delta_lines"` // How many lines changed
 }
 
 // ProbeOutput is the response for --robot-probe
@@ -185,11 +185,11 @@ type PaneBaseline struct {
 
 // PaneChange represents the difference between two pane states.
 type PaneChange struct {
-	Changed      bool  `json:"changed"`        // Whether content changed
-	LinesDelta   int   `json:"lines_delta"`    // Change in line count (can be negative)
-	LinesAdded   int   `json:"lines_added"`    // Approximate lines added
-	LinesRemoved int   `json:"lines_removed"`  // Approximate lines removed
-	LatencyMs    int64 `json:"latency_ms"`     // Time between baseline and current capture
+	Changed      bool  `json:"changed"`       // Whether content changed
+	LinesDelta   int   `json:"lines_delta"`   // Change in line count (can be negative)
+	LinesAdded   int   `json:"lines_added"`   // Approximate lines added
+	LinesRemoved int   `json:"lines_removed"` // Approximate lines removed
+	LatencyMs    int64 `json:"latency_ms"`    // Time between baseline and current capture
 }
 
 // CapturePaneBaseline captures the current state of a pane for later comparison.

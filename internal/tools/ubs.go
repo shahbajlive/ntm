@@ -138,26 +138,26 @@ func (a *UBSAdapter) Info(ctx context.Context) (*ToolInfo, error) {
 
 // UBSFinding represents a bug or issue found by UBS
 type UBSFinding struct {
-	ID          string `json:"id,omitempty"`
-	Severity    string `json:"severity,omitempty"` // critical, high, medium, low, info
-	Category    string `json:"category,omitempty"` // security, performance, maintainability, etc.
-	File        string `json:"file,omitempty"`
-	Line        int    `json:"line,omitempty"`
-	Message     string `json:"message,omitempty"`
-	Suggestion  string `json:"suggestion,omitempty"`
-	RuleID      string `json:"rule_id,omitempty"`
+	ID         string `json:"id,omitempty"`
+	Severity   string `json:"severity,omitempty"` // critical, high, medium, low, info
+	Category   string `json:"category,omitempty"` // security, performance, maintainability, etc.
+	File       string `json:"file,omitempty"`
+	Line       int    `json:"line,omitempty"`
+	Message    string `json:"message,omitempty"`
+	Suggestion string `json:"suggestion,omitempty"`
+	RuleID     string `json:"rule_id,omitempty"`
 }
 
 // UBSScanResult represents the result of a UBS scan
 type UBSScanResult struct {
-	Findings    []UBSFinding `json:"findings,omitempty"`
-	TotalCount  int          `json:"total_count"`
-	Critical    int          `json:"critical"`
-	High        int          `json:"high"`
-	Medium      int          `json:"medium"`
-	Low         int          `json:"low"`
-	Info        int          `json:"info"`
-	ScanTime    string       `json:"scan_time,omitempty"`
+	Findings   []UBSFinding `json:"findings,omitempty"`
+	TotalCount int          `json:"total_count"`
+	Critical   int          `json:"critical"`
+	High       int          `json:"high"`
+	Medium     int          `json:"medium"`
+	Low        int          `json:"low"`
+	Info       int          `json:"info"`
+	ScanTime   string       `json:"scan_time,omitempty"`
 }
 
 // Scan runs UBS on a path and returns findings

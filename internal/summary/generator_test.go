@@ -694,20 +694,20 @@ func TestParseStructuredJSON(t *testing.T) {
 		expectedFiles  int
 	}{
 		{
-			name: "basic json",
-			text: `{"accomplishments": ["Task A", "Task B"], "pending": ["Next task"]}`,
+			name:           "basic json",
+			text:           `{"accomplishments": ["Task A", "Task B"], "pending": ["Next task"]}`,
 			expectedAccomp: 2,
 			expectedFiles:  0,
 		},
 		{
-			name: "nested summary",
-			text: `{"summary": {"accomplishments": ["Done"], "files": {"created": ["new.go"]}}}`,
+			name:           "nested summary",
+			text:           `{"summary": {"accomplishments": ["Done"], "files": {"created": ["new.go"]}}}`,
 			expectedAccomp: 1,
 			expectedFiles:  1,
 		},
 		{
-			name: "file_changes key",
-			text: `{"file_changes": {"created": ["a.go"], "modified": ["b.go"]}}`,
+			name:           "file_changes key",
+			text:           `{"file_changes": {"created": ["a.go"], "modified": ["b.go"]}}`,
 			expectedAccomp: 0,
 			expectedFiles:  2,
 		},

@@ -20,12 +20,12 @@ type DCGStatusOutput struct {
 
 // DCGStatus contains DCG status information
 type DCGStatus struct {
-	Enabled    bool             `json:"enabled"`
-	Available  bool             `json:"available"`
-	Version    string           `json:"version,omitempty"`
-	BinaryPath string           `json:"binary_path,omitempty"`
-	Config     DCGConfigStatus  `json:"config"`
-	Stats      DCGStatsStatus   `json:"stats"`
+	Enabled    bool            `json:"enabled"`
+	Available  bool            `json:"available"`
+	Version    string          `json:"version,omitempty"`
+	BinaryPath string          `json:"binary_path,omitempty"`
+	Config     DCGConfigStatus `json:"config"`
+	Stats      DCGStatsStatus  `json:"stats"`
 }
 
 // DCGConfigStatus contains DCG configuration information
@@ -38,9 +38,9 @@ type DCGConfigStatus struct {
 
 // DCGStatsStatus contains DCG runtime statistics
 type DCGStatsStatus struct {
-	CommandsChecked int                  `json:"commands_checked"`
-	CommandsBlocked int                  `json:"commands_blocked"`
-	LastBlocked     *LastBlockedCommand  `json:"last_blocked,omitempty"`
+	CommandsChecked int                 `json:"commands_checked"`
+	CommandsBlocked int                 `json:"commands_blocked"`
+	LastBlocked     *LastBlockedCommand `json:"last_blocked,omitempty"`
 }
 
 // LastBlockedCommand contains information about the most recently blocked command

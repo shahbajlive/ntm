@@ -33,12 +33,12 @@ func NewWorktreeManager(projectDir string) (*WorktreeManager, error) {
 
 // WorktreeInfo represents information about a git worktree
 type WorktreeInfo struct {
-	Path       string    `json:"path"`
-	Branch     string    `json:"branch"`
-	Commit     string    `json:"commit"`
-	Agent      string    `json:"agent"`
-	CreatedAt  time.Time `json:"created_at"`
-	LastUsed   time.Time `json:"last_used"`
+	Path      string    `json:"path"`
+	Branch    string    `json:"branch"`
+	Commit    string    `json:"commit"`
+	Agent     string    `json:"agent"`
+	CreatedAt time.Time `json:"created_at"`
+	LastUsed  time.Time `json:"last_used"`
 }
 
 // ProvisionWorktree creates an isolated worktree for an agent

@@ -9,10 +9,10 @@ import (
 // testTriageCache caches the triage response for all tests to share.
 // GetTriage takes ~30 seconds, and many tests use the same data.
 var testTriageCache struct {
-	once    sync.Once
-	root    string
-	triage  *TriageResponse
-	err     error
+	once   sync.Once
+	root   string
+	triage *TriageResponse
+	err    error
 }
 
 // getCachedTriage returns cached triage or fetches it once.

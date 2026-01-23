@@ -764,13 +764,13 @@ func TestCountLines_EdgeCases(t *testing.T) {
 		want  int
 	}{
 		{"", 0},
-		{"\n", 2},           // Empty line + trailing
-		{"\n\n", 3},         // Two empty lines + trailing
-		{"a\n\nb", 3},       // Line with empty middle
-		{"a\nb\nc\n", 4},    // Three lines with trailing newline
-		{"\na\nb\n", 4},     // Leading newline
-		{"   ", 1},          // Whitespace only, no newline
-		{"   \n   ", 2},     // Whitespace with newline
+		{"\n", 2},        // Empty line + trailing
+		{"\n\n", 3},      // Two empty lines + trailing
+		{"a\n\nb", 3},    // Line with empty middle
+		{"a\nb\nc\n", 4}, // Three lines with trailing newline
+		{"\na\nb\n", 4},  // Leading newline
+		{"   ", 1},       // Whitespace only, no newline
+		{"   \n   ", 2},  // Whitespace with newline
 	}
 
 	for _, tc := range tests {

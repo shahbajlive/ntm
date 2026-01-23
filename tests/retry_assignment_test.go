@@ -446,8 +446,8 @@ func isValidRetryTransition(from, to assignment.AssignmentStatus) bool {
 		assignment.StatusAssigned:   {assignment.StatusWorking, assignment.StatusFailed},
 		assignment.StatusWorking:    {assignment.StatusCompleted, assignment.StatusFailed, assignment.StatusReassigned},
 		assignment.StatusFailed:     {assignment.StatusAssigned}, // Retry
-		assignment.StatusCompleted:  {},                         // Terminal
-		assignment.StatusReassigned: {},                         // Terminal
+		assignment.StatusCompleted:  {},                          // Terminal
+		assignment.StatusReassigned: {},                          // Terminal
 	}
 
 	validTargets, ok := transitions[from]

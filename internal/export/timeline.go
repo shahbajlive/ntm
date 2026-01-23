@@ -20,8 +20,8 @@ import (
 type ExportFormat string
 
 const (
-	FormatSVG  ExportFormat = "svg"
-	FormatPNG  ExportFormat = "png"
+	FormatSVG   ExportFormat = "svg"
+	FormatPNG   ExportFormat = "png"
 	FormatJSONL ExportFormat = "jsonl"
 )
 
@@ -161,22 +161,22 @@ func (e *TimelineExporter) ExportPNG(events []state.AgentEvent) ([]byte, error) 
 
 // timelineData holds preprocessed data for rendering.
 type timelineData struct {
-	Agents       []agentTrack
-	TimeStart    time.Time
-	TimeEnd      time.Time
-	Duration     time.Duration
-	Width        int
-	Height       int
-	BarWidth     int
-	BarHeight    int
-	LeftMargin   int
-	TopMargin    int
-	BottomMargin int
-	SessionName  string
-	ExportTime   time.Time
-	TotalEvents  int
-	Theme        ExportTheme
-	IncludeLegend bool
+	Agents          []agentTrack
+	TimeStart       time.Time
+	TimeEnd         time.Time
+	Duration        time.Duration
+	Width           int
+	Height          int
+	BarWidth        int
+	BarHeight       int
+	LeftMargin      int
+	TopMargin       int
+	BottomMargin    int
+	SessionName     string
+	ExportTime      time.Time
+	TotalEvents     int
+	Theme           ExportTheme
+	IncludeLegend   bool
 	IncludeMetadata bool
 }
 
@@ -191,14 +191,14 @@ type agentTrack struct {
 
 // timeSegment represents a continuous time segment with a single state.
 type timeSegment struct {
-	State      state.TimelineState
-	StartTime  time.Time
-	EndTime    time.Time
-	Duration   time.Duration
-	XStart     float64 // Pixel position
-	XEnd       float64
-	Width      float64
-	Color      string
+	State     state.TimelineState
+	StartTime time.Time
+	EndTime   time.Time
+	Duration  time.Duration
+	XStart    float64 // Pixel position
+	XEnd      float64
+	Width     float64
+	Color     string
 }
 
 func (e *TimelineExporter) prepareData(events []state.AgentEvent) *timelineData {
@@ -480,7 +480,7 @@ const svgTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 
 func (e *TimelineExporter) renderSVG(data *timelineData) ([]byte, error) {
 	funcMap := template.FuncMap{
-		"add": func(a, b int) int { return a + b },
+		"add":      func(a, b int) int { return a + b },
 		"subtract": func(a, b int) int { return a - b },
 		"formatDuration": func(d time.Duration) string {
 			if d < time.Minute {

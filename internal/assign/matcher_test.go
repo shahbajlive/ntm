@@ -1103,16 +1103,16 @@ func TestMatcher_Strategy_Quality_PicksBestCapability(t *testing.T) {
 
 	// Test that quality strategy picks the agent with best capability for each task type
 	tests := []struct {
-		taskType    TaskType
+		taskType     TaskType
 		expectedBest tmux.AgentType
 	}{
-		{TaskRefactor, tmux.AgentClaude},  // 0.95
-		{TaskBug, tmux.AgentCodex},         // 0.90
-		{TaskDocs, tmux.AgentGemini},       // 0.90
-		{TaskFeature, tmux.AgentCodex},     // 0.90
-		{TaskAnalysis, tmux.AgentClaude},   // 0.90
-		{TaskTesting, tmux.AgentCodex},     // 0.85
-		{TaskEpic, tmux.AgentClaude},       // 0.90
+		{TaskRefactor, tmux.AgentClaude}, // 0.95
+		{TaskBug, tmux.AgentCodex},       // 0.90
+		{TaskDocs, tmux.AgentGemini},     // 0.90
+		{TaskFeature, tmux.AgentCodex},   // 0.90
+		{TaskAnalysis, tmux.AgentClaude}, // 0.90
+		{TaskTesting, tmux.AgentCodex},   // 0.85
+		{TaskEpic, tmux.AgentClaude},     // 0.90
 	}
 
 	agents := []Agent{
@@ -1233,11 +1233,11 @@ func TestMatcher_ReasonFormat_VariousScenarios(t *testing.T) {
 	m := NewMatcher()
 
 	tests := []struct {
-		name              string
-		bead              Bead
-		agent             Agent
-		strategy          Strategy
-		expectContains    []string
+		name           string
+		bead           Bead
+		agent          Agent
+		strategy       Strategy
+		expectContains []string
 	}{
 		{
 			name:           "critical priority",

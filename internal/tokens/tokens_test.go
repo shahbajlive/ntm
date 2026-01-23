@@ -384,11 +384,11 @@ func TestUsageInfoComprehensive(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		text           string
-		model          string
-		minUsage       float64
-		maxUsage       float64
+		name     string
+		text     string
+		model    string
+		minUsage float64
+		maxUsage float64
 	}{
 		{
 			name:     "small text on Claude",

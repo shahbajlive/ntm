@@ -1042,11 +1042,11 @@ claude = "bash"
 		"--robot-send", session, "--msg", fmt.Sprintf("echo %s", testMessage), "--type=claude")
 
 	var sendPayload struct {
-		Success        bool     `json:"success"`
-		Session        string   `json:"session"`
-		Targets        []string `json:"targets"`
-		Successful     []string `json:"successful"`
-		Failed         []struct {
+		Success    bool     `json:"success"`
+		Session    string   `json:"session"`
+		Targets    []string `json:"targets"`
+		Successful []string `json:"successful"`
+		Failed     []struct {
 			Pane  string `json:"pane"`
 			Error string `json:"error"`
 		} `json:"failed"`
@@ -1394,12 +1394,12 @@ claude = "bash"
 
 	// Define expected schema for critical fields that should never change
 	type ExpectedSendSchema struct {
-		Success        bool      `json:"success"`
-		Session        string    `json:"session"`
-		SentAt         time.Time `json:"sent_at"`
-		Targets        []string  `json:"targets"`
-		Successful     []string  `json:"successful"`
-		Failed         []struct {
+		Success    bool      `json:"success"`
+		Session    string    `json:"session"`
+		SentAt     time.Time `json:"sent_at"`
+		Targets    []string  `json:"targets"`
+		Successful []string  `json:"successful"`
+		Failed     []struct {
 			Pane  string `json:"pane"`
 			Error string `json:"error"`
 		} `json:"failed"`
@@ -1494,11 +1494,11 @@ claude = "bash"
 
 		// Even if it timed out, it should still produce valid JSON for what was sent
 		var trackPayload struct {
-			Success        bool     `json:"success"`
-			Session        string   `json:"session"`
-			Targets        []string `json:"targets"`
-			Successful     []string `json:"successful"`
-			MessagePreview string   `json:"message_preview"`
+			Success        bool      `json:"success"`
+			Session        string    `json:"session"`
+			Targets        []string  `json:"targets"`
+			Successful     []string  `json:"successful"`
+			MessagePreview string    `json:"message_preview"`
 			SentAt         time.Time `json:"sent_at"`
 		}
 
@@ -1514,11 +1514,11 @@ claude = "bash"
 	} else {
 		// If track completed successfully, validate the JSON
 		var trackPayload struct {
-			Success        bool     `json:"success"`
-			Session        string   `json:"session"`
-			Targets        []string `json:"targets"`
-			Successful     []string `json:"successful"`
-			MessagePreview string   `json:"message_preview"`
+			Success        bool      `json:"success"`
+			Session        string    `json:"session"`
+			Targets        []string  `json:"targets"`
+			Successful     []string  `json:"successful"`
+			MessagePreview string    `json:"message_preview"`
 			SentAt         time.Time `json:"sent_at"`
 		}
 

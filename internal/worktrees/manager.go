@@ -17,12 +17,12 @@ type WorktreeManager struct {
 
 // WorktreeInfo contains information about an agent's worktree
 type WorktreeInfo struct {
-	AgentName    string `json:"agent_name"`
-	Path         string `json:"path"`
-	BranchName   string `json:"branch_name"`
-	SessionID    string `json:"session_id"`
-	Created      bool   `json:"created"`
-	Error        string `json:"error,omitempty"`
+	AgentName  string `json:"agent_name"`
+	Path       string `json:"path"`
+	BranchName string `json:"branch_name"`
+	SessionID  string `json:"session_id"`
+	Created    bool   `json:"created"`
+	Error      string `json:"error,omitempty"`
 }
 
 // NewManager creates a new WorktreeManager

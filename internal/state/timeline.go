@@ -735,12 +735,9 @@ var (
 func GetGlobalTimelineTracker() *TimelineTracker {
 	globalTimelineTrackerOnce.Do(func() {
 		globalTimelineTracker = NewTimelineTracker(&TimelineConfig{
-			MaxEvents:           100000, // Allow many events for multi-agent sessions
-			MaxAgents:           100,
-			EventTTL:            48 * time.Hour,
-			PruneInterval:       15 * time.Minute,
-			MarkerTTL:           48 * time.Hour,
-			MarkerPruneInterval: 30 * time.Minute,
+			MaxEventsPerAgent: 10000, // Allow many events for multi-agent sessions
+			RetentionDuration: 48 * time.Hour,
+			PruneInterval:     15 * time.Minute,
 		})
 	})
 	return globalTimelineTracker

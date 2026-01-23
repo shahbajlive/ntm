@@ -12,8 +12,8 @@ import (
 // TestParseSwitchAccountArg tests parsing of provider and provider:account formats.
 func TestParseSwitchAccountArg(t *testing.T) {
 	tests := []struct {
-		name        string
-		arg         string
+		name         string
+		arg          string
 		wantProvider string
 		wantAccount  string
 	}{
@@ -77,25 +77,25 @@ func TestParseSwitchAccountArg(t *testing.T) {
 // TestCooldownSeconds tests cooldown calculation from expiry time.
 func TestCooldownSeconds(t *testing.T) {
 	tests := []struct {
-		name         string
+		name          string
 		cooldownUntil time.Time
-		wantZero     bool
-		wantPositive bool
+		wantZero      bool
+		wantPositive  bool
 	}{
 		{
-			name:         "zero time - returns 0",
+			name:          "zero time - returns 0",
 			cooldownUntil: time.Time{},
-			wantZero:     true,
+			wantZero:      true,
 		},
 		{
-			name:         "past time - returns 0",
+			name:          "past time - returns 0",
 			cooldownUntil: time.Now().Add(-1 * time.Hour),
-			wantZero:     true,
+			wantZero:      true,
 		},
 		{
-			name:         "future time - returns positive",
+			name:          "future time - returns positive",
 			cooldownUntil: time.Now().Add(30 * time.Second),
-			wantPositive: true,
+			wantPositive:  true,
 		},
 	}
 

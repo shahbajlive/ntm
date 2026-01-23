@@ -99,7 +99,7 @@ func NewStore(sessionName string) *AssignmentStore {
 	// Store assignments inside the session directory: ~/.ntm/sessions/<session>/assignments.json
 	baseDir := StorageDir()
 	sessionDir := filepath.Join(baseDir, sessionName)
-	
+
 	// Ensure session directory exists (it might not if we are just creating assignments before session save)
 	_ = os.MkdirAll(sessionDir, 0755)
 

@@ -219,10 +219,10 @@ func TestTranslateAgentTypeForStatus(t *testing.T) {
 func TestDetermineStateErrorConditions(t *testing.T) {
 	// Only include error patterns that are actually detected by the status package
 	errorOutputs := []string{
-		"Error: file not found",        // ErrorGeneric - "Error:" prefix
+		"Error: file not found",             // ErrorGeneric - "Error:" prefix
 		"FATAL: database connection failed", // ErrorCrash - "FATAL:" literal
-		"Segmentation fault",           // ErrorCrash - literal match
-		"panic: runtime error",        // ErrorCrash - "panic:" literal
+		"Segmentation fault",                // ErrorCrash - literal match
+		"panic: runtime error",              // ErrorCrash - "panic:" literal
 	}
 
 	agentTypes := []string{"claude", "codex", "gemini", "user", ""}
@@ -230,10 +230,10 @@ func TestDetermineStateErrorConditions(t *testing.T) {
 	for _, output := range errorOutputs {
 		for _, agentType := range agentTypes {
 			prefix := output
-		if len(prefix) > 10 {
-			prefix = prefix[:10]
-		}
-		t.Run("error_"+strings.ReplaceAll(prefix, " ", "_")+"_"+agentType, func(t *testing.T) {
+			if len(prefix) > 10 {
+				prefix = prefix[:10]
+			}
+			t.Run("error_"+strings.ReplaceAll(prefix, " ", "_")+"_"+agentType, func(t *testing.T) {
 				result := determineState(output, agentType)
 				if result != "error" {
 					t.Errorf("determineState(%q, %q) = %q, want %q", output, agentType, result, "error")
@@ -246,8 +246,8 @@ func TestDetermineStateErrorConditions(t *testing.T) {
 // TestDetermineStateIdleConditions tests idle detection logic specifically
 func TestDetermineStateIdleConditions(t *testing.T) {
 	idleTests := []struct {
-		output    string
-		agentType string
+		output     string
+		agentType  string
 		shouldIdle bool
 	}{
 		// Should be idle - using actual prompt patterns

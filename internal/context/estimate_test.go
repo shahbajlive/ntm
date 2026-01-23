@@ -96,9 +96,9 @@ func TestTokenCountingAccuracy(t *testing.T) {
 		expectedHigh int64
 	}{
 		{0, 0, 0},
-		{35, 8, 12},        // ~10 tokens at 3.5 chars/token
-		{350, 90, 110},     // ~100 tokens
-		{3500, 950, 1050},  // ~1000 tokens
+		{35, 8, 12},           // ~10 tokens at 3.5 chars/token
+		{350, 90, 110},        // ~100 tokens
+		{3500, 950, 1050},     // ~1000 tokens
 		{70000, 19000, 21000}, // ~20000 tokens
 	}
 
@@ -289,8 +289,8 @@ func TestEstimatorWithSampleData(t *testing.T) {
 
 	// Create sample scrollback data at various lengths
 	sampleScrollbacks := []struct {
-		name        string
-		messageLen  int
+		name         string
+		messageLen   int
 		messageCount int
 	}{
 		{"short", 100, 5},

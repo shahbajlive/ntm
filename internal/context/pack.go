@@ -597,31 +597,31 @@ func (b *ContextPackBuilder) calculateFilePriority(file string) int {
 
 	// High priority: Main entry points
 	if strings.Contains(lower, "main.") ||
-	   strings.Contains(lower, "index.") ||
-	   strings.Contains(lower, "app.") {
+		strings.Contains(lower, "index.") ||
+		strings.Contains(lower, "app.") {
 		priority += 100
 	}
 
 	// Medium-high priority: Core logic files
 	if strings.Contains(lower, "core") ||
-	   strings.Contains(lower, "service") ||
-	   strings.Contains(lower, "controller") ||
-	   strings.Contains(lower, "handler") {
+		strings.Contains(lower, "service") ||
+		strings.Contains(lower, "controller") ||
+		strings.Contains(lower, "handler") {
 		priority += 50
 	}
 
 	// Medium priority: Configuration and important modules
 	if strings.Contains(lower, "config") ||
-	   strings.Contains(lower, "router") ||
-	   strings.Contains(lower, "middleware") {
+		strings.Contains(lower, "router") ||
+		strings.Contains(lower, "middleware") {
 		priority += 30
 	}
 
 	// Lower priority: Tests, docs, examples
 	if strings.Contains(lower, "test") ||
-	   strings.Contains(lower, "spec") ||
-	   strings.Contains(lower, "example") ||
-	   strings.Contains(lower, "demo") {
+		strings.Contains(lower, "spec") ||
+		strings.Contains(lower, "example") ||
+		strings.Contains(lower, "demo") {
 		priority -= 20
 	}
 
@@ -659,10 +659,10 @@ func (b *ContextPackBuilder) intelligentTruncate(text string, tokenBudget int) s
 
 		// Always include file boundaries and headers
 		if strings.HasPrefix(line, "=== ") ||
-		   strings.HasPrefix(line, "# ") ||
-		   strings.Contains(line, "File: ") ||
-		   i < 3 { // First few lines often contain metadata
-			if currentSize + lineSize <= charBudget {
+			strings.HasPrefix(line, "# ") ||
+			strings.Contains(line, "File: ") ||
+			i < 3 { // First few lines often contain metadata
+			if currentSize+lineSize <= charBudget {
 				result.WriteString(line + "\n")
 				currentSize += lineSize
 				continue
@@ -670,7 +670,7 @@ func (b *ContextPackBuilder) intelligentTruncate(text string, tokenBudget int) s
 		}
 
 		// For regular content, check budget
-		if currentSize + lineSize > charBudget {
+		if currentSize+lineSize > charBudget {
 			result.WriteString("\n...[truncated - content exceeded budget]\n")
 			break
 		}

@@ -463,12 +463,12 @@ func (c *Capturer) captureAssignments(sessionName string) ([]AssignmentSnapshot,
 	snapshots := make([]AssignmentSnapshot, 0, len(active))
 	for _, a := range active {
 		snapshots = append(snapshots, AssignmentSnapshot{
-			BeadID:    a.BeadID,
-			BeadTitle: a.BeadTitle,
-			Pane:      a.Pane,
-			AgentType: a.AgentType,
-			AgentName: a.AgentName,
-			Status:    string(a.Status),
+			BeadID:     a.BeadID,
+			BeadTitle:  a.BeadTitle,
+			Pane:       a.Pane,
+			AgentType:  a.AgentType,
+			AgentName:  a.AgentName,
+			Status:     string(a.Status),
 			AssignedAt: a.AssignedAt,
 		})
 	}

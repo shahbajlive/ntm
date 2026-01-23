@@ -43,8 +43,8 @@ type SpawnOutput struct {
 	Error          string            `json:"error,omitempty"`
 	DryRun         bool              `json:"dry_run,omitempty"`
 	WouldCreate    []SpawnedAgent    `json:"would_create,omitempty"`
-	Mode           string            `json:"mode,omitempty"`           // "orchestrator" when AssignWork is enabled
-	Assignments    []SpawnAssignment `json:"assignments,omitempty"`    // Work assignments when AssignWork is enabled
+	Mode           string            `json:"mode,omitempty"`            // "orchestrator" when AssignWork is enabled
+	Assignments    []SpawnAssignment `json:"assignments,omitempty"`     // Work assignments when AssignWork is enabled
 	AssignStrategy string            `json:"assign_strategy,omitempty"` // Strategy used for assignments
 	Recovery       *SpawnRecovery    `json:"recovery,omitempty"`        // Session recovery context from handoff
 }
@@ -62,13 +62,13 @@ type SpawnRecovery struct {
 
 // SpawnAssignment represents a work assignment to a spawned agent.
 type SpawnAssignment struct {
-	Pane        string `json:"pane"`         // Pane reference (e.g., "0.1")
-	AgentType   string `json:"agent_type"`   // claude, codex, gemini
-	BeadID      string `json:"bead_id"`      // Assigned bead ID
-	BeadTitle   string `json:"bead_title"`   // Bead title for context
-	Priority    string `json:"priority"`     // Bead priority (P0-P4)
-	Claimed     bool   `json:"claimed"`      // Whether bead was successfully claimed (marked in_progress)
-	PromptSent  bool   `json:"prompt_sent"`  // Whether the work prompt was sent to the agent
+	Pane        string `json:"pane"`                   // Pane reference (e.g., "0.1")
+	AgentType   string `json:"agent_type"`             // claude, codex, gemini
+	BeadID      string `json:"bead_id"`                // Assigned bead ID
+	BeadTitle   string `json:"bead_title"`             // Bead title for context
+	Priority    string `json:"priority"`               // Bead priority (P0-P4)
+	Claimed     bool   `json:"claimed"`                // Whether bead was successfully claimed (marked in_progress)
+	PromptSent  bool   `json:"prompt_sent"`            // Whether the work prompt was sent to the agent
 	ClaimError  string `json:"claim_error,omitempty"`  // Error during claim, if any
 	PromptError string `json:"prompt_error,omitempty"` // Error sending prompt, if any
 }
@@ -90,11 +90,11 @@ func PrintSpawn(opts SpawnOptions, cfg *config.Config) error {
 
 	output := SpawnOutput{
 		RobotResponse: NewRobotResponse(true),
-		Session:    opts.Session,
-		CreatedAt:  startTime.UTC().Format(time.RFC3339),
-		PresetUsed: opts.Preset,
-		Agents:     []SpawnedAgent{},
-		Layout:     "tiled",
+		Session:       opts.Session,
+		CreatedAt:     startTime.UTC().Format(time.RFC3339),
+		PresetUsed:    opts.Preset,
+		Agents:        []SpawnedAgent{},
+		Layout:        "tiled",
 	}
 
 	// Validate session name
@@ -384,7 +384,7 @@ func waitForAgentsReady(output *SpawnOutput, timeout time.Duration) {
 			// The Pane field is in "window.index" format (e.g., "0.2")
 			// For tmux capture, use "session:window.pane" format
 			paneRef := output.Agents[i].Pane
-			
+
 			// We can use the paneRef directly as it contains window.index
 			target := fmt.Sprintf("%s:%s", output.Session, paneRef)
 

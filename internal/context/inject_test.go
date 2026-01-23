@@ -164,11 +164,11 @@ func TestTokenBudgetConstraints(t *testing.T) {
 		inputLen    int
 		shouldTrunc bool
 	}{
-		{"small limit", 50, 1000, true},           // 250 tokens > 50 max
-		{"medium limit", 500, 2500, true},         // 625 tokens > 500 max
-		{"large limit", 2000, 1000, false},        // 250 tokens < 2000 max
-		{"exact fit", 250, 1000, false},           // 250 tokens == 250 max (no truncation at exact fit)
-		{"just over limit", 200, 1000, true},      // 250 tokens > 200 max
+		{"small limit", 50, 1000, true},      // 250 tokens > 50 max
+		{"medium limit", 500, 2500, true},    // 625 tokens > 500 max
+		{"large limit", 2000, 1000, false},   // 250 tokens < 2000 max
+		{"exact fit", 250, 1000, false},      // 250 tokens == 250 max (no truncation at exact fit)
+		{"just over limit", 200, 1000, true}, // 250 tokens > 200 max
 	}
 
 	for _, tt := range tests {
@@ -304,10 +304,10 @@ func TestContextInjectionSizeEstimation(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		name         string
-		rawSummary   string
-		expectedMin  int
-		expectedMax  int
+		name        string
+		rawSummary  string
+		expectedMin int
+		expectedMax int
 	}{
 		{
 			name:        "small summary",

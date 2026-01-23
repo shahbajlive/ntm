@@ -215,11 +215,11 @@ func TestToonEncode_Objects(t *testing.T) {
 
 func TestToonEncode_DeterministicOrdering(t *testing.T) {
 	input := map[string]int{
-		"zebra":    1,
-		"apple":    2,
-		"mango":    3,
-		"banana":   4,
-		"cherry":   5,
+		"zebra":  1,
+		"apple":  2,
+		"mango":  3,
+		"banana": 4,
+		"cherry": 5,
 	}
 
 	// Encode multiple times

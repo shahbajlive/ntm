@@ -72,15 +72,15 @@ type SwitchCallback func(event SwitchEvent)
 
 // SwitchEvent contains details about a proactive account switch.
 type SwitchEvent struct {
-	Provider         string    `json:"provider"`
-	UsagePercent     float64   `json:"usage_percent"`
-	Reason           string    `json:"reason"` // "proactive" or "rate_limit"
-	PreviousAccount  string    `json:"previous_account,omitempty"`
-	NewAccount       string    `json:"new_account,omitempty"`
-	Success          bool      `json:"success"`
-	Error            string    `json:"error,omitempty"`
-	Timestamp        time.Time `json:"timestamp"`
-	AccountsRemaining int      `json:"accounts_remaining,omitempty"`
+	Provider          string    `json:"provider"`
+	UsagePercent      float64   `json:"usage_percent"`
+	Reason            string    `json:"reason"` // "proactive" or "rate_limit"
+	PreviousAccount   string    `json:"previous_account,omitempty"`
+	NewAccount        string    `json:"new_account,omitempty"`
+	Success           bool      `json:"success"`
+	Error             string    `json:"error,omitempty"`
+	Timestamp         time.Time `json:"timestamp"`
+	AccountsRemaining int       `json:"accounts_remaining,omitempty"`
 }
 
 // NewCoordinator creates a new integration coordinator.

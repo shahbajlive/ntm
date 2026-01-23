@@ -276,12 +276,12 @@ func formatProviderUsageMessage(threshold float64) string {
 // MonitorOutput is the initial response when starting the monitor.
 type MonitorOutput struct {
 	RobotResponse
-	Session    string        `json:"session"`
-	Panes      []int         `json:"panes"`
-	Interval   string        `json:"interval"`
-	Thresholds MonitorThresh `json:"thresholds"`
-	CautEnabled bool         `json:"caut_enabled"`
-	Message    string        `json:"message"`
+	Session     string        `json:"session"`
+	Panes       []int         `json:"panes"`
+	Interval    string        `json:"interval"`
+	Thresholds  MonitorThresh `json:"thresholds"`
+	CautEnabled bool          `json:"caut_enabled"`
+	Message     string        `json:"message"`
 }
 
 // MonitorThresh contains the configured thresholds.

@@ -338,10 +338,10 @@ func TestDetectShellEnv(t *testing.T) {
 	defer os.Setenv("SHELL", originalShell)
 
 	tests := []struct {
-		name      string
-		shell     string
-		wantType  string
-		wantNil   bool
+		name     string
+		shell    string
+		wantType string
+		wantNil  bool
 	}{
 		{"zsh", "/bin/zsh", "zsh", false},
 		{"bash", "/bin/bash", "bash", false},
@@ -491,10 +491,10 @@ func TestDetectShellEnv_NoHome(t *testing.T) {
 
 func TestTargetingInfo_SpecialSessionNames(t *testing.T) {
 	tests := []struct {
-		name           string
-		sessionName    string
-		wantAgent      string
-		wantControl    string
+		name        string
+		sessionName string
+		wantAgent   string
+		wantControl string
 	}{
 		{
 			name:        "simple name",

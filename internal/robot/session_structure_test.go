@@ -7,10 +7,10 @@ import (
 // TestSessionStructure_PaneTarget tests target string generation.
 func TestSessionStructure_PaneTarget(t *testing.T) {
 	tests := []struct {
-		name        string
-		structure   SessionStructure
-		paneIndex   int
-		expected    string
+		name      string
+		structure SessionStructure
+		paneIndex int
+		expected  string
 	}{
 		{
 			name: "standard NTM pane target",
@@ -55,9 +55,9 @@ func TestSessionStructure_PaneTarget(t *testing.T) {
 // TestSessionStructure_AgentPaneTargets tests agent target generation.
 func TestSessionStructure_AgentPaneTargets(t *testing.T) {
 	tests := []struct {
-		name        string
-		structure   SessionStructure
-		expected    []string
+		name      string
+		structure SessionStructure
+		expected  []string
 	}{
 		{
 			name: "standard 3-agent layout",
@@ -169,12 +169,12 @@ func TestSessionStructure_IsValidAgentPane(t *testing.T) {
 		paneIndex int
 		expected  bool
 	}{
-		{1, false},  // control pane, not agent
-		{2, true},   // valid agent pane
-		{3, true},   // valid agent pane
-		{4, true},   // valid agent pane
-		{5, false},  // doesn't exist
-		{0, false},  // doesn't exist
+		{1, false}, // control pane, not agent
+		{2, true},  // valid agent pane
+		{3, true},  // valid agent pane
+		{4, true},  // valid agent pane
+		{5, false}, // doesn't exist
+		{0, false}, // doesn't exist
 	}
 
 	for _, tt := range tests {

@@ -568,10 +568,10 @@ func TestCostAggregationMultiAgent(t *testing.T) {
 		input  int
 		output int
 	}{
-		{"pane1", "claude-opus", 10000, 5000},     // $0.525
-		{"pane2", "claude-sonnet", 20000, 10000},  // $0.21
-		{"pane3", "claude-haiku", 100000, 50000},  // $0.0875
-		{"pane4", "gpt-4o", 10000, 5000},          // $0.125
+		{"pane1", "claude-opus", 10000, 5000},    // $0.525
+		{"pane2", "claude-sonnet", 20000, 10000}, // $0.21
+		{"pane3", "claude-haiku", 100000, 50000}, // $0.0875
+		{"pane4", "gpt-4o", 10000, 5000},         // $0.125
 	}
 
 	for _, a := range agents {
@@ -771,8 +771,8 @@ func TestEdgeCases(t *testing.T) {
 		t.Parallel()
 
 		agent := &AgentCost{
-			InputTokens:  10000000,  // 10M tokens
-			OutputTokens: 5000000,   // 5M tokens
+			InputTokens:  10000000, // 10M tokens
+			OutputTokens: 5000000,  // 5M tokens
 			Model:        "claude-opus",
 		}
 

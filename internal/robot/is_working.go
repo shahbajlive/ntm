@@ -54,17 +54,17 @@ type WorkIndicators struct {
 
 // PaneWorkStatus contains the work state for a single pane.
 type PaneWorkStatus struct {
-	AgentType            string          `json:"agent_type"`
-	IsWorking            bool            `json:"is_working"`
-	IsIdle               bool            `json:"is_idle"`
-	IsRateLimited        bool            `json:"is_rate_limited"`
-	IsContextLow         bool            `json:"is_context_low"`
-	ContextRemaining     *float64        `json:"context_remaining,omitempty"`
-	Confidence           float64         `json:"confidence"`
-	Indicators           WorkIndicators  `json:"indicators"`
-	Recommendation       string          `json:"recommendation"`
-	RecommendationReason string          `json:"recommendation_reason"`
-	RawSample            string          `json:"raw_sample,omitempty"` // Only with --verbose
+	AgentType            string         `json:"agent_type"`
+	IsWorking            bool           `json:"is_working"`
+	IsIdle               bool           `json:"is_idle"`
+	IsRateLimited        bool           `json:"is_rate_limited"`
+	IsContextLow         bool           `json:"is_context_low"`
+	ContextRemaining     *float64       `json:"context_remaining,omitempty"`
+	Confidence           float64        `json:"confidence"`
+	Indicators           WorkIndicators `json:"indicators"`
+	Recommendation       string         `json:"recommendation"`
+	RecommendationReason string         `json:"recommendation_reason"`
+	RawSample            string         `json:"raw_sample,omitempty"` // Only with --verbose
 }
 
 // IsWorkingSummary provides aggregate statistics across all panes.
