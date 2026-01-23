@@ -16,8 +16,9 @@ import (
 
 func newSummaryCmd() *cobra.Command {
 	var (
-		since  string
-		format string
+		since   string
+		format  string
+		listAll bool
 	)
 
 	cmd := &cobra.Command{
@@ -38,15 +39,20 @@ Examples:
   ntm summary                      # Auto-detect session
   ntm summary myproject            # Specific session
   ntm summary --since 1h           # Look back 1 hour
-  ntm summary --json               # Output as JSON`,
+  ntm summary --json               # Output as JSON
+  ntm summary --all                # List all available sessions`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if listAll {
+				return runSummaryList(format)
+			}
 			return runSummary(args, since, format)
 		},
 	}
 
 	cmd.Flags().StringVar(&since, "since", "30m", "Duration to look back (e.g., 30m, 1h)")
 	cmd.Flags().StringVar(&format, "format", "text", "Output format: text, json, detailed, or handoff")
+	cmd.Flags().BoolVar(&listAll, "all", false, "List all available sessions")
 
 	return cmd
 }

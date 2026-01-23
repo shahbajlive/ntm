@@ -54,6 +54,7 @@ type Monitor struct {
 	agents map[string]*AgentState // keyed by pane ID
 	cancel context.CancelFunc
 	done   chan struct{}
+	wg     sync.WaitGroup // Waits for background tasks on shutdown
 }
 
 // NewMonitor creates a new resilience monitor for a session
@@ -184,6 +185,7 @@ func (m *Monitor) Stop() {
 	}
 	m.cancel()
 	<-m.done
+	m.wg.Wait()
 }
 
 // GetRestartCount returns the number of restarts for an agent
@@ -321,7 +323,9 @@ func (m *Monitor) handleRateLimit(agent *AgentState, waitSeconds int) {
 	rotateConfig := m.cfg.Rotation
 
 	// Run notifications and rotation triggers asynchronously
+	m.wg.Add(1)
 	go func() {
+		defer m.wg.Done()
 		// Send rate limit notification if enabled
 		if notifyEnabled && m.notifier != nil {
 			event := notify.NewRateLimitEvent(session, paneID, agentType, waitSeconds)
@@ -397,7 +401,9 @@ func (m *Monitor) handleCrash(ctx context.Context, agent *AgentState, reason str
 	currentRestarts := agent.RestartCount
 
 	// Run notifications asynchronously
+	m.wg.Add(1)
 	go func() {
+		defer m.wg.Done()
 		// Send crash notification if enabled
 		if notifyCrash && m.notifier != nil {
 			event := notify.NewAgentCrashedEvent(session, paneID, agentType)
@@ -431,7 +437,11 @@ func (m *Monitor) handleCrash(ctx context.Context, agent *AgentState, reason str
 	// Attempt restart if enabled and under the limit
 	if m.autoRestart && agent.RestartCount < m.cfg.Resilience.MaxRestarts {
 		// Schedule restart
-		go m.restartAgent(ctx, agent)
+		m.wg.Add(1)
+		go func() {
+			defer m.wg.Done()
+			m.restartAgent(ctx, agent)
+		}()
 	} else {
 		if !m.autoRestart {
 			log.Printf("[resilience] Auto-restart disabled. Agent %s stopped.", agent.PaneID)

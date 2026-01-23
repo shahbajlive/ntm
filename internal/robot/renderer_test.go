@@ -761,7 +761,7 @@ func TestRenderSnapshotsJSONAndTOON(t *testing.T) {
 			t.Fatalf("Render(TOON) error: %v", err)
 		}
 
-		expectedTOON := "error: \"\"\nerror_code: \"\"\nhint: \"\"\nsuccess: true\ntimestamp: \"2026-01-01T00:00:00Z\"\n"
+		expectedTOON := "error: \"\"\nerror_code: \"\"\nhint: \"\"\nstructured_error: null\nsuccess: true\ntimestamp: \"2026-01-01T00:00:00Z\"\n"
 		if toonOutput != expectedTOON {
 			t.Errorf("RobotResponse TOON snapshot mismatch:\n--- got ---\n%s--- want ---\n%s", toonOutput, expectedTOON)
 		}

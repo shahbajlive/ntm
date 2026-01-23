@@ -128,6 +128,22 @@ func runSSHContext(ctx context.Context, args ...string) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	// Inject /bin/sh -c to ensure consistent shell behavior for the remote command.
+	// The args passed here are already built by buildRemoteShellCommand, which
+	// produces a single string like "tmux 'arg1' 'arg2'".
+	// We want: ssh host /bin/sh -c "tmux 'arg1' 'arg2'"
+	//
+	// args[0] is flags like "-t"
+	// args[1] is "--"
+	// args[2] is remote host
+	// args[3] is the command string
+	
+	if len(args) > 0 {
+		commandIndex := len(args) - 1
+		originalCommand := args[commandIndex]
+		args[commandIndex] = fmt.Sprintf("/bin/sh -c %s", ShellQuote(originalCommand))
+	}
+
 	cmd := exec.CommandContext(ctx, "ssh", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

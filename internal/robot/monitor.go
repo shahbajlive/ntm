@@ -160,7 +160,7 @@ func (m *Monitor) checkPane(ctx context.Context, pane int) error {
 	target := fmt.Sprintf("%s:1.%d", m.config.Session, pane)
 
 	// Capture output
-	output, err := tmux.CapturePaneOutput(target, m.config.LinesCaptured)
+	output, err := tmux.CapturePaneOutputContext(ctx, target, m.config.LinesCaptured)
 	if err != nil {
 		return err
 	}
