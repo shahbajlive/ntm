@@ -21,6 +21,7 @@ func TestPrintSpawn(t *testing.T) {
 		Session:    "test_spawn_robot",
 		CCCount:    1,
 		NoUserPane: true,
+		WorkingDir: t.TempDir(), // Use temp dir to avoid creating dirs in /data/projects
 	}
 
 	cfg := config.Default()
@@ -350,7 +351,8 @@ func TestSpawnOptions_MultipleAgentTypes(t *testing.T) {
 		CCCount:    1,
 		CodCount:   1,
 		GmiCount:   1,
-		NoUserPane: false, // Include user pane
+		NoUserPane: false,      // Include user pane
+		WorkingDir: t.TempDir(), // Use temp dir to avoid creating dirs in /data/projects
 	}
 
 	cfg := config.Default()

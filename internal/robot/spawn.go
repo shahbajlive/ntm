@@ -32,6 +32,7 @@ type SpawnOptions struct {
 
 // SpawnOutput is the structured output for --robot-spawn.
 type SpawnOutput struct {
+	RobotResponse
 	Session        string            `json:"session"`
 	CreatedAt      string            `json:"created_at"`
 	PresetUsed     string            `json:"preset_used,omitempty"`
@@ -88,6 +89,7 @@ func PrintSpawn(opts SpawnOptions, cfg *config.Config) error {
 	startTime := time.Now()
 
 	output := SpawnOutput{
+		RobotResponse: NewRobotResponse(true),
 		Session:    opts.Session,
 		CreatedAt:  startTime.UTC().Format(time.RFC3339),
 		PresetUsed: opts.Preset,
@@ -98,18 +100,21 @@ func PrintSpawn(opts SpawnOptions, cfg *config.Config) error {
 	// Validate session name
 	if err := tmux.ValidateSessionName(opts.Session); err != nil {
 		output.Error = fmt.Sprintf("invalid session name: %v", err)
+		output.RobotResponse = NewErrorResponse(err, ErrCodeInvalidFlag, "Use a valid tmux session name")
 		return encodeJSON(output)
 	}
 
 	// Check tmux availability
 	if !tmux.IsInstalled() {
 		output.Error = "tmux is not installed"
+		output.RobotResponse = NewErrorResponse(fmt.Errorf(output.Error), ErrCodeDependencyMissing, "Install tmux to spawn sessions")
 		return encodeJSON(output)
 	}
 
 	// Safety check: fail if session already exists (when --spawn-safety is enabled)
 	if opts.Safety && tmux.SessionExists(opts.Session) {
 		output.Error = fmt.Sprintf("session '%s' already exists (--spawn-safety mode prevents reuse; use 'ntm kill %s' first)", opts.Session, opts.Session)
+		output.RobotResponse = NewErrorResponse(fmt.Errorf(output.Error), ErrCodeInvalidFlag, "Choose a new session name or disable --spawn-safety")
 		return encodeJSON(output)
 	}
 
@@ -123,6 +128,7 @@ func PrintSpawn(opts SpawnOptions, cfg *config.Config) error {
 		dir, err = os.Getwd()
 		if err != nil {
 			output.Error = fmt.Sprintf("could not determine working directory: %v", err)
+			output.RobotResponse = NewErrorResponse(err, ErrCodeInternalError, "Check working directory permissions")
 			return encodeJSON(output)
 		}
 	}
@@ -136,15 +142,10 @@ func PrintSpawn(opts SpawnOptions, cfg *config.Config) error {
 	// handoffCtx is available for use in work prompts below
 	_ = handoffCtx // silence unused warning when not in orchestrator mode
 
-	// Ensure directory exists
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		output.Error = fmt.Sprintf("creating directory: %v", err)
-		return encodeJSON(output)
-	}
-
 	totalAgents := opts.CCCount + opts.CodCount + opts.GmiCount
 	if totalAgents == 0 {
 		output.Error = "no agents specified (use cc, cod, or gmi counts)"
+		output.RobotResponse = NewErrorResponse(fmt.Errorf(output.Error), ErrCodeInvalidFlag, "Specify at least one agent count")
 		return encodeJSON(output)
 	}
 
@@ -202,11 +203,19 @@ func PrintSpawn(opts SpawnOptions, cfg *config.Config) error {
 		return encodeJSON(output)
 	}
 
+	// Ensure directory exists (only for real spawns, not dry-run)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		output.Error = fmt.Sprintf("creating directory: %v", err)
+		output.RobotResponse = NewErrorResponse(err, ErrCodeInternalError, "Check directory permissions")
+		return encodeJSON(output)
+	}
+
 	// Create session if it doesn't exist
 	sessionCreated := false
 	if !tmux.SessionExists(opts.Session) {
 		if err := tmux.CreateSession(opts.Session, dir); err != nil {
 			output.Error = fmt.Sprintf("creating session: %v", err)
+			output.RobotResponse = NewErrorResponse(err, ErrCodeInternalError, "Check tmux availability and session name")
 			return encodeJSON(output)
 		}
 		sessionCreated = true
@@ -216,6 +225,7 @@ func PrintSpawn(opts SpawnOptions, cfg *config.Config) error {
 	panes, err := tmux.GetPanes(opts.Session)
 	if err != nil {
 		output.Error = fmt.Sprintf("getting panes: %v", err)
+		output.RobotResponse = NewErrorResponse(err, ErrCodeInternalError, "Check tmux session state")
 		return encodeJSON(output)
 	}
 
@@ -226,6 +236,7 @@ func PrintSpawn(opts SpawnOptions, cfg *config.Config) error {
 		for i := 0; i < toAdd; i++ {
 			if _, err := tmux.SplitWindow(opts.Session, dir); err != nil {
 				output.Error = fmt.Sprintf("creating pane: %v", err)
+				output.RobotResponse = NewErrorResponse(err, ErrCodeInternalError, "Check tmux pane layout constraints")
 				return encodeJSON(output)
 			}
 		}
@@ -235,6 +246,7 @@ func PrintSpawn(opts SpawnOptions, cfg *config.Config) error {
 	panes, err = tmux.GetPanes(opts.Session)
 	if err != nil {
 		output.Error = fmt.Sprintf("getting panes: %v", err)
+		output.RobotResponse = NewErrorResponse(err, ErrCodeInternalError, "Check tmux session state")
 		return encodeJSON(output)
 	}
 

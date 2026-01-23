@@ -30,6 +30,7 @@ import (
 
 // CASSStatusOutput represents the output for --robot-cass-status
 type CASSStatusOutput struct {
+	RobotResponse
 	CASSAvailable bool           `json:"cass_available"`
 	Healthy       bool           `json:"healthy"`
 	Index         CASSIndexStats `json:"index"`
@@ -49,10 +50,21 @@ func PrintCASSStatus() error {
 	client := cass.NewClient()
 	status, err := client.Status(context.Background())
 
+	cassAvailable := client.IsInstalled()
 	output := CASSStatusOutput{
-		CASSAvailable: client.IsInstalled(),
+		RobotResponse: NewRobotResponse(true),
+		CASSAvailable: cassAvailable,
 		Healthy:       false,
 		Index:         CASSIndexStats{},
+	}
+
+	if !cassAvailable {
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("cass not installed"),
+			ErrCodeDependencyMissing,
+			"Install cass to enable search and context",
+		)
+		return encodeJSON(output)
 	}
 
 	if err == nil {
@@ -62,6 +74,12 @@ func PrintCASSStatus() error {
 		output.Index.LastIndexedAt = status.LastIndexedAt.Time.UnixMilli()
 		output.Index.Conversations = status.Conversations
 		output.Index.Messages = status.Messages
+	} else {
+		output.RobotResponse = NewErrorResponse(
+			err,
+			ErrCodeInternalError,
+			"Check cass index health and configuration",
+		)
 	}
 
 	return encodeJSON(output)
@@ -69,6 +87,7 @@ func PrintCASSStatus() error {
 
 // CASSSearchOutput represents the output for --robot-cass-search
 type CASSSearchOutput struct {
+	RobotResponse
 	Query        string          `json:"query"`
 	Count        int             `json:"count"`
 	TotalMatches int             `json:"total_matches"`
@@ -88,6 +107,18 @@ type CASSSearchHit struct {
 // PrintCASSSearch outputs search results as JSON
 func PrintCASSSearch(query, agent, workspace, since string, limit int) error {
 	client := cass.NewClient()
+	if !client.IsInstalled() {
+		output := CASSSearchOutput{
+			RobotResponse: NewErrorResponse(
+				fmt.Errorf("cass not installed"),
+				ErrCodeDependencyMissing,
+				"Install cass to enable search",
+			),
+			Query: query,
+			Hits:  []CASSSearchHit{},
+		}
+		return encodeJSON(output)
+	}
 	resp, err := client.Search(context.Background(), cass.SearchOptions{
 		Query:     query,
 		Agent:     agent,
@@ -97,10 +128,20 @@ func PrintCASSSearch(query, agent, workspace, since string, limit int) error {
 	})
 
 	if err != nil {
-		return fmt.Errorf("search failed: %w", err)
+		output := CASSSearchOutput{
+			RobotResponse: NewErrorResponse(
+				err,
+				ErrCodeInternalError,
+				"Check cass index health and query parameters",
+			),
+			Query: query,
+			Hits:  []CASSSearchHit{},
+		}
+		return encodeJSON(output)
 	}
 
 	output := CASSSearchOutput{
+		RobotResponse: NewRobotResponse(true),
 		Query:        resp.Query,
 		Count:        resp.Count,
 		TotalMatches: resp.TotalMatches,
@@ -127,6 +168,7 @@ func PrintCASSSearch(query, agent, workspace, since string, limit int) error {
 
 // CASSInsightsOutput represents the output for --robot-cass-insights
 type CASSInsightsOutput struct {
+	RobotResponse
 	Period string                   `json:"period"`
 	Agents map[string]interface{}   `json:"agents"`
 	Topics []map[string]interface{} `json:"topics"`
@@ -136,6 +178,20 @@ type CASSInsightsOutput struct {
 // PrintCASSInsights outputs aggregated insights as JSON
 func PrintCASSInsights() error {
 	client := cass.NewClient()
+	if !client.IsInstalled() {
+		output := CASSInsightsOutput{
+			RobotResponse: NewErrorResponse(
+				fmt.Errorf("cass not installed"),
+				ErrCodeDependencyMissing,
+				"Install cass to enable insights",
+			),
+			Period: "7d",
+			Agents: map[string]interface{}{},
+			Topics: []map[string]interface{}{},
+			Errors: []map[string]interface{}{},
+		}
+		return encodeJSON(output)
+	}
 	// Get aggregations for the last 7 days by default
 	resp, err := client.Search(context.Background(), cass.SearchOptions{
 		Query: "*",
@@ -144,10 +200,22 @@ func PrintCASSInsights() error {
 	})
 
 	if err != nil {
-		return fmt.Errorf("insights failed: %w", err)
+		output := CASSInsightsOutput{
+			RobotResponse: NewErrorResponse(
+				err,
+				ErrCodeInternalError,
+				"Check cass index health and configuration",
+			),
+			Period: "7d",
+			Agents: map[string]interface{}{},
+			Topics: []map[string]interface{}{},
+			Errors: []map[string]interface{}{},
+		}
+		return encodeJSON(output)
 	}
 
 	output := CASSInsightsOutput{
+		RobotResponse: NewRobotResponse(true),
 		Period: "7d",
 		Agents: map[string]interface{}{},
 		Topics: []map[string]interface{}{},
@@ -179,6 +247,7 @@ func PrintCASSInsights() error {
 
 // CASSContextOutput represents output for --robot-cass-context
 type CASSContextOutput struct {
+	RobotResponse
 	Query            string               `json:"query"`
 	RelevantSessions []CASSContextSession `json:"relevant_sessions"`
 	SuggestedContext string               `json:"suggested_context"`
@@ -196,6 +265,18 @@ type CASSContextSession struct {
 // PrintCASSContext outputs relevant past context for spawning
 func PrintCASSContext(query string) error {
 	client := cass.NewClient()
+	if !client.IsInstalled() {
+		output := CASSContextOutput{
+			RobotResponse: NewErrorResponse(
+				fmt.Errorf("cass not installed"),
+				ErrCodeDependencyMissing,
+				"Install cass to enable context search",
+			),
+			Query:            query,
+			RelevantSessions: []CASSContextSession{},
+		}
+		return encodeJSON(output)
+	}
 	// Search for relevant sessions
 	resp, err := client.Search(context.Background(), cass.SearchOptions{
 		Query: query,
@@ -207,6 +288,7 @@ func PrintCASSContext(query string) error {
 	}
 
 	output := CASSContextOutput{
+		RobotResponse:     NewRobotResponse(true),
 		Query:            query,
 		RelevantSessions: []CASSContextSession{},
 	}
@@ -824,6 +906,7 @@ type SystemInfo struct {
 
 // StatusOutput is the structured output for robot-status
 type StatusOutput struct {
+	RobotResponse
 	GeneratedAt  time.Time          `json:"generated_at"`
 	System       SystemInfo         `json:"system"`
 	Sessions     []SessionInfo      `json:"sessions"`
@@ -914,6 +997,7 @@ type StatusSummary struct {
 
 // PlanOutput provides an execution plan for what can be done
 type PlanOutput struct {
+	RobotResponse
 	GeneratedAt    time.Time    `json:"generated_at"`
 	Recommendation string       `json:"recommendation"`
 	Actions        []PlanAction `json:"actions"`
@@ -959,70 +1043,83 @@ type PlanAction struct {
 func PrintHelp() {
 	help := `ntm (Named Tmux Manager) AI Agent Interface
 =============================================
-This tool helps AI agents manage tmux sessions with multiple coding assistants.
+Robot mode provides a JSON API for AI agents to orchestrate coding sessions.
 
-Commands for AI Agents:
------------------------
+API Design Principles (see docs/robot-api-design.md):
+-----------------------------------------------------
+1. Global commands: bool flags (--robot-status, --robot-plan)
+2. Session-scoped: =SESSION syntax (--robot-send=myproj, --robot-tail=myproj)
+3. Modifiers: unprefixed global flags (--limit, --since, --type)
+4. Output: JSON by default, TOON for token-efficient (--robot-format=toon)
 
---robot-status
-    Outputs JSON with all session information and agent counts.
-    Key fields:
-    - sessions: Array of active sessions with their agents
-    - summary: Aggregate counts (total_agents, claude_count, etc.)
-    - system: Version, OS, tmux availability
+Core Commands:
+--------------
+--robot-status          Session state, agents, alerts (start here)
+--robot-snapshot        Unified state: sessions + beads + alerts + mail
+--robot-capabilities    Machine-discoverable API schema
 
---robot-plan
-    Outputs a recommended execution plan based on current state.
-    Key fields:
-    - recommendation: What to do first
-    - actions: Prioritized list of commands to run
-    - warnings: Issues that need attention
-
---robot-sessions
-    Outputs minimal session list for quick lookup.
-    Faster than --robot-status when you only need names.
-
---robot-send <session> --msg="prompt" [options]
-    Send prompts to multiple panes atomically with structured result.
-    Options:
-    --all          Send to all panes (including user)
-    --panes=X,Y,Z  Specific pane indices
-    --type=claude  Filter by agent type (claude, codex, gemini)
-    --exclude=X,Y  Exclude specific panes
-    --delay-ms=100 Stagger sends to avoid thundering herd
-
-    Output includes:
-    - session: Target session name
-    - sent_at: Timestamp of send operation
-    - targets: Panes that were targeted
-    - successful: Panes where send succeeded
-    - failed: Array of {pane, error} for failures
-    - message_preview: First 50 chars of message
-
---robot-version
-    Outputs version info as JSON.
-
-Common Workflows:
------------------
-
-1) Start a coding session:
-   ntm spawn myproject --cc=2 --cod=1 --gem=1 --json
-
-2) Check session state:
-   ntm status --robot-status
-
-3) Send a prompt to all agents:
-   ntm send myproject --all "implement feature X"
-
-4) Get output from a specific agent:
-   ntm copy myproject:1 --last=50
-
-Tips for AI Agents:
+Session Operations:
 -------------------
-- Use --json flag on spawn/create for structured output
-- Parse ntm status --robot-status to understand current state
-- Use ntm send --all for broadcast, --pane=N for targeted
-- Output is always UTF-8 JSON, one object per line where applicable
+--robot-spawn=SESSION   Create session with --spawn-cc=N, --spawn-cod=N, --spawn-gmi=N
+--robot-send=SESSION    Send prompts (--msg="text", --panes=1,2, --type=claude)
+--robot-tail=SESSION    Capture pane output (--lines=50, --panes=1,2)
+--robot-interrupt=SESSION  Ctrl+C to agents (--interrupt-msg="new task")
+--robot-is-working=SESSION Check if agents are busy
+--robot-wait=SESSION    Wait for idle state (--timeout=5m, --condition=idle)
+
+Work Distribution:
+------------------
+--robot-assign=SESSION  Get assignment recommendations (--strategy=balanced)
+--robot-bulk-assign=SESSION  Batch assign beads (--from-bv)
+
+Analysis & Monitoring:
+----------------------
+--robot-triage          Prioritized work recommendations
+--robot-graph           Dependency graph insights
+--robot-context=SESSION Context window usage
+--robot-agent-health=SESSION  Comprehensive health check
+--robot-diagnose=SESSION Diagnose issues with fix recommendations
+
+Tool Bridges:
+-------------
+--robot-cass-search=QUERY    Search past conversations (--limit=20, --since=7d)
+--robot-jfp-search=QUERY     Search prompts library
+--robot-tokens               Token usage stats (--days=30, --group-by=agent)
+--robot-history=SESSION      Command history (--last=10)
+
+Bead Management:
+----------------
+--robot-beads-list      List beads (--status=open, --priority=P0-P1)
+--robot-bead-claim=ID   Claim a bead (--bead-assignee=agent-1)
+--robot-bead-create     Create bead (--bead-title="Fix bug")
+--robot-bead-close=ID   Close bead (--bead-close-reason="done")
+
+Output Formats:
+---------------
+--robot-format=json     Full JSON (default)
+--robot-format=toon     Token-efficient format
+--robot-markdown        Markdown tables (~50% fewer tokens)
+--robot-terse           Single-line state summary
+
+Common Modifiers:
+-----------------
+--limit=N       Max results (works with search, list commands)
+--since=DURATION  Time filter (1d, 7d, 30d, ISO8601, or duration like 1h)
+--type=TYPE     Agent type filter (claude, codex, gemini)
+--panes=X,Y     Pane filter (comma-separated indices)
+--dry-run       Preview without executing
+--verbose       Detailed output
+
+Quick Start:
+------------
+1) Create session:    ntm --robot-spawn=proj --spawn-cc=2 --spawn-wait
+2) Check state:       ntm --robot-status
+3) Send prompt:       ntm --robot-send=proj --msg="implement auth" --track
+4) Monitor progress:  ntm --robot-is-working=proj
+5) Get output:        ntm --robot-tail=proj --lines=100
+
+For complete API documentation: docs/robot-api-design.md
+For machine-readable schema:    ntm --robot-capabilities
 `
 	fmt.Println(help)
 }
@@ -1036,6 +1133,7 @@ func PrintStatus() error {
 	}
 
 	output := StatusOutput{
+		RobotResponse: NewRobotResponse(true),
 		GeneratedAt: time.Now().UTC(),
 		System: SystemInfo{
 			Version:   Version,
@@ -1046,8 +1144,11 @@ func PrintStatus() error {
 			Arch:      runtime.GOARCH,
 			TmuxOK:    tmux.IsInstalled(),
 		},
-		Sessions: []SessionInfo{},
-		Summary:  StatusSummary{},
+		Sessions:    []SessionInfo{},
+		Summary:     StatusSummary{},
+		Alerts:      []StatusAlert{},
+		FileChanges: []FileChangeInfo{},
+		Conflicts:   []tracker.Conflict{},
 	}
 
 	// Get all sessions
@@ -1063,6 +1164,7 @@ func PrintStatus() error {
 			Exists:   true,
 			Attached: sess.Attached,
 			Windows:  sess.Windows,
+			Agents:   []Agent{},
 		}
 
 		// Try to get agents from panes
@@ -1745,6 +1847,7 @@ func PrintSessions() error {
 // PrintPlan outputs an execution plan
 func PrintPlan() error {
 	plan := PlanOutput{
+		RobotResponse: NewRobotResponse(true),
 		GeneratedAt: time.Now().UTC(),
 		Actions:     []PlanAction{},
 		BeadActions: []BeadAction{},
@@ -2427,6 +2530,7 @@ func buildSnapshotAgentMail() *SnapshotAgentMail {
 
 // SnapshotOutput provides complete system state for AI orchestration
 type SnapshotOutput struct {
+	RobotResponse
 	Timestamp      string             `json:"ts"`
 	Sessions       []SnapshotSession  `json:"sessions"`
 	BeadsSummary   *bv.BeadsSummary   `json:"beads_summary,omitempty"`
@@ -2507,6 +2611,7 @@ func PrintSnapshot(cfg *config.Config) error {
 		cfg = config.Default()
 	}
 	output := SnapshotOutput{
+		RobotResponse: NewRobotResponse(true),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Sessions:  []SnapshotSession{},
 		Alerts:    []string{},
@@ -2514,6 +2619,11 @@ func PrintSnapshot(cfg *config.Config) error {
 
 	// Check tmux availability
 	if !tmux.IsInstalled() {
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("tmux is not installed"),
+			ErrCodeDependencyMissing,
+			"Install tmux to enable snapshot",
+		)
 		output.Alerts = append(output.Alerts, "tmux is not installed")
 		return encodeJSON(output)
 	}
@@ -3100,6 +3210,7 @@ func truncateMessage(msg string) string {
 
 // SnapshotDeltaOutput provides changes since a given timestamp.
 type SnapshotDeltaOutput struct {
+	RobotResponse
 	Timestamp string   `json:"ts"`
 	Since     string   `json:"since"`
 	Changes   []Change `json:"changes"`
@@ -3117,6 +3228,7 @@ type Change struct {
 // Uses the internal state tracker ring buffer to return delta changes.
 func PrintSnapshotDelta(since time.Time) error {
 	output := SnapshotDeltaOutput{
+		RobotResponse: NewRobotResponse(true),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Since:     since.Format(time.RFC3339),
 		Changes:   []Change{},
@@ -3158,6 +3270,7 @@ func GetStateTracker() *tracker.StateTracker {
 
 // GraphOutput provides project graph analysis from bv
 type GraphOutput struct {
+	RobotResponse
 	GeneratedAt time.Time            `json:"generated_at"`
 	Available   bool                 `json:"available"`
 	Error       string               `json:"error,omitempty"`
@@ -3213,12 +3326,18 @@ type GraphMailSummary struct {
 // PrintGraph outputs bv graph insights for AI consumption
 func PrintGraph() error {
 	output := GraphOutput{
+		RobotResponse: NewRobotResponse(true),
 		GeneratedAt: time.Now().UTC(),
 		Available:   bv.IsInstalled(),
 	}
 
 	if !bv.IsInstalled() {
 		output.Error = "bv (beads_viewer) is not installed"
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf(output.Error),
+			ErrCodeDependencyMissing,
+			"Install bv to enable graph insights",
+		)
 		// Even if bv is missing, still attempt correlation to provide partial data.
 	} else {
 		wd := mustGetwd()
@@ -3227,6 +3346,11 @@ func PrintGraph() error {
 		insights, err := bv.GetInsights(wd)
 		if err != nil {
 			output.Error = fmt.Sprintf("failed to get insights: %v", err)
+			output.RobotResponse = NewErrorResponse(
+				err,
+				ErrCodeInternalError,
+				"Check bv graph data and repository state",
+			)
 		} else {
 			output.Insights = insights
 		}
@@ -3610,6 +3734,7 @@ func getBeadNeighbors(dir, issueID, direction string) ([]string, []bdDepTreeNode
 
 // AlertsOutput provides machine-readable alert information
 type AlertsOutput struct {
+	RobotResponse
 	GeneratedAt time.Time        `json:"generated_at"`
 	Enabled     bool             `json:"enabled"`
 	Active      []AlertInfo      `json:"active"`
@@ -3626,6 +3751,7 @@ func PrintAlertsDetailed(includeResolved bool) error {
 	summary := tracker.Summary()
 
 	output := AlertsOutput{
+		RobotResponse: NewRobotResponse(true),
 		GeneratedAt: time.Now().UTC(),
 		Enabled:     alertCfg.Enabled,
 		Active:      make([]AlertInfo, len(active)),
@@ -3693,6 +3819,7 @@ type RecipeAgentInfo struct {
 
 // RecipesOutput is the structured output for --robot-recipes
 type RecipesOutput struct {
+	RobotResponse
 	GeneratedAt time.Time    `json:"generated_at"`
 	Count       int          `json:"count"`
 	Recipes     []RecipeInfo `json:"recipes"`
@@ -3705,6 +3832,11 @@ func PrintRecipes() error {
 	if err != nil {
 		// Return empty list on error
 		return encodeJSON(RecipesOutput{
+			RobotResponse: NewErrorResponse(
+				err,
+				ErrCodeInternalError,
+				"Check recipe configuration and file paths",
+			),
 			GeneratedAt: time.Now().UTC(),
 			Count:       0,
 			Recipes:     []RecipeInfo{},
@@ -3712,6 +3844,7 @@ func PrintRecipes() error {
 	}
 
 	output := RecipesOutput{
+		RobotResponse: NewRobotResponse(true),
 		GeneratedAt: time.Now().UTC(),
 		Count:       len(recipes),
 		Recipes:     make([]RecipeInfo, len(recipes)),
@@ -4756,6 +4889,7 @@ type TriageOptions struct {
 
 // TriageOutput is the robot-triage JSON output structure
 type TriageOutput struct {
+	RobotResponse
 	GeneratedAt     time.Time                 `json:"generated_at"`
 	Available       bool                      `json:"available"`
 	DataHash        string                    `json:"data_hash,omitempty"`
@@ -4783,12 +4917,18 @@ func PrintTriage(opts TriageOptions) error {
 	}
 
 	output := TriageOutput{
+		RobotResponse: NewRobotResponse(true),
 		GeneratedAt: time.Now().UTC(),
 		Available:   bv.IsInstalled(),
 	}
 
 	if !bv.IsInstalled() {
 		output.Error = "bv (beads_viewer) is not installed"
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf(output.Error),
+			ErrCodeDependencyMissing,
+			"Install bv to enable triage",
+		)
 		return encodeJSON(output)
 	}
 
@@ -4798,11 +4938,21 @@ func PrintTriage(opts TriageOptions) error {
 	triage, err := bv.GetTriage(wd)
 	if err != nil {
 		output.Error = fmt.Sprintf("failed to get triage: %v", err)
+		output.RobotResponse = NewErrorResponse(
+			err,
+			ErrCodeInternalError,
+			"Check bv triage cache and repository state",
+		)
 		return encodeJSON(output)
 	}
 
 	if triage == nil {
 		output.Error = "no triage data returned"
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf(output.Error),
+			ErrCodeInternalError,
+			"Rebuild bv cache or retry triage",
+		)
 		return encodeJSON(output)
 	}
 

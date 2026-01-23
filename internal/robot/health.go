@@ -18,6 +18,7 @@ import (
 
 // HealthOutput provides a focused project health summary for AI agents
 type HealthOutput struct {
+	RobotResponse
 	CheckedAt time.Time `json:"checked_at"`
 
 	// System-level health
@@ -79,6 +80,7 @@ const noOutputThreshold = 300 // 5 minutes
 // PrintHealth outputs a focused project health summary for AI consumption
 func PrintHealth() error {
 	output := HealthOutput{
+		RobotResponse: NewRobotResponse(true),
 		CheckedAt:   time.Now().UTC(),
 		BvAvailable: bv.IsInstalled(),
 		BdAvailable: bv.IsBdInstalled(),
@@ -718,12 +720,11 @@ func calculateHealthConfidence(check *HealthCheck) float64 {
 
 // SessionHealthOutput is the response format for --robot-health=SESSION
 type SessionHealthOutput struct {
-	Success   bool                 `json:"success"`
+	RobotResponse
 	Session   string               `json:"session"`
 	CheckedAt time.Time            `json:"checked_at"`
 	Agents    []SessionAgentHealth `json:"agents"`
 	Summary   SessionHealthSummary `json:"summary"`
-	Error     string               `json:"error,omitempty"`
 }
 
 // SessionAgentHealth contains health metrics for a single agent pane
@@ -751,7 +752,7 @@ type SessionHealthSummary struct {
 // PrintSessionHealth outputs per-agent health for a specific session
 func PrintSessionHealth(session string) error {
 	output := SessionHealthOutput{
-		Success:   true,
+		RobotResponse: NewRobotResponse(true),
 		Session:   session,
 		CheckedAt: time.Now().UTC(),
 		Agents:    []SessionAgentHealth{},
@@ -760,16 +761,22 @@ func PrintSessionHealth(session string) error {
 
 	// Check if session exists
 	if !tmux.SessionExists(session) {
-		output.Success = false
-		output.Error = fmt.Sprintf("session '%s' not found", session)
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("session '%s' not found", session),
+			ErrCodeSessionNotFound,
+			"Use --robot-status to list available sessions",
+		)
 		return encodeJSON(output)
 	}
 
 	// Get panes in the session
 	panes, err := tmux.GetPanes(session)
 	if err != nil {
-		output.Success = false
-		output.Error = fmt.Sprintf("failed to get panes: %v", err)
+		output.RobotResponse = NewErrorResponse(
+			err,
+			ErrCodeInternalError,
+			"Check tmux session state",
+		)
 		return encodeJSON(output)
 	}
 

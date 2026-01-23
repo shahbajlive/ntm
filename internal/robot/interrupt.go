@@ -13,6 +13,7 @@ import (
 
 // InterruptOutput is the structured output for --robot-interrupt
 type InterruptOutput struct {
+	RobotResponse
 	Session        string               `json:"session"`
 	InterruptedAt  time.Time            `json:"interrupted_at"`
 	CompletedAt    time.Time            `json:"completed_at"`
@@ -67,6 +68,7 @@ func PrintInterrupt(opts InterruptOptions) error {
 
 	interruptedAt := time.Now().UTC()
 	output := InterruptOutput{
+		RobotResponse: NewRobotResponse(true),
 		Session:        opts.Session,
 		InterruptedAt:  interruptedAt,
 		Interrupted:    []string{},
@@ -89,6 +91,11 @@ func PrintInterrupt(opts InterruptOptions) error {
 			Pane:   "session",
 			Reason: fmt.Sprintf("session '%s' not found", opts.Session),
 		})
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("session '%s' not found", opts.Session),
+			ErrCodeSessionNotFound,
+			"Use --robot-status to list available sessions",
+		)
 		output.CompletedAt = time.Now().UTC()
 		return encodeJSON(output)
 	}
@@ -99,6 +106,11 @@ func PrintInterrupt(opts InterruptOptions) error {
 			Pane:   "panes",
 			Reason: fmt.Sprintf("failed to get panes: %v", err),
 		})
+		output.RobotResponse = NewErrorResponse(
+			err,
+			ErrCodeInternalError,
+			"Check tmux session state",
+		)
 		output.CompletedAt = time.Now().UTC()
 		return encodeJSON(output)
 	}
@@ -261,6 +273,11 @@ func PrintInterrupt(opts InterruptOptions) error {
 		// Mark as timed out if we still have pending
 		if len(pending) > 0 {
 			output.TimedOut = true
+			output.RobotResponse = NewErrorResponse(
+				fmt.Errorf("interrupt timed out"),
+				ErrCodeTimeout,
+				"Increase --interrupt-timeout or check agent health",
+			)
 			// Still add them to ready_for_input since Ctrl+C was sent
 			for paneKey := range pending {
 				output.ReadyForInput = append(output.ReadyForInput, paneKey)
