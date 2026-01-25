@@ -2410,6 +2410,7 @@ func init() {
 		newMetricsCmd(),
 		newWorkCmd(),
 		newEnsembleCmd(),
+		newModesCmd(),
 
 		// Internal commands
 		newMonitorCmd(),

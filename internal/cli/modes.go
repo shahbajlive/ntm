@@ -110,14 +110,14 @@ func runModesList(w io.Writer, format, category, tier string, all bool) error {
 		return fmt.Errorf("load mode catalog: %w", err)
 	}
 
-	modes := catalog.AllModes()
+	modes := catalog.ListModes()
 
 	// Filter by tier
 	if !all && tier == "" {
 		tier = "core"
 	}
 	if tier != "" {
-		var filtered []*ensemble.ReasoningMode
+		var filtered []ensemble.ReasoningMode
 		for _, m := range modes {
 			if strings.EqualFold(string(m.Tier), tier) {
 				filtered = append(filtered, m)
@@ -128,7 +128,7 @@ func runModesList(w io.Writer, format, category, tier string, all bool) error {
 
 	// Filter by category
 	if category != "" {
-		var filtered []*ensemble.ReasoningMode
+		var filtered []ensemble.ReasoningMode
 		for _, m := range modes {
 			if strings.EqualFold(string(m.Category), category) {
 				filtered = append(filtered, m)

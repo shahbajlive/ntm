@@ -60,12 +60,17 @@ func NewModeCard(mode *ReasoningMode) *ModeCard {
 }
 
 // GetModeCard returns a detailed explanation card for the given mode.
+// The modeRef can be either a mode ID (e.g., "deductive") or a code (e.g., "A1").
 func (c *ModeCatalog) GetModeCard(modeRef string) (*ModeCard, error) {
 	if c == nil {
 		return nil, fmt.Errorf("mode catalog is nil")
 	}
 
+	// Try by ID first, then by code
 	mode := c.GetMode(modeRef)
+	if mode == nil {
+		mode = c.GetModeByCode(modeRef)
+	}
 	if mode == nil {
 		return nil, fmt.Errorf("mode %q not found", modeRef)
 	}
