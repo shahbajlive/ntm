@@ -109,10 +109,10 @@ func (r *HistoryListResult) Text(w io.Writer) error {
 		targetsStr := formatTargets(e.Targets)
 
 		// Truncate prompt
-		prompt := truncate(strings.TrimSpace(e.Prompt), 38)
+		prompt := truncateHistoryStr(strings.TrimSpace(e.Prompt), 38)
 
 		// Session name (truncate if needed)
-		sessionName := truncate(e.Session, 12)
+		sessionName := truncateHistoryStr(e.Session, 12)
 
 		// Duration
 		durStr := "--"
@@ -540,7 +540,7 @@ func formatTargets(targets []string) string {
 	return fmt.Sprintf("all (%d)", len(targets))
 }
 
-func truncate(s string, maxLen int) string {
+func truncateHistoryStr(s string, maxLen int) string {
 	// Remove newlines for display
 	s = strings.ReplaceAll(s, "\n", " ")
 	s = strings.ReplaceAll(s, "\r", "")

@@ -198,6 +198,15 @@ func (m *EnsembleManager) SpawnEnsemble(ctx context.Context, cfg *EnsembleConfig
 	}
 
 	injector := m.ensembleInjector()
+	contextGenerator, cacheCfg := m.contextPackGenerator(cfg.ProjectDir, resolvedCfg.cache)
+	var sharedContext *ContextPack
+	if cacheCfg.ShareAcrossModes {
+		if pack, err := contextGenerator.Generate(cfg.Question, "", cacheCfg); err == nil {
+			sharedContext = pack
+		} else {
+			logger.Warn("context pack generation failed", "session", cfg.SessionName, "error", err)
+		}
+	}
 
 	targets := buildPaneTargetMap(cfg.SessionName, panes)
 	var injectErrors []error
@@ -220,12 +229,20 @@ func (m *EnsembleManager) SpawnEnsemble(ctx context.Context, cfg *EnsembleConfig
 		}
 
 		assignment.Status = AssignmentInjecting
+		contextPack := sharedContext
+		if contextPack == nil && !cacheCfg.ShareAcrossModes {
+			if pack, err := contextGenerator.Generate(cfg.Question, assignment.ModeID, cacheCfg); err == nil {
+				contextPack = pack
+			} else {
+				logger.Warn("context pack generation failed", "session", cfg.SessionName, "mode", assignment.ModeID, "error", err)
+			}
+		}
 		injResult, err := injector.InjectWithMode(
 			target,
 			mode,
 			cfg.Question,
 			assignment.AgentType,
-			nil,
+			contextPack,
 			resolvedCfg.budget.MaxTokensPerMode,
 			"",
 		)
@@ -296,6 +313,22 @@ func (m *EnsembleManager) ensembleInjector() *EnsembleInjector {
 	return NewEnsembleInjector().
 		WithBasicInjector(basicInjector).
 		WithLogger(m.logger())
+}
+
+func (m *EnsembleManager) contextPackGenerator(projectDir string, cacheCfg CacheConfig) (*ContextPackGenerator, CacheConfig) {
+	cfg := cacheCfg
+	var cache *ContextPackCache
+	if cfg.Enabled {
+		created, err := NewContextPackCache(cfg, m.logger())
+		if err != nil {
+			m.logger().Warn("context pack cache init failed", "error", err)
+			cfg.Enabled = false
+		} else {
+			cache = created
+		}
+	}
+
+	return NewContextPackGenerator(projectDir, cache, m.logger()), cfg
 }
 
 func (m *EnsembleManager) logger() *slog.Logger {
@@ -422,7 +455,7 @@ func applyConfigOverrides(cfg *EnsembleConfig, resolved *resolvedEnsembleConfig)
 	if cfg.Budget.MaxRetries > 0 {
 		resolved.budget.MaxRetries = cfg.Budget.MaxRetries
 	}
-	if cfg.CacheOverride || cfg.Cache.Enabled || cfg.Cache.MaxEntries > 0 || cfg.Cache.TTL > 0 {
+	if cfg.CacheOverride || cfg.Cache.Enabled || cfg.Cache.MaxEntries > 0 || cfg.Cache.TTL > 0 || cfg.Cache.CacheDir != "" {
 		resolved.cache = cfg.Cache
 	}
 }

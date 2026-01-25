@@ -4,6 +4,7 @@
 package ensemble
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -495,6 +496,9 @@ type CacheConfig struct {
 	// TTL is how long cached context packs remain valid.
 	TTL time.Duration `json:"ttl,omitempty" toml:"ttl,omitempty" yaml:"ttl,omitempty"`
 
+	// CacheDir overrides the default cache directory when set.
+	CacheDir string `json:"cache_dir,omitempty" toml:"cache_dir,omitempty" yaml:"cache_dir,omitempty"`
+
 	// MaxEntries is the maximum number of cached context packs.
 	MaxEntries int `json:"max_entries,omitempty" toml:"max_entries,omitempty" yaml:"max_entries,omitempty"`
 
@@ -506,7 +510,7 @@ type CacheConfig struct {
 func DefaultCacheConfig() CacheConfig {
 	return CacheConfig{
 		Enabled:          true,
-		TTL:              15 * time.Minute,
+		TTL:              time.Hour,
 		MaxEntries:       32,
 		ShareAcrossModes: true,
 	}
@@ -843,6 +847,54 @@ func (c Confidence) Validate() error {
 // String returns confidence as a percentage string.
 func (c Confidence) String() string {
 	return fmt.Sprintf("%.0f%%", c*100)
+}
+
+// UnmarshalYAML implements yaml.Unmarshaler to support string confidence values.
+// Accepts floats (0.8), percentages ("80%"), or qualitative levels ("high", "medium", "low").
+func (c *Confidence) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	// Try as float first
+	var f float64
+	if err := unmarshal(&f); err == nil {
+		*c = Confidence(f)
+		return nil
+	}
+
+	// Try as string
+	var s string
+	if err := unmarshal(&s); err != nil {
+		return fmt.Errorf("confidence must be a number or string, got neither")
+	}
+
+	parsed, err := ParseConfidenceString(s)
+	if err != nil {
+		return err
+	}
+	*c = parsed
+	return nil
+}
+
+// UnmarshalJSON implements json.Unmarshaler to support string confidence values.
+// Accepts floats (0.8), percentages ("80%"), or qualitative levels ("high", "medium", "low").
+func (c *Confidence) UnmarshalJSON(data []byte) error {
+	// Try as float first
+	var f float64
+	if err := json.Unmarshal(data, &f); err == nil {
+		*c = Confidence(f)
+		return nil
+	}
+
+	// Try as string
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return fmt.Errorf("confidence must be a number or string, got neither")
+	}
+
+	parsed, err := ParseConfidenceString(s)
+	if err != nil {
+		return err
+	}
+	*c = parsed
+	return nil
 }
 
 // Finding represents a specific discovery or insight from reasoning.

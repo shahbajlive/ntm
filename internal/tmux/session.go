@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+	"github.com/Dicklesworthstone/ntm/internal/agent"
 )
 
 // paneNameRegex matches the NTM pane naming convention:
@@ -26,48 +27,20 @@ var paneNameRegex = regexp.MustCompile(`^.+__([\w-]+)_(\d+)(?:_([A-Za-z0-9._/@:+
 var sessionNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // AgentType represents the type of AI agent
-type AgentType string
+type AgentType = agent.AgentType
 
 const (
-	AgentClaude   AgentType = "cc"
-	AgentCodex    AgentType = "cod"
-	AgentGemini   AgentType = "gmi"
-	AgentCursor   AgentType = "cursor"
-	AgentWindsurf AgentType = "windsurf"
-	AgentAider    AgentType = "aider"
-	AgentUser     AgentType = "user"
+	AgentClaude   = agent.AgentTypeClaudeCode
+	AgentCodex    = agent.AgentTypeCodex
+	AgentGemini   = agent.AgentTypeGemini
+	AgentCursor   = agent.AgentTypeCursor
+	AgentWindsurf = agent.AgentTypeWindsurf
+	AgentAider    = agent.AgentTypeAider
+	AgentUser     = agent.AgentTypeUser
 )
 
 // FieldSeparator is used to separate fields in tmux format strings.
-// It uses a unique sequence unlikely to appear in user input (e.g. pane titles).
-const FieldSeparator = "|#~NTM~#|"
-
-// ProfileName returns the friendly display name for the agent type.
-// This is used in the dashboard to show profile names prominently.
-func (a AgentType) ProfileName() string {
-	switch a {
-	case AgentClaude:
-		return "Claude"
-	case AgentCodex:
-		return "Codex"
-	case AgentGemini:
-		return "Gemini"
-	case AgentCursor:
-		return "Cursor"
-	case AgentWindsurf:
-		return "Windsurf"
-	case AgentAider:
-		return "Aider"
-	case AgentUser:
-		return "User"
-	default:
-		// Capitalize first letter for unknown types
-		if len(a) > 0 {
-			return strings.ToUpper(string(a)[:1]) + string(a)[1:]
-		}
-		return string(a)
-	}
-}
+const FieldSeparator = ":::"
 
 // Pane represents a tmux pane
 type Pane struct {

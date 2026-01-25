@@ -53,19 +53,15 @@
 //
 // ## Compliance Status
 //
-// Compliant types (embed RobotResponse): TailOutput, SendOutput, ContextOutput,
-// ActivityOutput, DiffOutput, AssignOutput, FilesOutput, InspectPaneOutput,
-// MetricsOutput, ReplayOutput, PaletteOutput, TUIAlertsOutput, DismissAlertOutput,
-// BeadsListOutput, BeadClaimOutput, BeadCreateOutput, BeadShowOutput, BeadCloseOutput,
-// TokensOutput, SchemaOutput, RouteOutput, HistoryOutput.
+// All robot output structs should embed RobotResponse. The canonical compliance
+// list is enforced in envelope_test.go.
 //
-// Non-compliant types (need migration): CASSStatusOutput, CASSSearchOutput,
-// CASSInsightsOutput, CASSContextOutput, StatusOutput, PlanOutput, SnapshotOutput,
-// SnapshotDeltaOutput, GraphOutput, AlertsOutput, RecipesOutput, TriageOutput,
-// AckOutput, SpawnOutput, HealthOutput, SessionHealthOutput, InterruptOutput,
-// DashboardOutput.
-//
-// See envelope_test.go for test coverage ensuring compliance.
+// Nested helper outputs that intentionally do NOT embed RobotResponse:
+//   - CapturedOutput (synthesis.go)
+//   - JSONOutput (synthesis.go)
+//   - PaneOutput (robot.go)
+//   - ToolInfoOutput (tools.go)
+//   - ToolHealthOutput (tools.go)
 package robot
 
 import (
@@ -391,6 +387,10 @@ type RobotAction struct {
 
 	// Priority indicates relative importance (higher = more important).
 	Priority int `json:"priority,omitempty"`
+
+	// Details provides additional information about the action.
+	// Example: shell command, prompt text, or configuration.
+	Details string `json:"details,omitempty"`
 }
 
 // TerseKeyMap defines the short-key mapping for --robot-verbosity=terse JSON/TOON output.

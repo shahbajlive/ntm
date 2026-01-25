@@ -80,28 +80,79 @@ func TestOutputTypesEmbedRobotResponse(t *testing.T) {
 		name string
 		typ  reflect.Type
 	}{
-		{"TailOutput", reflect.TypeOf(TailOutput{})},
-		{"SendOutput", reflect.TypeOf(SendOutput{})},
-		{"ContextOutput", reflect.TypeOf(ContextOutput{})},
+		{"AccountStatusOutput", reflect.TypeOf(AccountStatusOutput{})},
+		{"AccountsListOutput", reflect.TypeOf(AccountsListOutput{})},
+		{"AckOutput", reflect.TypeOf(AckOutput{})},
 		{"ActivityOutput", reflect.TypeOf(ActivityOutput{})},
-		{"DiffOutput", reflect.TypeOf(DiffOutput{})},
+		{"AgentHealthOutput", reflect.TypeOf(AgentHealthOutput{})},
+		{"AlertsOutput", reflect.TypeOf(AlertsOutput{})},
 		{"AssignOutput", reflect.TypeOf(AssignOutput{})},
-		{"FilesOutput", reflect.TypeOf(FilesOutput{})},
-		{"InspectPaneOutput", reflect.TypeOf(InspectPaneOutput{})},
-		{"MetricsOutput", reflect.TypeOf(MetricsOutput{})},
-		{"ReplayOutput", reflect.TypeOf(ReplayOutput{})},
-		{"PaletteOutput", reflect.TypeOf(PaletteOutput{})},
-		{"TUIAlertsOutput", reflect.TypeOf(TUIAlertsOutput{})},
-		{"DismissAlertOutput", reflect.TypeOf(DismissAlertOutput{})},
-		{"BeadsListOutput", reflect.TypeOf(BeadsListOutput{})},
 		{"BeadClaimOutput", reflect.TypeOf(BeadClaimOutput{})},
+		{"BeadCloseOutput", reflect.TypeOf(BeadCloseOutput{})},
 		{"BeadCreateOutput", reflect.TypeOf(BeadCreateOutput{})},
 		{"BeadShowOutput", reflect.TypeOf(BeadShowOutput{})},
-		{"BeadCloseOutput", reflect.TypeOf(BeadCloseOutput{})},
-		{"TokensOutput", reflect.TypeOf(TokensOutput{})},
-		{"SchemaOutput", reflect.TypeOf(SchemaOutput{})},
-		{"RouteOutput", reflect.TypeOf(RouteOutput{})},
+		{"BeadsListOutput", reflect.TypeOf(BeadsListOutput{})},
+		{"BulkAssignOutput", reflect.TypeOf(BulkAssignOutput{})},
+		{"CASSContextOutput", reflect.TypeOf(CASSContextOutput{})},
+		{"CASSInsightsOutput", reflect.TypeOf(CASSInsightsOutput{})},
+		{"CASSSearchOutput", reflect.TypeOf(CASSSearchOutput{})},
+		{"CASSStatusOutput", reflect.TypeOf(CASSStatusOutput{})},
+		{"CapabilitiesOutput", reflect.TypeOf(CapabilitiesOutput{})},
+		{"ContextOutput", reflect.TypeOf(ContextOutput{})},
+		{"DCGStatusOutput", reflect.TypeOf(DCGStatusOutput{})},
+		{"DashboardOutput", reflect.TypeOf(DashboardOutput{})},
+		{"DiagnoseBriefOutput", reflect.TypeOf(DiagnoseBriefOutput{})},
+		{"DiagnoseOutput", reflect.TypeOf(DiagnoseOutput{})},
+		{"DiffOutput", reflect.TypeOf(DiffOutput{})},
+		{"DismissAlertOutput", reflect.TypeOf(DismissAlertOutput{})},
+		{"EnsembleOutput", reflect.TypeOf(EnsembleOutput{})},
+		{"EnsembleSpawnOutput", reflect.TypeOf(EnsembleSpawnOutput{})},
+		{"EnvOutput", reflect.TypeOf(EnvOutput{})},
+		{"ErrorsOutput", reflect.TypeOf(ErrorsOutput{})},
+		{"FilesOutput", reflect.TypeOf(FilesOutput{})},
+		{"GraphOutput", reflect.TypeOf(GraphOutput{})},
+		{"HealthOutput", reflect.TypeOf(HealthOutput{})},
 		{"HistoryOutput", reflect.TypeOf(HistoryOutput{})},
+		{"InspectPaneOutput", reflect.TypeOf(InspectPaneOutput{})},
+		{"InterruptOutput", reflect.TypeOf(InterruptOutput{})},
+		{"IsWorkingOutput", reflect.TypeOf(IsWorkingOutput{})},
+		{"JFPBundlesOutput", reflect.TypeOf(JFPBundlesOutput{})},
+		{"JFPCategoriesOutput", reflect.TypeOf(JFPCategoriesOutput{})},
+		{"JFPInstalledOutput", reflect.TypeOf(JFPInstalledOutput{})},
+		{"JFPListOutput", reflect.TypeOf(JFPListOutput{})},
+		{"JFPSearchOutput", reflect.TypeOf(JFPSearchOutput{})},
+		{"JFPShowOutput", reflect.TypeOf(JFPShowOutput{})},
+		{"JFPStatusOutput", reflect.TypeOf(JFPStatusOutput{})},
+		{"JFPSuggestOutput", reflect.TypeOf(JFPSuggestOutput{})},
+		{"JFPTagsOutput", reflect.TypeOf(JFPTagsOutput{})},
+		{"MailOutput", reflect.TypeOf(MailOutput{})},
+		{"MetricsOutput", reflect.TypeOf(MetricsOutput{})},
+		{"MonitorOutput", reflect.TypeOf(MonitorOutput{})},
+		{"PaletteOutput", reflect.TypeOf(PaletteOutput{})},
+		{"PlanOutput", reflect.TypeOf(PlanOutput{})},
+		{"ProbeOutput", reflect.TypeOf(ProbeOutput{})},
+		{"QuotaCheckOutput", reflect.TypeOf(QuotaCheckOutput{})},
+		{"QuotaStatusOutput", reflect.TypeOf(QuotaStatusOutput{})},
+		{"RecipesOutput", reflect.TypeOf(RecipesOutput{})},
+		{"ReplayOutput", reflect.TypeOf(ReplayOutput{})},
+		{"RestartPaneOutput", reflect.TypeOf(RestartPaneOutput{})},
+		{"RouteOutput", reflect.TypeOf(RouteOutput{})},
+		{"SchemaOutput", reflect.TypeOf(SchemaOutput{})},
+		{"SendAndAckOutput", reflect.TypeOf(SendAndAckOutput{})},
+		{"SendOutput", reflect.TypeOf(SendOutput{})},
+		{"SessionHealthOutput", reflect.TypeOf(SessionHealthOutput{})},
+		{"SmartRestartOutput", reflect.TypeOf(SmartRestartOutput{})},
+		{"SnapshotDeltaOutput", reflect.TypeOf(SnapshotDeltaOutput{})},
+		{"SnapshotOutput", reflect.TypeOf(SnapshotOutput{})},
+		{"SpawnOutput", reflect.TypeOf(SpawnOutput{})},
+		{"StatusOutput", reflect.TypeOf(StatusOutput{})},
+		{"SwitchAccountOutput", reflect.TypeOf(SwitchAccountOutput{})},
+		{"TailOutput", reflect.TypeOf(TailOutput{})},
+		{"TUIAlertsOutput", reflect.TypeOf(TUIAlertsOutput{})},
+		{"TokensOutput", reflect.TypeOf(TokensOutput{})},
+		{"ToolsOutput", reflect.TypeOf(ToolsOutput{})},
+		{"TriageOutput", reflect.TypeOf(TriageOutput{})},
+		{"VersionOutput", reflect.TypeOf(VersionOutput{})},
 	}
 
 	for _, tc := range compliantTypes {
@@ -281,30 +332,17 @@ func embedsType(target, embeddedType reflect.Type) bool {
 // ============================================================================
 // Non-Compliant Types Documentation
 // ============================================================================
-// The following output types do NOT embed RobotResponse and need migration:
+// Remaining Output structs without RobotResponse are nested helper types
+// rather than top-level robot responses:
 //
-// - CASSStatusOutput: Has own fields, missing success/timestamp
-// - CASSSearchOutput: Has own fields, missing success/timestamp
-// - CASSInsightsOutput: Has own fields, missing success/timestamp
-// - CASSContextOutput: Has own fields, missing success/timestamp
-// - StatusOutput: Has GeneratedAt but no success/error fields
-// - PlanOutput: Has GeneratedAt but no success/error fields
-// - SnapshotOutput: Has ts field but no success/error fields
-// - SnapshotDeltaOutput: Has ts/since but no success/error fields
-// - GraphOutput: Has GeneratedAt, Available, Error but not envelope format
-// - AlertsOutput: Has GeneratedAt but no success/error fields
-// - RecipesOutput: Has GeneratedAt but no success/error fields
-// - TriageOutput: Has GeneratedAt, Available, Error but not envelope format
-// - AckOutput: Has SentAt, CompletedAt but no success/timestamp
-// - SpawnOutput: Has CreatedAt, Error but not envelope format
-// - HealthOutput: Has CheckedAt but no success/error fields
-// - SessionHealthOutput: Has Success, Error but not embedded RobotResponse
-// - InterruptOutput: Has InterruptedAt, CompletedAt but no success/timestamp
-// - DashboardOutput: Has GeneratedAt but no success/error fields
+// - CapturedOutput (synthesis.go)
+// - JSONOutput (synthesis.go)
+// - PaneOutput (robot.go)
+// - ToolInfoOutput (tools.go)
+// - ToolHealthOutput (tools.go)
+// - ToolHealthOutput (tools.go)
+// - PaneOutput (robot.go)
 //
-// Migration strategy for these types:
-// 1. Add RobotResponse embedding
-// 2. Rename timestamp field if collision (e.g., GeneratedAt -> specific name)
-// 3. Initialize arrays to empty [] not nil
-// 4. Use NewRobotResponse() for success, NewErrorResponse() for errors
+// These are intentionally nested inside higher-level outputs that already
+// embed RobotResponse, so no envelope is required here.
 // ============================================================================

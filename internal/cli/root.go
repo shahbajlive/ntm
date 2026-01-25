@@ -309,6 +309,13 @@ Shell Integration:
 			}
 			return
 		}
+		if robotEnsembleSuggest != "" {
+			if err := robot.PrintEnsembleSuggest(robotEnsembleSuggest, robotEnsembleSuggestIDOnly); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
 		if robotTools {
 			if err := robot.PrintTools(); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -1389,6 +1396,8 @@ var (
 	robotEnsembleNoCache       bool   // disable context cache
 	robotEnsembleNoQuestions   bool   // skip targeted questions
 	robotEnsembleProject       string // project directory override
+	robotEnsembleSuggest       string // question for ensemble suggestion
+	robotEnsembleSuggestIDOnly bool   // output only preset name
 
 	// Robot-send flags
 	robotSend        string // session name for send
@@ -1752,6 +1761,8 @@ func init() {
 	rootCmd.Flags().BoolVar(&robotEnsembleNoCache, "no-cache", false, "Bypass context cache for ensemble spawn")
 	rootCmd.Flags().BoolVar(&robotEnsembleNoQuestions, "no-questions", false, "Skip targeted questions during ensemble spawn (future)")
 	rootCmd.Flags().StringVar(&robotEnsembleProject, "project", "", "Project directory override for ensemble spawn")
+	rootCmd.Flags().StringVar(&robotEnsembleSuggest, "robot-ensemble-suggest", "", "Suggest best ensemble preset for a question. Example: ntm --robot-ensemble-suggest=\"What security issues exist?\"")
+	rootCmd.Flags().BoolVar(&robotEnsembleSuggestIDOnly, "suggest-id-only", false, "Output only preset name with --robot-ensemble-suggest")
 	rootCmd.Flags().IntVar(&robotBeadLimit, "bead-limit", 5, "Max beads per category in snapshot. Optional with --robot-snapshot, --robot-status. Example: --bead-limit=10")
 	rootCmd.Flags().StringVar(&robotVerbosity, "robot-verbosity", "", "Robot verbosity profile for JSON/TOON: terse, default, or debug. Env: NTM_ROBOT_VERBOSITY")
 
@@ -2923,7 +2934,7 @@ func needsConfigLoading(cmdName string) bool {
 			robotSend != "" || robotAck != "" || robotSpawn != "" ||
 			robotInterrupt != "" || robotRestartPane != "" || robotGraph || robotMail || robotHealth != "" ||
 			robotDiagnose != "" || robotTerse || robotMarkdown || robotSave != "" || robotRestore != "" ||
-			robotContext != "" || robotEnsemble != "" || robotEnsembleSpawn != "" || robotAlerts || robotIsWorking != "" || robotAgentHealth != "" ||
+			robotContext != "" || robotEnsemble != "" || robotEnsembleSpawn != "" || robotEnsembleSuggest != "" || robotAlerts || robotIsWorking != "" || robotAgentHealth != "" ||
 			robotSmartRestart != "" || robotMonitor != "" {
 			return true
 		}

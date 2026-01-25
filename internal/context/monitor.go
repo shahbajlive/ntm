@@ -70,10 +70,20 @@ func GetContextLimit(model string) int64 {
 	}
 
 	// Try prefix matching for families
+	// Sort keys by length descending to ensure we match the longest prefix
+	// (e.g. match "gpt-4-turbo" before "gpt-4")
+	var keys []string
+	for k := range ContextLimits {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		return len(keys[i]) > len(keys[j])
+	})
+
 	modelLower := strings.ToLower(model)
-	for key, limit := range ContextLimits {
+	for _, key := range keys {
 		if strings.HasPrefix(modelLower, key) {
-			return limit
+			return ContextLimits[key]
 		}
 	}
 
@@ -703,8 +713,9 @@ func (m *ContextMonitor) UpdateFromTranscript(agentID string) (int64, error) {
 		return 0, err
 	}
 
-	// Estimate tokens from file size (~4 bytes per token, conservative)
-	estimatedTokens := info.Size() / 4
+	// Estimate tokens from file size (~3.5 bytes per token, conservative)
+	// We use 3.5 to match EstimateTokens and be safer (overestimate usage)
+	estimatedTokens := int64(float64(info.Size()) / 3.5)
 
 	// Update the state with this estimate
 	m.mu.Lock()

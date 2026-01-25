@@ -48,9 +48,10 @@ type SchemaOutput struct {
 	Schemas    []*JSONSchema `json:"schemas,omitempty"` // For --robot-schema=all
 }
 
-// PrintSchema generates and outputs JSON Schema for the specified type.
-func PrintSchema(schemaType string) error {
-	output := SchemaOutput{
+// GetSchema generates JSON Schema for the specified type.
+// This function returns the data struct directly, enabling CLI/REST parity.
+func GetSchema(schemaType string) (*SchemaOutput, error) {
+	output := &SchemaOutput{
 		RobotResponse: NewRobotResponse(true),
 		SchemaType:    schemaType,
 	}
@@ -72,11 +73,21 @@ func PrintSchema(schemaType string) error {
 				ErrCodeInvalidFlag,
 				fmt.Sprintf("Available types: %s, all", strings.Join(getSchemaTypes(), ", ")),
 			)
-			return encodeJSON(output)
+			return output, nil
 		}
 		output.Schema = generateSchema(typ, schemaType)
 	}
 
+	return output, nil
+}
+
+// PrintSchema generates and outputs JSON Schema for the specified type.
+// This is a thin wrapper around GetSchema() for CLI output.
+func PrintSchema(schemaType string) error {
+	output, err := GetSchema(schemaType)
+	if err != nil {
+		return err
+	}
 	return encodeJSON(output)
 }
 

@@ -107,6 +107,7 @@ Primary usage:
 	bindEnsembleSharedFlags(cmd, &opts)
 	cmd.AddCommand(newEnsembleSpawnCmd())
 	cmd.AddCommand(newEnsembleStatusCmd())
+	cmd.AddCommand(newEnsembleSuggestCmd())
 	return cmd
 }
 

@@ -391,115 +391,77 @@ func PrintCASSContext(query string) error {
 
 // JFPStatusOutput represents the output for --robot-jfp-status
 type JFPStatusOutput struct {
-	Success      bool        `json:"success"`
-	Timestamp    string      `json:"timestamp"`
+	RobotResponse
 	JFPAvailable bool        `json:"jfp_available"`
 	Healthy      bool        `json:"healthy"`
 	Version      string      `json:"version,omitempty"`
-	Error        string      `json:"error,omitempty"`
-	ErrorCode    string      `json:"error_code,omitempty"`
-	Hint         string      `json:"hint,omitempty"`
 	Data         interface{} `json:"data,omitempty"`
 }
 
 // JFPListOutput represents the output for --robot-jfp-list
 type JFPListOutput struct {
-	Success   bool            `json:"success"`
-	Timestamp string          `json:"timestamp"`
+	RobotResponse
 	Count     int             `json:"count"`
 	Prompts   json.RawMessage `json:"prompts"`
-	Error     string          `json:"error,omitempty"`
-	ErrorCode string          `json:"error_code,omitempty"`
-	Hint      string          `json:"hint,omitempty"`
 }
 
 // JFPSearchOutput represents the output for --robot-jfp-search
 type JFPSearchOutput struct {
-	Success   bool            `json:"success"`
-	Timestamp string          `json:"timestamp"`
+	RobotResponse
 	Query     string          `json:"query"`
 	Count     int             `json:"count"`
 	Results   json.RawMessage `json:"results"`
-	Error     string          `json:"error,omitempty"`
-	ErrorCode string          `json:"error_code,omitempty"`
-	Hint      string          `json:"hint,omitempty"`
 }
 
 // JFPShowOutput represents the output for --robot-jfp-show
 type JFPShowOutput struct {
-	Success   bool            `json:"success"`
-	Timestamp string          `json:"timestamp"`
+	RobotResponse
 	ID        string          `json:"id"`
 	Prompt    json.RawMessage `json:"prompt,omitempty"`
-	Error     string          `json:"error,omitempty"`
-	ErrorCode string          `json:"error_code,omitempty"`
-	Hint      string          `json:"hint,omitempty"`
 }
 
 // JFPSuggestOutput represents the output for --robot-jfp-suggest
 type JFPSuggestOutput struct {
-	Success     bool            `json:"success"`
-	Timestamp   string          `json:"timestamp"`
+	RobotResponse
 	Task        string          `json:"task"`
 	Suggestions json.RawMessage `json:"suggestions"`
-	Error       string          `json:"error,omitempty"`
-	ErrorCode   string          `json:"error_code,omitempty"`
-	Hint        string          `json:"hint,omitempty"`
 }
 
 // JFPInstalledOutput represents the output for --robot-jfp-installed
 type JFPInstalledOutput struct {
-	Success   bool            `json:"success"`
-	Timestamp string          `json:"timestamp"`
+	RobotResponse
 	Count     int             `json:"count"`
 	Skills    json.RawMessage `json:"skills"`
-	Error     string          `json:"error,omitempty"`
-	ErrorCode string          `json:"error_code,omitempty"`
-	Hint      string          `json:"hint,omitempty"`
 }
 
 // JFPCategoriesOutput represents the output for --robot-jfp-categories
 type JFPCategoriesOutput struct {
-	Success    bool            `json:"success"`
-	Timestamp  string          `json:"timestamp"`
+	RobotResponse
 	Count      int             `json:"count"`
 	Categories json.RawMessage `json:"categories"`
-	Error      string          `json:"error,omitempty"`
-	ErrorCode  string          `json:"error_code,omitempty"`
-	Hint       string          `json:"hint,omitempty"`
 }
 
 // JFPTagsOutput represents the output for --robot-jfp-tags
 type JFPTagsOutput struct {
-	Success   bool            `json:"success"`
-	Timestamp string          `json:"timestamp"`
+	RobotResponse
 	Count     int             `json:"count"`
 	Tags      json.RawMessage `json:"tags"`
-	Error     string          `json:"error,omitempty"`
-	ErrorCode string          `json:"error_code,omitempty"`
-	Hint      string          `json:"hint,omitempty"`
 }
 
 // JFPBundlesOutput represents the output for --robot-jfp-bundles
 type JFPBundlesOutput struct {
-	Success   bool            `json:"success"`
-	Timestamp string          `json:"timestamp"`
+	RobotResponse
 	Count     int             `json:"count"`
 	Bundles   json.RawMessage `json:"bundles"`
-	Error     string          `json:"error,omitempty"`
-	ErrorCode string          `json:"error_code,omitempty"`
-	Hint      string          `json:"hint,omitempty"`
 }
 
 // GetJFPStatus returns JFP health and status.
 // This function returns the data struct directly, enabling CLI/REST parity.
 func GetJFPStatus() (*JFPStatusOutput, error) {
 	adapter := tools.NewJFPAdapter()
-	now := time.Now().UTC().Format(time.RFC3339)
 
 	output := &JFPStatusOutput{
-		Success:      true,
-		Timestamp:    now,
+		RobotResponse: NewRobotResponse(true),
 		JFPAvailable: false,
 		Healthy:      false,
 	}
@@ -509,10 +471,11 @@ func GetJFPStatus() (*JFPStatusOutput, error) {
 	output.JFPAvailable = installed
 
 	if !installed {
-		output.Success = false
-		output.ErrorCode = "DEPENDENCY_MISSING"
-		output.Error = "jfp not installed"
-		output.Hint = "Install jfp with: npm install -g jeffreysprompts"
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("jfp not installed"),
+			ErrCodeDependencyMissing,
+			"Install jfp with: npm install -g jeffreysprompts",
+		)
 		return output, nil
 	}
 
@@ -520,10 +483,11 @@ func GetJFPStatus() (*JFPStatusOutput, error) {
 	ctx := context.Background()
 	health, err := adapter.Health(ctx)
 	if err != nil {
-		output.Success = false
-		output.ErrorCode = "HEALTH_CHECK_FAILED"
-		output.Error = err.Error()
-		output.Hint = "Run 'jfp doctor' to diagnose issues"
+		output.RobotResponse = NewErrorResponse(
+			err,
+			"HEALTH_CHECK_FAILED",
+			"Run 'jfp doctor' to diagnose issues",
+		)
 		return output, nil
 	}
 
@@ -564,20 +528,19 @@ type JFPListOptions struct {
 // This function returns the data struct directly, enabling CLI/REST parity.
 func GetJFPList(opts JFPListOptions) (*JFPListOutput, error) {
 	adapter := tools.NewJFPAdapter()
-	now := time.Now().UTC().Format(time.RFC3339)
 
 	output := &JFPListOutput{
-		Success:   true,
-		Timestamp: now,
+		RobotResponse: NewRobotResponse(true),
 	}
 
 	// Check if jfp is installed
 	_, installed := adapter.Detect()
 	if !installed {
-		output.Success = false
-		output.ErrorCode = "DEPENDENCY_MISSING"
-		output.Error = "jfp not installed"
-		output.Hint = "Install jfp with: npm install -g jeffreysprompts"
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("jfp not installed"),
+			ErrCodeDependencyMissing,
+			"Install jfp with: npm install -g jeffreysprompts",
+		)
 		return output, nil
 	}
 
@@ -594,10 +557,11 @@ func GetJFPList(opts JFPListOptions) (*JFPListOutput, error) {
 	}
 
 	if err != nil {
-		output.Success = false
-		output.ErrorCode = "LIST_FAILED"
-		output.Error = err.Error()
-		output.Hint = "Check 'jfp status' for registry connectivity"
+		output.RobotResponse = NewErrorResponse(
+			err,
+			"LIST_FAILED",
+			"Check 'jfp status' for registry connectivity",
+		)
 		return output, nil
 	}
 
@@ -629,29 +593,29 @@ func PrintJFPList(category, tag string) error {
 // This function returns the data struct directly, enabling CLI/REST parity.
 func GetJFPSearch(query string) (*JFPSearchOutput, error) {
 	adapter := tools.NewJFPAdapter()
-	now := time.Now().UTC().Format(time.RFC3339)
 
 	output := &JFPSearchOutput{
-		Success:   true,
-		Timestamp: now,
+		RobotResponse: NewRobotResponse(true),
 		Query:     query,
 	}
 
 	// Check if jfp is installed
 	_, installed := adapter.Detect()
 	if !installed {
-		output.Success = false
-		output.ErrorCode = "DEPENDENCY_MISSING"
-		output.Error = "jfp not installed"
-		output.Hint = "Install jfp with: npm install -g jeffreysprompts"
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("jfp not installed"),
+			ErrCodeDependencyMissing,
+			"Install jfp with: npm install -g jeffreysprompts",
+		)
 		return output, nil
 	}
 
 	if query == "" {
-		output.Success = false
-		output.ErrorCode = "INVALID_FLAG"
-		output.Error = "query is required"
-		output.Hint = "Provide a search query, e.g., --robot-jfp-search='debugging'"
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("query is required"),
+			ErrCodeInvalidFlag,
+			"Provide a search query, e.g., --robot-jfp-search='debugging'",
+		)
 		return output, nil
 	}
 
@@ -659,10 +623,11 @@ func GetJFPSearch(query string) (*JFPSearchOutput, error) {
 	data, err := adapter.Search(ctx, query)
 
 	if err != nil {
-		output.Success = false
-		output.ErrorCode = "SEARCH_FAILED"
-		output.Error = err.Error()
-		output.Hint = "Try a different search query"
+		output.RobotResponse = NewErrorResponse(
+			err,
+			"SEARCH_FAILED",
+			"Try a different search query",
+		)
 		return output, nil
 	}
 
@@ -691,29 +656,29 @@ func PrintJFPSearch(query string) error {
 // This function returns the data struct directly, enabling CLI/REST parity.
 func GetJFPShow(id string) (*JFPShowOutput, error) {
 	adapter := tools.NewJFPAdapter()
-	now := time.Now().UTC().Format(time.RFC3339)
 
 	output := &JFPShowOutput{
-		Success:   true,
-		Timestamp: now,
+		RobotResponse: NewRobotResponse(true),
 		ID:        id,
 	}
 
 	// Check if jfp is installed
 	_, installed := adapter.Detect()
 	if !installed {
-		output.Success = false
-		output.ErrorCode = "DEPENDENCY_MISSING"
-		output.Error = "jfp not installed"
-		output.Hint = "Install jfp with: npm install -g jeffreysprompts"
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("jfp not installed"),
+			ErrCodeDependencyMissing,
+			"Install jfp with: npm install -g jeffreysprompts",
+		)
 		return output, nil
 	}
 
 	if id == "" {
-		output.Success = false
-		output.ErrorCode = "INVALID_FLAG"
-		output.Error = "prompt ID is required"
-		output.Hint = "Provide a prompt ID, e.g., --robot-jfp-show=my-prompt-id"
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("prompt ID is required"),
+			ErrCodeInvalidFlag,
+			"Provide a prompt ID, e.g., --robot-jfp-show=my-prompt-id",
+		)
 		return output, nil
 	}
 
@@ -721,14 +686,15 @@ func GetJFPShow(id string) (*JFPShowOutput, error) {
 	data, err := adapter.Show(ctx, id)
 
 	if err != nil {
-		output.Success = false
+		code := "SHOW_FAILED"
 		if strings.Contains(err.Error(), "not found") {
-			output.ErrorCode = "NOT_FOUND"
-		} else {
-			output.ErrorCode = "SHOW_FAILED"
+			code = "NOT_FOUND"
 		}
-		output.Error = err.Error()
-		output.Hint = "Use --robot-jfp-search to find available prompts"
+		output.RobotResponse = NewErrorResponse(
+			err,
+			code,
+			"Use --robot-jfp-search to find available prompts",
+		)
 		return output, nil
 	}
 
@@ -750,29 +716,29 @@ func PrintJFPShow(id string) error {
 // This function returns the data struct directly, enabling CLI/REST parity.
 func GetJFPSuggest(task string) (*JFPSuggestOutput, error) {
 	adapter := tools.NewJFPAdapter()
-	now := time.Now().UTC().Format(time.RFC3339)
 
 	output := &JFPSuggestOutput{
-		Success:   true,
-		Timestamp: now,
+		RobotResponse: NewRobotResponse(true),
 		Task:      task,
 	}
 
 	// Check if jfp is installed
 	_, installed := adapter.Detect()
 	if !installed {
-		output.Success = false
-		output.ErrorCode = "DEPENDENCY_MISSING"
-		output.Error = "jfp not installed"
-		output.Hint = "Install jfp with: npm install -g jeffreysprompts"
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("jfp not installed"),
+			ErrCodeDependencyMissing,
+			"Install jfp with: npm install -g jeffreysprompts",
+		)
 		return output, nil
 	}
 
 	if task == "" {
-		output.Success = false
-		output.ErrorCode = "INVALID_FLAG"
-		output.Error = "task description is required"
-		output.Hint = "Provide a task description, e.g., --robot-jfp-suggest='build a REST API'"
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("task description is required"),
+			ErrCodeInvalidFlag,
+			"Provide a task description, e.g., --robot-jfp-suggest='build a REST API'",
+		)
 		return output, nil
 	}
 
@@ -780,10 +746,11 @@ func GetJFPSuggest(task string) (*JFPSuggestOutput, error) {
 	data, err := adapter.Suggest(ctx, task)
 
 	if err != nil {
-		output.Success = false
-		output.ErrorCode = "SUGGEST_FAILED"
-		output.Error = err.Error()
-		output.Hint = "Try a different task description"
+		output.RobotResponse = NewErrorResponse(
+			err,
+			"SUGGEST_FAILED",
+			"Try a different task description",
+		)
 		return output, nil
 	}
 
@@ -805,20 +772,19 @@ func PrintJFPSuggest(task string) error {
 // This function returns the data struct directly, enabling CLI/REST parity.
 func GetJFPInstalled() (*JFPInstalledOutput, error) {
 	adapter := tools.NewJFPAdapter()
-	now := time.Now().UTC().Format(time.RFC3339)
 
 	output := &JFPInstalledOutput{
-		Success:   true,
-		Timestamp: now,
+		RobotResponse: NewRobotResponse(true),
 	}
 
 	// Check if jfp is installed
 	_, installed := adapter.Detect()
 	if !installed {
-		output.Success = false
-		output.ErrorCode = "DEPENDENCY_MISSING"
-		output.Error = "jfp not installed"
-		output.Hint = "Install jfp with: npm install -g jeffreysprompts"
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("jfp not installed"),
+			ErrCodeDependencyMissing,
+			"Install jfp with: npm install -g jeffreysprompts",
+		)
 		return output, nil
 	}
 
@@ -826,10 +792,11 @@ func GetJFPInstalled() (*JFPInstalledOutput, error) {
 	data, err := adapter.Installed(ctx)
 
 	if err != nil {
-		output.Success = false
-		output.ErrorCode = "INSTALLED_FAILED"
-		output.Error = err.Error()
-		output.Hint = "Check if Claude Code skills directory exists"
+		output.RobotResponse = NewErrorResponse(
+			err,
+			"INSTALLED_FAILED",
+			"Check if Claude Code skills directory exists",
+		)
 		return output, nil
 	}
 
@@ -858,20 +825,19 @@ func PrintJFPInstalled() error {
 // This function returns the data struct directly, enabling CLI/REST parity.
 func GetJFPCategories() (*JFPCategoriesOutput, error) {
 	adapter := tools.NewJFPAdapter()
-	now := time.Now().UTC().Format(time.RFC3339)
 
 	output := &JFPCategoriesOutput{
-		Success:   true,
-		Timestamp: now,
+		RobotResponse: NewRobotResponse(true),
 	}
 
 	// Check if jfp is installed
 	_, installed := adapter.Detect()
 	if !installed {
-		output.Success = false
-		output.ErrorCode = "DEPENDENCY_MISSING"
-		output.Error = "jfp not installed"
-		output.Hint = "Install jfp with: npm install -g jeffreysprompts"
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("jfp not installed"),
+			ErrCodeDependencyMissing,
+			"Install jfp with: npm install -g jeffreysprompts",
+		)
 		return output, nil
 	}
 
@@ -879,9 +845,11 @@ func GetJFPCategories() (*JFPCategoriesOutput, error) {
 	data, err := adapter.Categories(ctx)
 
 	if err != nil {
-		output.Success = false
-		output.ErrorCode = "CATEGORIES_FAILED"
-		output.Error = err.Error()
+		output.RobotResponse = NewErrorResponse(
+			err,
+			"CATEGORIES_FAILED",
+			"Run 'jfp status' to confirm registry health",
+		)
 		return output, nil
 	}
 
@@ -910,20 +878,19 @@ func PrintJFPCategories() error {
 // This function returns the data struct directly, enabling CLI/REST parity.
 func GetJFPTags() (*JFPTagsOutput, error) {
 	adapter := tools.NewJFPAdapter()
-	now := time.Now().UTC().Format(time.RFC3339)
 
 	output := &JFPTagsOutput{
-		Success:   true,
-		Timestamp: now,
+		RobotResponse: NewRobotResponse(true),
 	}
 
 	// Check if jfp is installed
 	_, installed := adapter.Detect()
 	if !installed {
-		output.Success = false
-		output.ErrorCode = "DEPENDENCY_MISSING"
-		output.Error = "jfp not installed"
-		output.Hint = "Install jfp with: npm install -g jeffreysprompts"
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("jfp not installed"),
+			ErrCodeDependencyMissing,
+			"Install jfp with: npm install -g jeffreysprompts",
+		)
 		return output, nil
 	}
 
@@ -931,9 +898,11 @@ func GetJFPTags() (*JFPTagsOutput, error) {
 	data, err := adapter.Tags(ctx)
 
 	if err != nil {
-		output.Success = false
-		output.ErrorCode = "TAGS_FAILED"
-		output.Error = err.Error()
+		output.RobotResponse = NewErrorResponse(
+			err,
+			"TAGS_FAILED",
+			"Run 'jfp status' to confirm registry health",
+		)
 		return output, nil
 	}
 
@@ -962,20 +931,19 @@ func PrintJFPTags() error {
 // This function returns the data struct directly, enabling CLI/REST parity.
 func GetJFPBundles() (*JFPBundlesOutput, error) {
 	adapter := tools.NewJFPAdapter()
-	now := time.Now().UTC().Format(time.RFC3339)
 
 	output := &JFPBundlesOutput{
-		Success:   true,
-		Timestamp: now,
+		RobotResponse: NewRobotResponse(true),
 	}
 
 	// Check if jfp is installed
 	_, installed := adapter.Detect()
 	if !installed {
-		output.Success = false
-		output.ErrorCode = "DEPENDENCY_MISSING"
-		output.Error = "jfp not installed"
-		output.Hint = "Install jfp with: npm install -g jeffreysprompts"
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("jfp not installed"),
+			ErrCodeDependencyMissing,
+			"Install jfp with: npm install -g jeffreysprompts",
+		)
 		return output, nil
 	}
 
@@ -983,9 +951,11 @@ func GetJFPBundles() (*JFPBundlesOutput, error) {
 	data, err := adapter.Bundles(ctx)
 
 	if err != nil {
-		output.Success = false
-		output.ErrorCode = "BUNDLES_FAILED"
-		output.Error = err.Error()
+		output.RobotResponse = NewErrorResponse(
+			err,
+			"BUNDLES_FAILED",
+			"Run 'jfp status' to confirm registry health",
+		)
 		return output, nil
 	}
 
@@ -1239,6 +1209,9 @@ Session Operations:
 --robot-interrupt=SESSION  Ctrl+C to agents (--interrupt-msg="new task")
 --robot-is-working=SESSION Check if agents are busy
 --robot-wait=SESSION    Wait for idle state (--timeout=5m, --condition=idle)
+
+Note: Pane-targeting commands exclude the user pane by default.
+Use --all to include the user pane (index depends on tmux pane-base-index).
 
 Work Distribution:
 ------------------
@@ -1519,6 +1492,7 @@ type MailOptions struct {
 
 // MailOutput represents the output for --robot-mail.
 type MailOutput struct {
+	RobotResponse
 	GeneratedAt      time.Time                   `json:"generated_at"`
 	Session          string                      `json:"session,omitempty"`
 	ProjectKey       string                      `json:"project_key"`
@@ -1530,7 +1504,6 @@ type MailOutput struct {
 	Messages         AgentMailMessageCounts      `json:"messages,omitempty"`
 	FileReservations []AgentMailReservation      `json:"file_reservations,omitempty"`
 	Conflicts        []AgentMailConflict         `json:"conflicts,omitempty"`
-	Error            string                      `json:"error,omitempty"`
 }
 
 // GetMail returns detailed Agent Mail state for AI orchestrators.
@@ -1555,6 +1528,7 @@ func GetMail(opts MailOptions) (*MailOutput, error) {
 	serverURL := client.BaseURL()
 
 	output := &MailOutput{
+		RobotResponse: NewRobotResponse(true),
 		GeneratedAt: time.Now().UTC(),
 		Session:     opts.Session,
 		ProjectKey:  projectKey,
@@ -1569,7 +1543,11 @@ func GetMail(opts MailOptions) (*MailOutput, error) {
 
 	// Ensure project exists
 	if _, err := client.EnsureProject(ctx, projectKey); err != nil {
-		output.Error = fmt.Sprintf("ensure_project: %v", err)
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("ensure_project: %w", err),
+			ErrCodeInternalError,
+			"Verify Agent Mail server and project key",
+		)
 		return output, nil
 	}
 
@@ -1582,7 +1560,11 @@ func GetMail(opts MailOptions) (*MailOutput, error) {
 
 	agents, err := client.ListProjectAgents(ctx, projectKey)
 	if err != nil {
-		output.Error = fmt.Sprintf("list_agents: %v", err)
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("list_agents: %w", err),
+			ErrCodeInternalError,
+			"Verify Agent Mail server and project key",
+		)
 		return output, nil
 	}
 
@@ -2024,6 +2006,7 @@ func getGraphMetrics() *GraphMetrics {
 
 // VersionOutput represents the output for --robot-version
 type VersionOutput struct {
+	RobotResponse
 	Version   string `json:"version"`
 	Commit    string `json:"commit"`
 	BuildDate string `json:"build_date"`
@@ -2037,6 +2020,7 @@ type VersionOutput struct {
 // This function returns the data struct directly, enabling CLI/REST parity.
 func GetVersion() (*VersionOutput, error) {
 	return &VersionOutput{
+		RobotResponse: NewRobotResponse(true),
 		Version:   Version,
 		Commit:    Commit,
 		BuildDate: Date,
@@ -3238,10 +3222,11 @@ type SendOptions struct {
 	InjectConfig *InjectConfig // CASS injection configuration (optional)
 }
 
-// PrintSend sends a message to multiple panes atomically and returns structured results
-func PrintSend(opts SendOptions) error {
+// GetSend sends a message to multiple panes atomically and returns structured results.
+// This function returns the data struct directly, enabling CLI/REST parity.
+func GetSend(opts SendOptions) (*SendOutput, error) {
 	if strings.TrimSpace(opts.Session) == "" {
-		return encodeJSON(SendOutput{
+		return &SendOutput{
 			RobotResponse:  NewErrorResponse(fmt.Errorf("session name is required"), ErrCodeInvalidFlag, "Provide a session name"),
 			Session:        opts.Session,
 			SentAt:         time.Now().UTC(),
@@ -3249,11 +3234,11 @@ func PrintSend(opts SendOptions) error {
 			Successful:     []string{},
 			Failed:         []SendError{{Pane: "session", Error: "session name is required"}},
 			MessagePreview: truncateMessage(opts.Message),
-		})
+		}, nil
 	}
 
 	if !tmux.SessionExists(opts.Session) {
-		return encodeJSON(SendOutput{
+		return &SendOutput{
 			RobotResponse:  NewErrorResponse(fmt.Errorf("session '%s' not found", opts.Session), ErrCodeSessionNotFound, "Use 'ntm list' to see available sessions"),
 			Session:        opts.Session,
 			SentAt:         time.Now().UTC(),
@@ -3261,12 +3246,12 @@ func PrintSend(opts SendOptions) error {
 			Successful:     []string{},
 			Failed:         []SendError{{Pane: "session", Error: fmt.Sprintf("session '%s' not found", opts.Session)}},
 			MessagePreview: truncateMessage(opts.Message),
-		})
+		}, nil
 	}
 
 	panes, err := tmux.GetPanes(opts.Session)
 	if err != nil {
-		return encodeJSON(SendOutput{
+		return &SendOutput{
 			RobotResponse:  NewErrorResponse(fmt.Errorf("failed to get panes: %w", err), ErrCodeInternalError, "Check tmux is running"),
 			Session:        opts.Session,
 			SentAt:         time.Now().UTC(),
@@ -3274,7 +3259,7 @@ func PrintSend(opts SendOptions) error {
 			Successful:     []string{},
 			Failed:         []SendError{{Pane: "panes", Error: fmt.Sprintf("failed to get panes: %v", err)}},
 			MessagePreview: truncateMessage(opts.Message),
-		})
+		}, nil
 	}
 
 	output := SendOutput{
@@ -3404,7 +3389,7 @@ func PrintSend(opts SendOptions) error {
 			output.Error = "no target panes matched the filter criteria"
 			output.ErrorCode = ErrCodeInvalidFlag
 		}
-		return encodeJSON(output)
+		return &output, nil
 	}
 
 	sendEnter := true
@@ -3451,6 +3436,16 @@ func PrintSend(opts SendOptions) error {
 	// Generate agent hints
 	output.AgentHints = generateSendHints(output)
 
+	return &output, nil
+}
+
+// PrintSend outputs the send operation result as JSON.
+// This is a thin wrapper around GetSend() for CLI output.
+func PrintSend(opts SendOptions) error {
+	output, err := GetSend(opts)
+	if err != nil {
+		return err
+	}
 	return encodeJSON(output)
 }
 
@@ -4812,35 +4807,39 @@ type ActivityAgentHints struct {
 	SuggestedActions []string `json:"suggested_actions,omitempty"`
 }
 
-// PrintActivity outputs agent activity state for a session.
-// This is the handler for --robot-activity flag.
-func PrintActivity(opts ActivityOptions) error {
-	if !tmux.SessionExists(opts.Session) {
-		return RobotError(
-			fmt.Errorf("session '%s' not found", opts.Session),
-			ErrCodeSessionNotFound,
-			"Use 'ntm list' to see available sessions",
-		)
-	}
-
-	panes, err := tmux.GetPanes(opts.Session)
-	if err != nil {
-		return RobotError(
-			fmt.Errorf("failed to get panes: %w", err),
-			ErrCodeInternalError,
-			"Check tmux is running and session is accessible",
-		)
-	}
-
-	output := ActivityOutput{
+// GetActivity returns agent activity state for a session.
+// This function returns the data struct directly, enabling CLI/REST parity.
+func GetActivity(opts ActivityOptions) (*ActivityOutput, error) {
+	output := &ActivityOutput{
 		RobotResponse: NewRobotResponse(true),
 		Session:       opts.Session,
 		CapturedAt:    time.Now().UTC(),
-		Agents:        make([]AgentActivityInfo, 0, len(panes)),
+		Agents:        make([]AgentActivityInfo, 0),
 		Summary: ActivitySummary{
 			ByState: make(map[string]int),
 		},
 	}
+
+	if !tmux.SessionExists(opts.Session) {
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("session '%s' not found", opts.Session),
+			ErrCodeSessionNotFound,
+			"Use 'ntm list' to see available sessions",
+		)
+		return output, nil
+	}
+
+	panes, err := tmux.GetPanes(opts.Session)
+	if err != nil {
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("failed to get panes: %w", err),
+			ErrCodeInternalError,
+			"Check tmux is running and session is accessible",
+		)
+		return output, nil
+	}
+
+	output.Agents = make([]AgentActivityInfo, 0, len(panes))
 
 	// Build filter maps
 	paneFilterMap := make(map[string]bool)
@@ -4938,6 +4937,16 @@ func PrintActivity(opts ActivityOptions) error {
 	// Generate agent hints
 	output.AgentHints = generateActivityHints(availableAgents, busyAgents, problemAgents, output.Summary)
 
+	return output, nil
+}
+
+// PrintActivity handles the --robot-activity command.
+// This is a thin wrapper around GetActivity() for CLI output.
+func PrintActivity(opts ActivityOptions) error {
+	output, err := GetActivity(opts)
+	if err != nil {
+		return err
+	}
 	return encodeJSON(output)
 }
 
@@ -5060,17 +5069,9 @@ type DiffAgentHints struct {
 	SuggestedActions []string `json:"suggested_actions,omitempty"`
 }
 
-// PrintDiff outputs agent activity comparison and file change analysis.
-func PrintDiff(opts DiffOptions) error {
-	// Validate session exists
-	if !tmux.SessionExists(opts.Session) {
-		return RobotError(
-			fmt.Errorf("session '%s' not found", opts.Session),
-			ErrCodeSessionNotFound,
-			"Use 'ntm list' to see available sessions",
-		)
-	}
-
+// GetDiff returns agent activity comparison and file change analysis.
+// This function returns the data struct directly, enabling CLI/REST parity.
+func GetDiff(opts DiffOptions) (*DiffOutput, error) {
 	// Default to 15 minutes if not specified
 	if opts.Since == 0 {
 		opts.Since = 15 * time.Minute
@@ -5079,7 +5080,7 @@ func PrintDiff(opts DiffOptions) error {
 	now := time.Now().UTC()
 	sinceTime := now.Add(-opts.Since)
 
-	output := DiffOutput{
+	output := &DiffOutput{
 		RobotResponse: NewRobotResponse(true),
 		Session:       opts.Session,
 		Timeframe: DiffTimeframe{
@@ -5095,14 +5096,25 @@ func PrintDiff(opts DiffOptions) error {
 		AgentActivity: []DiffAgentInfo{},
 	}
 
+	// Validate session exists
+	if !tmux.SessionExists(opts.Session) {
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("session '%s' not found", opts.Session),
+			ErrCodeSessionNotFound,
+			"Use 'ntm list' to see available sessions",
+		)
+		return output, nil
+	}
+
 	// Get panes for agent activity
 	panes, err := tmux.GetPanes(opts.Session)
 	if err != nil {
-		return RobotError(
+		output.RobotResponse = NewErrorResponse(
 			fmt.Errorf("failed to get panes: %w", err),
 			ErrCodeInternalError,
 			"Check tmux is running and session is accessible",
 		)
+		return output, nil
 	}
 
 	// Create conflict detector for file analysis
@@ -5198,6 +5210,16 @@ func PrintDiff(opts DiffOptions) error {
 
 	output.AgentHints = hints
 
+	return output, nil
+}
+
+// PrintDiff handles the --robot-diff command.
+// This is a thin wrapper around GetDiff() for CLI output.
+func PrintDiff(opts DiffOptions) error {
+	output, err := GetDiff(opts)
+	if err != nil {
+		return err
+	}
 	return encodeJSON(output)
 }
 

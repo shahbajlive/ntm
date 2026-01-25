@@ -196,6 +196,60 @@ func TestSchemaValidator_ParseFixture_InvalidMissingModeID(t *testing.T) {
 	}
 }
 
+func TestSchemaValidator_ParseFixture_ValidStringLikelihood(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("testdata", "schema", "valid_string_likelihood.yaml"))
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+
+	v := NewSchemaValidator()
+	output, errs, err := v.ParseAndValidate(string(data))
+	if err != nil {
+		t.Fatalf("ParseAndValidate error: %v", err)
+	}
+	if len(errs) > 0 {
+		t.Logf("validation errors for valid_string_likelihood.yaml:")
+		for _, e := range errs {
+			t.Logf("  - %s", e.Error())
+		}
+		t.Errorf("expected no validation errors, got %d", len(errs))
+	}
+
+	// Verify mode_id is parsed
+	if output.ModeID != "risk-analysis" {
+		t.Errorf("ModeID = %q, want %q", output.ModeID, "risk-analysis")
+	}
+
+	// Verify string confidence was normalized to 0.8 ("high")
+	if len(output.TopFindings) < 1 {
+		t.Fatalf("expected at least 1 finding, got %d", len(output.TopFindings))
+	}
+	if output.TopFindings[0].Confidence != 0.8 {
+		t.Errorf("Finding[0].Confidence = %v, want 0.8 (from 'high')", output.TopFindings[0].Confidence)
+	}
+
+	// Verify percentage confidence was normalized (75% -> 0.75)
+	if len(output.TopFindings) < 2 {
+		t.Fatalf("expected at least 2 findings, got %d", len(output.TopFindings))
+	}
+	if output.TopFindings[1].Confidence != 0.75 {
+		t.Errorf("Finding[1].Confidence = %v, want 0.75 (from '75%%')", output.TopFindings[1].Confidence)
+	}
+
+	// Verify string likelihood was normalized to 0.2 ("low")
+	if len(output.Risks) < 1 {
+		t.Fatalf("expected at least 1 risk, got %d", len(output.Risks))
+	}
+	if output.Risks[0].Likelihood != 0.2 {
+		t.Errorf("Risks[0].Likelihood = %v, want 0.2 (from 'low')", output.Risks[0].Likelihood)
+	}
+
+	// Verify overall confidence was normalized to 0.5 ("medium")
+	if output.Confidence != 0.5 {
+		t.Errorf("Confidence = %v, want 0.5 (from 'medium')", output.Confidence)
+	}
+}
+
 func TestSchemaValidator_ParseFixture_Malformed(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("testdata", "schema", "malformed.yaml"))
 	if err != nil {
@@ -544,6 +598,77 @@ func TestConfidence_BoundaryValues(t *testing.T) {
 		if !tc.valid && err == nil {
 			t.Errorf("Confidence(%v) should be invalid", tc.value)
 		}
+	}
+}
+
+func TestConfidence_UnmarshalYAML(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		want    Confidence
+		wantErr bool
+	}{
+		{"float", "0.75", 0.75, false},
+		{"high", "high", 0.8, false},
+		{"HIGH", "HIGH", 0.8, false},
+		{"medium", "medium", 0.5, false},
+		{"low", "low", 0.2, false},
+		{"percentage", "\"80%\"", 0.8, false},
+		{"invalid", "invalid", 0, true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var c Confidence
+			err := yaml.Unmarshal([]byte(tc.yaml), &c)
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("expected error for %q, got nil", tc.yaml)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if c != tc.want {
+				t.Errorf("got %v, want %v", c, tc.want)
+			}
+		})
+	}
+}
+
+func TestConfidence_UnmarshalJSON(t *testing.T) {
+	tests := []struct {
+		name    string
+		json    string
+		want    Confidence
+		wantErr bool
+	}{
+		{"float", "0.75", 0.75, false},
+		{"high", `"high"`, 0.8, false},
+		{"medium", `"medium"`, 0.5, false},
+		{"low", `"low"`, 0.2, false},
+		{"percentage", `"80%"`, 0.8, false},
+		{"invalid", `"invalid"`, 0, true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var c Confidence
+			err := json.Unmarshal([]byte(tc.json), &c)
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("expected error for %q, got nil", tc.json)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if c != tc.want {
+				t.Errorf("got %v, want %v", c, tc.want)
+			}
+		})
 	}
 }
 

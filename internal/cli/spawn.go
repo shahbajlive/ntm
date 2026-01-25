@@ -117,7 +117,39 @@ func resolveStaggerInterval(mode string, opts SpawnOptions, tracker *ratelimit.R
 		interval = opts.StaggerDelay
 	case "smart":
 		if tracker != nil {
-			interval = tracker.GetOptimalDelay("anthropic")
+			// Determine provider priority: Anthropic > OpenAI > Google
+			provider := "anthropic" // Default to strictest
+
+			hasAnthropic := opts.CCCount > 0
+			hasOpenAI := opts.CodCount > 0
+			hasGoogle := opts.GmiCount > 0
+
+			// Check detailed agent list if available (source of truth)
+			if len(opts.Agents) > 0 {
+				hasAnthropic = false
+				hasOpenAI = false
+				hasGoogle = false
+				for _, a := range opts.Agents {
+					switch a.Type {
+					case AgentTypeClaude:
+						hasAnthropic = true
+					case AgentTypeCodex:
+						hasOpenAI = true
+					case AgentTypeGemini:
+						hasGoogle = true
+					}
+				}
+			}
+
+			if hasAnthropic {
+				provider = "anthropic"
+			} else if hasOpenAI {
+				provider = "openai"
+			} else if hasGoogle {
+				provider = "google"
+			}
+
+			interval = tracker.GetOptimalDelay(provider)
 		}
 	}
 	return interval

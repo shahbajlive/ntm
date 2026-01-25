@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -291,20 +290,6 @@ func matchesNTMPattern(name string) string {
 		matched, err := filepath.Match(pattern, name)
 		if err == nil && matched {
 			return pattern
-		}
-	}
-
-	// Additional checks for partial matches (patterns like ntm-lifecycle-*)
-	prefixes := []string{
-		"ntm-lifecycle-",
-		"test-ntm-",
-		"ntm-atomic-",
-		"ntm-prompt-",
-		"ntm-mail-",
-	}
-	for _, prefix := range prefixes {
-		if strings.HasPrefix(name, prefix) {
-			return prefix + "*"
 		}
 	}
 

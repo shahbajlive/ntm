@@ -553,12 +553,29 @@ func TestPrintStatusWithSession(t *testing.T) {
 func TestPrintTailNonexistentSession(t *testing.T) {
 	testutil.RequireTmuxThrottled(t)
 
-	err := PrintTail("nonexistent_session_12345", 20, nil)
-	if err == nil {
-		t.Error("Expected error for nonexistent session")
+	output, err := captureStdout(t, func() error {
+		return PrintTail("nonexistent_session_12345", 20, nil)
+	})
+	if err != nil {
+		t.Fatalf("PrintTail should not return error, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "not found") {
-		t.Errorf("Error should mention session not found: %v", err)
+
+	var result TailOutput
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("Failed to parse JSON: %v\nOutput: %s", err, output)
+	}
+
+	if result.Success {
+		t.Error("Expected success=false for nonexistent session")
+	}
+	if result.ErrorCode != ErrCodeSessionNotFound {
+		t.Errorf("ErrorCode = %s, want %s", result.ErrorCode, ErrCodeSessionNotFound)
+	}
+	if !strings.Contains(result.Error, "not found") {
+		t.Errorf("Error should mention session not found: %v", result.Error)
+	}
+	if result.Panes == nil {
+		t.Error("Panes should be present (empty map) for error responses")
 	}
 }
 
@@ -625,6 +642,76 @@ func TestPrintSendWithSession(t *testing.T) {
 	// Message preview should be set
 	if result.MessagePreview == "" {
 		t.Error("MessagePreview is empty")
+	}
+}
+
+func TestPrintSend_AllIncludesUserPane(t *testing.T) {
+	testutil.RequireTmuxThrottled(t)
+
+	sessionName := "ntm_test_send_all_" + time.Now().Format("150405")
+	if err := tmux.CreateSession(sessionName, ""); err != nil {
+		t.Fatalf("Failed to create test session: %v", err)
+	}
+	defer tmux.KillSession(sessionName)
+
+	// Ensure pane indices start at 0 for this session so user pane is index 0.
+	if err := tmux.DefaultClient.RunSilent("set-option", "-t", sessionName, "pane-base-index", "0"); err != nil {
+		t.Fatalf("Failed to set pane-base-index: %v", err)
+	}
+
+	panes, err := tmux.GetPanes(sessionName)
+	if err != nil || len(panes) == 0 {
+		t.Fatalf("Failed to get panes: %v", err)
+	}
+	userPaneKey := fmt.Sprintf("%d", panes[0].Index)
+	if panes[0].Index != 0 {
+		t.Fatalf("expected pane index 0 after base-index override, got %d", panes[0].Index)
+	}
+
+	// Without --all, user pane should be excluded.
+	output, err := captureStdout(t, func() error {
+		return PrintSend(SendOptions{
+			Session: sessionName,
+			Message: "noop",
+			DryRun:  true,
+		})
+	})
+	if err != nil {
+		t.Fatalf("PrintSend failed: %v", err)
+	}
+
+	var result SendOutput
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("Failed to parse JSON: %v", err)
+	}
+	if len(result.Targets) != 0 {
+		t.Fatalf("expected no targets without --all, got %v", result.Targets)
+	}
+
+	// With --all, user pane should be included.
+	output, err = captureStdout(t, func() error {
+		return PrintSend(SendOptions{
+			Session: sessionName,
+			Message: "noop",
+			All:     true,
+			DryRun:  true,
+		})
+	})
+	if err != nil {
+		t.Fatalf("PrintSend failed: %v", err)
+	}
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		t.Fatalf("Failed to parse JSON: %v", err)
+	}
+	found := false
+	for _, target := range result.Targets {
+		if target == userPaneKey {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected user pane %s to be targeted with --all, got %v", userPaneKey, result.Targets)
 	}
 }
 

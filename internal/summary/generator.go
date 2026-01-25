@@ -422,9 +422,13 @@ func extractPendingInline(lines []string) []string {
 		if trimmed == "" {
 			continue
 		}
-		lower := strings.ToLower(trimmed)
+		cleaned := cleanContextLine(trimmed)
+		if cleaned == "" {
+			continue
+		}
+		lower := strings.ToLower(cleaned)
 		if strings.Contains(lower, "todo") || strings.HasPrefix(lower, "next:") || strings.HasPrefix(lower, "pending:") || strings.HasPrefix(lower, "remaining:") {
-			item := strings.TrimSpace(strings.TrimPrefix(trimmed, "TODO"))
+			item := strings.TrimSpace(strings.TrimPrefix(cleaned, "TODO"))
 			item = strings.TrimSpace(strings.TrimPrefix(item, "todo"))
 			item = strings.TrimSpace(strings.TrimPrefix(item, "Next:"))
 			item = strings.TrimSpace(strings.TrimPrefix(item, "next:"))
@@ -465,6 +469,9 @@ func extractKeyActions(lines []string) []string {
 		if trimmed == "" || len(trimmed) > 200 {
 			continue
 		}
+		if isFileOnlyActionLine(trimmed) {
+			continue
+		}
 		lower := strings.ToLower(trimmed)
 		for _, p := range patterns {
 			if strings.Contains(lower, p) {
@@ -478,6 +485,32 @@ func extractKeyActions(lines []string) []string {
 		}
 	}
 	return actions
+}
+
+func isFileOnlyActionLine(line string) bool {
+	cleaned := cleanContextLine(line)
+	if cleaned == "" {
+		return false
+	}
+	paths := extractPathsFromLine(cleaned)
+	if len(paths) == 0 {
+		return false
+	}
+
+	lower := strings.ToLower(strings.TrimSpace(cleaned))
+	lower = strings.TrimSuffix(lower, ".")
+	lower = strings.TrimSuffix(lower, ",")
+
+	verbs := []string{"created ", "modified ", "updated ", "deleted ", "added ", "renamed ", "removed "}
+	for _, path := range paths {
+		pathLower := strings.ToLower(path)
+		for _, verb := range verbs {
+			if lower == verb+pathLower {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func extractChangeHighlights(lines []string) []string {

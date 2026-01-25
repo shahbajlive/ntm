@@ -798,7 +798,7 @@ func determineAgentState(scrollback, agentType string) string {
 
 	// Look for common idle patterns
 	idlePatterns := []string{
-		"$", ">", ">>> ", "claude>", "codex>", "gemini>",
+		"$", ">", ">>> ", "claude>", "codex>", "gemini>", "›", "context left",
 		"What would you like", "How can I help",
 		"Ready for", "Waiting for",
 	}

@@ -325,7 +325,7 @@ func (p *parserImpl) calculateConfidence(state *AgentState) float64 {
 	indicatorCount := len(state.WorkIndicators)
 	if indicatorCount > 0 {
 		// Up to +0.3 for multiple indicators
-		confidence += 0.1 * float64(minInt(indicatorCount, 3))
+		confidence += 0.1 * float64(min(indicatorCount, 3))
 	}
 
 	// Boost for rate limit indicators (unambiguous)
@@ -354,11 +354,4 @@ func (p *parserImpl) calculateConfidence(state *AgentState) float64 {
 	return confidence
 }
 
-// minInt returns the smaller of two integers.
-// Note: Go 1.21+ has built-in min(), but we define for compatibility.
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
+

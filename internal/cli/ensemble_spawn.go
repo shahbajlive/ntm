@@ -16,6 +16,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/ensemble"
 	"github.com/Dicklesworthstone/ntm/internal/output"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
@@ -100,6 +101,98 @@ func bindEnsembleSharedFlags(cmd *cobra.Command, opts *ensembleSpawnOptions) {
 	cmd.Flags().StringVar(&opts.Project, "project", "", "Project directory (default: current dir)")
 }
 
+func applyEnsembleConfigDefaults(cmd *cobra.Command, opts *ensembleSpawnOptions) {
+	effectiveCfg := cfg
+	if effectiveCfg == nil {
+		effectiveCfg = config.Default()
+	}
+	ensCfg := effectiveCfg.Ensemble
+
+	flags := cmd.Flags()
+
+	if opts.Preset == "" && len(opts.Modes) == 0 && ensCfg.DefaultEnsemble != "" {
+		opts.Preset = ensCfg.DefaultEnsemble
+	}
+	if !flags.Changed("agent-mix") && strings.TrimSpace(opts.AgentMix) == "" && strings.TrimSpace(ensCfg.AgentMix) != "" {
+		opts.AgentMix = ensCfg.AgentMix
+	}
+	if !flags.Changed("assignment") && strings.TrimSpace(ensCfg.Assignment) != "" {
+		opts.Assignment = ensCfg.Assignment
+	}
+	if !flags.Changed("allow-advanced") {
+		allow := ensCfg.AllowAdvanced
+		switch strings.ToLower(strings.TrimSpace(ensCfg.ModeTierDefault)) {
+		case "advanced", "experimental":
+			allow = true
+		}
+		opts.AllowAdvanced = allow
+	}
+	if !flags.Changed("synthesis") && strings.TrimSpace(opts.Synthesis) == "" && strings.TrimSpace(ensCfg.Synthesis.Strategy) != "" {
+		opts.Synthesis = ensCfg.Synthesis.Strategy
+	}
+	if !flags.Changed("budget-total") && opts.BudgetTotal == 0 && ensCfg.Budget.Total > 0 {
+		opts.BudgetTotal = ensCfg.Budget.Total
+	}
+	if !flags.Changed("budget-per-agent") && opts.BudgetPerMode == 0 && ensCfg.Budget.PerAgent > 0 {
+		opts.BudgetPerMode = ensCfg.Budget.PerAgent
+	}
+	if !flags.Changed("no-cache") && !ensCfg.Cache.Enabled {
+		opts.NoCache = true
+	}
+}
+
+func applyEnsembleConfigOverrides(target *ensemble.EnsembleConfig, ensCfg config.EnsembleConfig) {
+	if target == nil {
+		return
+	}
+
+	if target.Synthesis.Strategy == "" && strings.TrimSpace(ensCfg.Synthesis.Strategy) != "" {
+		target.Synthesis.Strategy = ensemble.SynthesisStrategy(strings.TrimSpace(ensCfg.Synthesis.Strategy))
+	}
+	if ensCfg.Synthesis.MinConfidence > 0 {
+		target.Synthesis.MinConfidence = ensCfg.Synthesis.MinConfidence
+	}
+	if ensCfg.Synthesis.MaxFindings > 0 {
+		target.Synthesis.MaxFindings = ensCfg.Synthesis.MaxFindings
+	}
+	if ensCfg.Synthesis.IncludeRawOutputs {
+		target.Synthesis.IncludeRawOutputs = true
+	}
+	if strings.TrimSpace(ensCfg.Synthesis.ConflictResolution) != "" {
+		target.Synthesis.ConflictResolution = strings.TrimSpace(ensCfg.Synthesis.ConflictResolution)
+	}
+
+	if ensCfg.Budget.Synthesis > 0 {
+		target.Budget.SynthesisReserveTokens = ensCfg.Budget.Synthesis
+	}
+	if ensCfg.Budget.ContextPack > 0 {
+		target.Budget.ContextReserveTokens = ensCfg.Budget.ContextPack
+	}
+
+	target.Cache.Enabled = ensCfg.Cache.Enabled
+	if ensCfg.Cache.TTLMinutes > 0 {
+		target.Cache.TTL = time.Duration(ensCfg.Cache.TTLMinutes) * time.Minute
+	}
+	if strings.TrimSpace(ensCfg.Cache.CacheDir) != "" {
+		target.Cache.CacheDir = config.ExpandHome(strings.TrimSpace(ensCfg.Cache.CacheDir))
+	}
+	if ensCfg.Cache.MaxEntries > 0 {
+		target.Cache.MaxEntries = ensCfg.Cache.MaxEntries
+	}
+	target.Cache.ShareAcrossModes = ensCfg.Cache.ShareAcrossModes
+	if ensCfg.Cache.CacheDir != "" || ensCfg.Cache.TTLMinutes > 0 || ensCfg.Cache.MaxEntries > 0 || !ensCfg.Cache.Enabled {
+		target.CacheOverride = true
+	}
+
+	target.EarlyStop = ensemble.EarlyStopConfig{
+		Enabled:             ensCfg.EarlyStop.Enabled,
+		MinAgentsBeforeStop: ensCfg.EarlyStop.MinAgents,
+		FindingsThreshold:   ensCfg.EarlyStop.FindingsThreshold,
+		SimilarityThreshold: ensCfg.EarlyStop.SimilarityThreshold,
+		WindowSize:          ensCfg.EarlyStop.WindowSize,
+	}
+}
+
 func runEnsembleSpawn(cmd *cobra.Command, opts ensembleSpawnOptions) error {
 	outputError := func(err error) error {
 		if IsJSONOutput() {
@@ -108,6 +201,8 @@ func runEnsembleSpawn(cmd *cobra.Command, opts ensembleSpawnOptions) error {
 		}
 		return err
 	}
+
+	applyEnsembleConfigDefaults(cmd, &opts)
 
 	if err := tmux.EnsureInstalled(); err != nil {
 		return outputError(err)
@@ -168,7 +263,7 @@ func runEnsembleSpawn(cmd *cobra.Command, opts ensembleSpawnOptions) error {
 		return outputError(err)
 	}
 
-	cfg := &ensemble.EnsembleConfig{
+	ensembleCfg := &ensemble.EnsembleConfig{
 		SessionName:   opts.Session,
 		Question:      opts.Question,
 		Ensemble:      opts.Preset,
@@ -180,9 +275,15 @@ func runEnsembleSpawn(cmd *cobra.Command, opts ensembleSpawnOptions) error {
 		SkipInject:    opts.NoInject,
 	}
 
+	ensDefaults := config.Default().Ensemble
+	if cfg != nil {
+		ensDefaults = cfg.Ensemble
+	}
+	applyEnsembleConfigOverrides(ensembleCfg, ensDefaults)
+
 	if opts.NoCache {
-		cfg.Cache = ensemble.CacheConfig{Enabled: false}
-		cfg.CacheOverride = true
+		ensembleCfg.Cache = ensemble.CacheConfig{Enabled: false}
+		ensembleCfg.CacheOverride = true
 	}
 
 	if strings.TrimSpace(opts.Synthesis) != "" {
@@ -190,22 +291,22 @@ func runEnsembleSpawn(cmd *cobra.Command, opts ensembleSpawnOptions) error {
 		if err != nil {
 			return outputError(err)
 		}
-		cfg.Synthesis = ensemble.SynthesisConfig{Strategy: strategy}
+		ensembleCfg.Synthesis.Strategy = strategy
 	}
 
 	if opts.BudgetPerMode > 0 {
-		cfg.Budget.MaxTokensPerMode = opts.BudgetPerMode
+		ensembleCfg.Budget.MaxTokensPerMode = opts.BudgetPerMode
 	}
 	if opts.BudgetTotal > 0 {
-		cfg.Budget.MaxTotalTokens = opts.BudgetTotal
+		ensembleCfg.Budget.MaxTotalTokens = opts.BudgetTotal
 	}
 
-	state, err := manager.SpawnEnsemble(context.Background(), cfg)
+	state, err := manager.SpawnEnsemble(context.Background(), ensembleCfg)
 	if err != nil && state == nil {
 		return outputError(err)
 	}
 
-	out := buildEnsembleSpawnOutput(state, cfg, manager.Registry)
+	out := buildEnsembleSpawnOutput(state, ensembleCfg, manager.Registry)
 	if err != nil {
 		out.Success = false
 		out.Error = err.Error()
