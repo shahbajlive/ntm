@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // SuggestionEngine provides deterministic question→preset matching.
@@ -306,13 +307,17 @@ func (e *SuggestionEngine) GetPreset(name string) *EnsemblePreset {
 	return nil
 }
 
-// DefaultSuggestionEngine is a lazily-initialized global engine.
-var globalSuggestionEngine *SuggestionEngine
+// globalSuggestionEngine is a lazily-initialized global engine.
+var (
+	globalSuggestionEngine     *SuggestionEngine
+	globalSuggestionEngineOnce sync.Once
+)
 
 // GlobalSuggestionEngine returns the shared suggestion engine instance.
+// It is safe for concurrent use.
 func GlobalSuggestionEngine() *SuggestionEngine {
-	if globalSuggestionEngine == nil {
+	globalSuggestionEngineOnce.Do(func() {
 		globalSuggestionEngine = NewSuggestionEngine()
-	}
+	})
 	return globalSuggestionEngine
 }

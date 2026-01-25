@@ -84,7 +84,7 @@ func runEnsembleSuggest(w io.Writer, question, format string, idOnly bool) error
 	engine := ensemble.GlobalSuggestionEngine()
 	result := engine.Suggest(question)
 
-	slog.Info("ensemble suggest result",
+	slog.Debug("ensemble suggest result",
 		"question_len", len(question),
 		"suggestion_count", len(result.Suggestions),
 		"top_pick", func() string {
@@ -115,12 +115,20 @@ func runEnsembleSuggest(w io.Writer, question, format string, idOnly bool) error
 			Score:   s.Score,
 			Reasons: s.Reasons,
 		}
+		// Ensure Reasons is never nil (JSON serializes nil as null)
+		if row.Reasons == nil {
+			row.Reasons = []string{}
+		}
 
 		if s.Preset != nil {
 			row.DisplayName = s.Preset.DisplayName
 			row.Description = s.Preset.Description
 			row.ModeCount = len(s.Preset.Modes)
 			row.Tags = s.Preset.Tags
+			// Ensure Tags is never nil
+			if row.Tags == nil {
+				row.Tags = []string{}
+			}
 		}
 
 		out.Suggestions = append(out.Suggestions, row)
@@ -216,9 +224,4 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen-3] + "..."
-}
-
-func init() {
-	// Register the suggest subcommand with the ensemble command
-	// This is done in ensemble.go where newEnsembleCmd() is defined
 }

@@ -421,15 +421,15 @@ func TestMergeOutputs_RecommendationsScoring(t *testing.T) {
 
 func TestMergeStats(t *testing.T) {
 	cfg := DefaultMergeConfig()
-	cfg.DeduplicationThreshold = 0.5
+	cfg.DeduplicationThreshold = 0.9 // High threshold to only merge identical text
 
 	outputs := []ModeOutput{
 		{
 			ModeID:     "mode-a",
 			Confidence: 0.8,
 			TopFindings: []Finding{
-				{Finding: "Duplicate finding", Impact: ImpactHigh, Confidence: 0.9},
-				{Finding: "Unique finding A", Impact: ImpactMedium, Confidence: 0.8},
+				{Finding: "This exact finding appears in both modes", Impact: ImpactHigh, Confidence: 0.9},
+				{Finding: "Alpha mode discovered a completely separate issue with authentication", Impact: ImpactMedium, Confidence: 0.8},
 			},
 			Risks: []Risk{
 				{Risk: "Duplicate risk", Impact: ImpactHigh, Likelihood: 0.8},
@@ -442,8 +442,8 @@ func TestMergeStats(t *testing.T) {
 			ModeID:     "mode-b",
 			Confidence: 0.7,
 			TopFindings: []Finding{
-				{Finding: "Duplicate finding", Impact: ImpactHigh, Confidence: 0.85},
-				{Finding: "Unique finding B", Impact: ImpactLow, Confidence: 0.7},
+				{Finding: "This exact finding appears in both modes", Impact: ImpactHigh, Confidence: 0.85},
+				{Finding: "Beta mode found something entirely different about performance", Impact: ImpactLow, Confidence: 0.7},
 			},
 			Risks: []Risk{
 				{Risk: "Duplicate risk", Impact: ImpactHigh, Likelihood: 0.7},
@@ -462,7 +462,7 @@ func TestMergeStats(t *testing.T) {
 	if result.Stats.TotalFindings != 4 {
 		t.Errorf("TotalFindings = %d, want 4", result.Stats.TotalFindings)
 	}
-	// Should have 3 findings after dedup (2 unique + 1 merged duplicate)
+	// Deduplication merges the identical finding, leaving 3
 	if result.Stats.DedupedFindings != 3 {
 		t.Errorf("DedupedFindings = %d, want 3", result.Stats.DedupedFindings)
 	}
@@ -517,8 +517,11 @@ func TestMergedFinding_SourceModes(t *testing.T) {
 		t.Errorf("SourceModes = %d, want 3", len(sourceModes))
 	}
 
-	// Check that score was boosted for agreement
-	if result.Findings[0].MergeScore <= 0.9 {
-		t.Error("MergeScore should be boosted for multi-mode agreement")
+	// Check that score was boosted for agreement (1.1x per merge)
+	// Base score for mode-a: 0.9 * 0.8 * 0.8 = 0.576
+	// After 2 merges: 0.576 * 1.1 * 1.1 ≈ 0.697
+	// So we expect > 0.6 to confirm boosting occurred
+	if result.Findings[0].MergeScore <= 0.6 {
+		t.Errorf("MergeScore should be boosted for multi-mode agreement, got %f", result.Findings[0].MergeScore)
 	}
 }

@@ -517,7 +517,7 @@ func buildStatusResponse(session string, opts statusOptions) (output.StatusRespo
 	dir := cfg.GetProjectDir(session)
 
 	// Load handoff info (best-effort)
-	var handoffGoal, handoffNow, handoffStatus, handoffPath string
+	var handoffGoal, handoffNow, handoffStatus string
 	var handoffAge time.Duration
 	{
 		reader := handoff.NewReader(dir)
@@ -525,7 +525,7 @@ func buildStatusResponse(session string, opts statusOptions) (output.StatusRespo
 			handoffGoal = goal
 			handoffNow = now
 		}
-		if h, path, err := reader.FindLatest(session); err == nil && h != nil {
+		if h, _, err := reader.FindLatest(session); err == nil && h != nil {
 			if handoffGoal == "" {
 				handoffGoal = h.Goal
 			}
@@ -533,7 +533,6 @@ func buildStatusResponse(session string, opts statusOptions) (output.StatusRespo
 				handoffNow = h.Now
 			}
 			handoffStatus = h.Status
-			handoffPath = path
 			handoffAge = time.Since(h.CreatedAt)
 		}
 	}
@@ -811,7 +810,7 @@ func runStatusOnce(w io.Writer, session string, opts statusOptions) error {
 	dir := cfg.GetProjectDir(session)
 
 	// Load handoff info (best-effort)
-	var handoffGoal, handoffNow, handoffStatus, handoffPath string
+	var handoffGoal, handoffNow, handoffStatus string
 	var handoffAge time.Duration
 	{
 		reader := handoff.NewReader(dir)
@@ -819,7 +818,7 @@ func runStatusOnce(w io.Writer, session string, opts statusOptions) error {
 			handoffGoal = goal
 			handoffNow = now
 		}
-		if h, path, err := reader.FindLatest(session); err == nil && h != nil {
+		if h, _, err := reader.FindLatest(session); err == nil && h != nil {
 			if handoffGoal == "" {
 				handoffGoal = h.Goal
 			}
@@ -827,7 +826,6 @@ func runStatusOnce(w io.Writer, session string, opts statusOptions) error {
 				handoffNow = h.Now
 			}
 			handoffStatus = h.Status
-			handoffPath = path
 			handoffAge = time.Since(h.CreatedAt)
 		}
 	}
@@ -1333,6 +1331,7 @@ func runStatusWatch(w io.Writer, session string, opts statusOptions) error {
 	fmt.Print("\033[?25l")
 	defer fmt.Print("\033[?25h")
 
+	// ubs:ignore - ticker stopped via defer below
 	ticker := time.NewTicker(opts.interval)
 	defer ticker.Stop()
 

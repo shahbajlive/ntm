@@ -108,6 +108,7 @@ Primary usage:
 	cmd.AddCommand(newEnsembleSpawnCmd())
 	cmd.AddCommand(newEnsembleStatusCmd())
 	cmd.AddCommand(newEnsembleSuggestCmd())
+	cmd.AddCommand(newEnsembleSynthesizeCmd())
 	return cmd
 }
 
@@ -369,4 +370,193 @@ func renderEnsembleStatus(w io.Writer, payload ensembleStatusOutput, format stri
 	default:
 		return fmt.Errorf("invalid format %q (expected table, json, yaml)", format)
 	}
+}
+
+type synthesizeOptions struct {
+	Strategy string
+	Output   string
+	Format   string
+	Force    bool
+	Verbose  bool
+}
+
+func newEnsembleSynthesizeCmd() *cobra.Command {
+	opts := synthesizeOptions{
+		Format: "markdown",
+	}
+
+	cmd := &cobra.Command{
+		Use:   "synthesize [session]",
+		Short: "Synthesize outputs from ensemble agents",
+		Long: `Trigger synthesis of ensemble outputs.
+
+Collects outputs from all ensemble agents, validates them, and produces a
+synthesized analysis using the configured strategy.
+
+Output formats:
+  --format=markdown (default) - Human-readable report
+  --format=json               - Machine-readable JSON
+  --format=yaml               - YAML format
+
+Use --force to synthesize even if some agents haven't completed.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			session := ""
+			if len(args) > 0 {
+				session = args[0]
+			} else {
+				session = tmux.GetCurrentSession()
+			}
+			if session == "" {
+				return fmt.Errorf("session required (not in tmux)")
+			}
+
+			return runEnsembleSynthesize(cmd.OutOrStdout(), session, opts)
+		},
+	}
+
+	cmd.Flags().StringVar(&opts.Strategy, "strategy", "", "Override synthesis strategy")
+	cmd.Flags().StringVarP(&opts.Output, "output", "o", "", "Output file path (default: stdout)")
+	cmd.Flags().StringVarP(&opts.Format, "format", "f", "markdown", "Output format: markdown, json, yaml")
+	cmd.Flags().BoolVar(&opts.Force, "force", false, "Synthesize even if some agents incomplete")
+	cmd.Flags().BoolVarP(&opts.Verbose, "verbose", "v", false, "Include verbose details in output")
+	cmd.ValidArgsFunction = completeSessionArgs
+	return cmd
+}
+
+func runEnsembleSynthesize(w io.Writer, session string, opts synthesizeOptions) error {
+	if err := tmux.EnsureInstalled(); err != nil {
+		return err
+	}
+	if !tmux.SessionExists(session) {
+		return fmt.Errorf("session '%s' not found", session)
+	}
+
+	// Load ensemble session state
+	state, err := ensemble.LoadSession(session)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("no ensemble running in session '%s'", session)
+		}
+		return fmt.Errorf("load session: %w", err)
+	}
+
+	// Check if agents are ready
+	ready, pending, working := countAgentStates(state)
+	if !opts.Force && (pending > 0 || working > 0) {
+		return fmt.Errorf("synthesis not ready: %d pending, %d working (use --force to override)", pending, working)
+	}
+	if ready == 0 && !opts.Force {
+		return fmt.Errorf("no completed outputs to synthesize")
+	}
+
+	slog.Default().Info("ensemble synthesis starting",
+		"session", session,
+		"ready", ready,
+		"pending", pending,
+		"working", working,
+		"force", opts.Force,
+	)
+
+	// Create output capture and collector
+	capture := ensemble.NewOutputCapture(tmux.DefaultClient)
+	collector := ensemble.NewOutputCollector(ensemble.DefaultOutputCollectorConfig())
+
+	// Collect outputs from panes
+	if err := collector.CollectFromSession(state, capture); err != nil {
+		return fmt.Errorf("collect outputs: %w", err)
+	}
+
+	if collector.Count() == 0 {
+		return fmt.Errorf("no valid outputs collected (errors: %d)", collector.ErrorCount())
+	}
+
+	slog.Default().Info("ensemble outputs collected",
+		"session", session,
+		"valid", collector.Count(),
+		"errors", collector.ErrorCount(),
+	)
+
+	// Determine synthesis strategy
+	strategy := state.SynthesisStrategy
+	if opts.Strategy != "" {
+		strategy = ensemble.SynthesisStrategy(opts.Strategy)
+	}
+
+	// Build synthesis config
+	synthConfig := ensemble.SynthesisConfig{
+		Strategy:      strategy,
+		MaxFindings:   20,
+		MinConfidence: 0.3,
+	}
+
+	// Create synthesizer
+	synth, err := ensemble.NewSynthesizer(synthConfig)
+	if err != nil {
+		return fmt.Errorf("create synthesizer: %w", err)
+	}
+
+	// Build synthesis input
+	input, err := collector.BuildSynthesisInput(state.Question, nil, synthConfig)
+	if err != nil {
+		return fmt.Errorf("build synthesis input: %w", err)
+	}
+
+	// Run synthesis
+	result, err := synth.Synthesize(input)
+	if err != nil {
+		return fmt.Errorf("synthesis failed: %w", err)
+	}
+
+	slog.Default().Info("ensemble synthesis completed",
+		"session", session,
+		"findings", len(result.Findings),
+		"risks", len(result.Risks),
+		"recommendations", len(result.Recommendations),
+		"confidence", float64(result.Confidence),
+	)
+
+	// Format output
+	outputFormat := ensemble.FormatMarkdown
+	switch strings.ToLower(opts.Format) {
+	case "json":
+		outputFormat = ensemble.FormatJSON
+	case "yaml", "yml":
+		outputFormat = ensemble.FormatYAML
+	}
+
+	formatter := ensemble.NewSynthesisFormatter(outputFormat)
+	formatter.Verbose = opts.Verbose
+	formatter.IncludeAudit = true
+
+	// Determine output destination
+	var out io.Writer = w
+	if opts.Output != "" {
+		f, err := os.Create(opts.Output)
+		if err != nil {
+			return fmt.Errorf("create output file: %w", err)
+		}
+		defer f.Close()
+		out = f
+	}
+
+	if err := formatter.FormatResult(out, result, input.AuditReport); err != nil {
+		return fmt.Errorf("format output: %w", err)
+	}
+
+	return nil
+}
+
+func countAgentStates(state *ensemble.EnsembleSession) (ready, pending, working int) {
+	for _, a := range state.Assignments {
+		switch a.Status {
+		case ensemble.AssignmentDone:
+			ready++
+		case ensemble.AssignmentPending, ensemble.AssignmentInjecting:
+			pending++
+		case ensemble.AssignmentActive:
+			working++
+		}
+	}
+	return
 }

@@ -1785,37 +1785,31 @@ func TestRobotEnsembleSuggest(t *testing.T) {
 		name           string
 		question       string
 		expectedPreset string
-		expectSuccess  bool
 	}{
 		{
 			name:           "security_question",
 			question:       "What security vulnerabilities exist in this codebase?",
 			expectedPreset: "safety-risk",
-			expectSuccess:  true,
 		},
 		{
 			name:           "bug_question",
 			question:       "Debug the crash in the login flow",
 			expectedPreset: "bug-hunt",
-			expectSuccess:  true,
 		},
 		{
 			name:           "idea_question",
 			question:       "What features should we add next?",
 			expectedPreset: "idea-forge",
-			expectSuccess:  true,
 		},
 		{
 			name:           "architecture_question",
 			question:       "Review the system architecture",
 			expectedPreset: "architecture-review",
-			expectSuccess:  true,
 		},
 		{
 			name:           "root_cause_question",
 			question:       "5 whys analysis on the incident",
 			expectedPreset: "root-cause-analysis",
-			expectSuccess:  true,
 		},
 	}
 

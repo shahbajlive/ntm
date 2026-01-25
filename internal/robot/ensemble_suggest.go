@@ -109,12 +109,20 @@ func PrintEnsembleSuggest(question string, idOnly bool) error {
 			Score:      s.Score,
 			Reasons:    s.Reasons,
 		}
+		// Ensure Reasons is never nil (JSON serializes nil as null)
+		if suggestion.Reasons == nil {
+			suggestion.Reasons = []string{}
+		}
 
 		if preset != nil {
 			suggestion.DisplayName = preset.DisplayName
 			suggestion.Description = preset.Description
 			suggestion.ModeCount = len(preset.Modes)
 			suggestion.Tags = preset.Tags
+			// Ensure Tags is never nil
+			if suggestion.Tags == nil {
+				suggestion.Tags = []string{}
+			}
 			suggestion.SpawnCmd = "ntm ensemble " + preset.Name + " \"" + escapeQuotes(question) + "\""
 		}
 
@@ -128,7 +136,7 @@ func PrintEnsembleSuggest(question string, idOnly bool) error {
 	}
 
 	// Build agent hints
-	output.AgentHints = buildEnsembleSuggestHints(output, question)
+	output.AgentHints = buildEnsembleSuggestHints(output)
 
 	// If idOnly, simplify output
 	if idOnly {
@@ -145,7 +153,7 @@ func escapeQuotes(s string) string {
 	return strings.ReplaceAll(s, "\"", "\\\"")
 }
 
-func buildEnsembleSuggestHints(output EnsembleSuggestOutput, question string) *EnsembleSuggestAgentHints {
+func buildEnsembleSuggestHints(output EnsembleSuggestOutput) *EnsembleSuggestAgentHints {
 	if output.TopPick == nil {
 		return nil
 	}
@@ -169,7 +177,7 @@ func buildEnsembleSuggestHints(output EnsembleSuggestOutput, question string) *E
 		hints.SuggestedActions = append(hints.SuggestedActions, RobotAction{
 			Action:   "consider-alternatives",
 			Target:   "suggestions",
-			Reason:   strings.Join([]string{output.Suggestions[1].PresetName}, ", ") + " also match",
+			Reason:   output.Suggestions[1].PresetName + " also matches",
 			Priority: 2,
 		})
 	}

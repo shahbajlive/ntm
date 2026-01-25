@@ -116,6 +116,7 @@ func (t *CompactionTrigger) Stop() {
 func (t *CompactionTrigger) monitorLoop() {
 	defer t.wg.Done()
 
+	// ubs:ignore - ticker stopped via defer below
 	ticker := time.NewTicker(t.config.PollInterval)
 	defer ticker.Stop()
 

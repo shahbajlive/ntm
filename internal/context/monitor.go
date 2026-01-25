@@ -374,22 +374,22 @@ type ContextMonitor struct {
 	mu         sync.RWMutex
 
 	// Configuration
-	warningThreshold float64 // Default 60%
-	rotateThreshold  float64 // Default 80%
+	warningThreshold float64 // Default 70%
+	rotateThreshold  float64 // Default 75%
 }
 
 // MonitorConfig holds configuration for the context monitor.
 type MonitorConfig struct {
-	WarningThreshold float64 // Percentage at which to warn (default 60)
-	RotateThreshold  float64 // Percentage at which to rotate (default 80)
+	WarningThreshold float64 // Percentage at which to warn (default 70)
+	RotateThreshold  float64 // Percentage at which to rotate (default 75)
 	TokensPerMessage int     // For message count estimation (default 1500)
 }
 
 // DefaultMonitorConfig returns sensible defaults.
 func DefaultMonitorConfig() MonitorConfig {
 	return MonitorConfig{
-		WarningThreshold: 60.0,
-		RotateThreshold:  80.0,
+		WarningThreshold: 70.0,
+		RotateThreshold:  75.0,
 		TokensPerMessage: 1500,
 	}
 }
@@ -397,10 +397,10 @@ func DefaultMonitorConfig() MonitorConfig {
 // NewContextMonitor creates a new context monitor with default estimators.
 func NewContextMonitor(cfg MonitorConfig) *ContextMonitor {
 	if cfg.WarningThreshold <= 0 {
-		cfg.WarningThreshold = 60.0
+		cfg.WarningThreshold = 70.0
 	}
 	if cfg.RotateThreshold <= 0 {
-		cfg.RotateThreshold = 80.0
+		cfg.RotateThreshold = 75.0
 	}
 	if cfg.TokensPerMessage <= 0 {
 		cfg.TokensPerMessage = 1500
@@ -729,9 +729,8 @@ func (m *ContextMonitor) UpdateFromTranscript(agentID string) (int64, error) {
 		return 0, err
 	}
 
-	// Estimate tokens from file size (~3.5 bytes per token, conservative)
-	// We use 3.5 to match EstimateTokens and be safer (overestimate usage)
-	estimatedTokens := int64(float64(info.Size()) / 3.5)
+	// Estimate tokens from file size (~4 bytes per token, conservative)
+	estimatedTokens := int64(float64(info.Size()) / 4.0)
 
 	// Update the state with this estimate
 	m.mu.Lock()
@@ -810,4 +809,3 @@ func (m *ContextMonitor) ShouldTriggerHandoff(agentID string, predictor *Context
 
 	return rec
 }
-
