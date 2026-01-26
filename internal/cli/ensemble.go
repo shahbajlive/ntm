@@ -1,11 +1,17 @@
 package cli
 
 import (
+	"bufio"
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +21,7 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/ensemble"
 	"github.com/Dicklesworthstone/ntm/internal/output"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/Dicklesworthstone/ntm/internal/util"
 )
 
 type ensembleStatusCounts struct {
@@ -41,19 +48,19 @@ type ensembleAssignmentRow struct {
 }
 
 type ensembleStatusOutput struct {
-	GeneratedAt    time.Time                      `json:"generated_at" yaml:"generated_at"`
-	Session        string                         `json:"session" yaml:"session"`
-	Exists         bool                           `json:"exists" yaml:"exists"`
-	EnsembleName   string                         `json:"ensemble_name,omitempty" yaml:"ensemble_name,omitempty"`
-	Question       string                         `json:"question,omitempty" yaml:"question,omitempty"`
-	StartedAt      time.Time                      `json:"started_at,omitempty" yaml:"started_at,omitempty"`
-	Status         string                         `json:"status,omitempty" yaml:"status,omitempty"`
-	SynthesisReady bool                           `json:"synthesis_ready,omitempty" yaml:"synthesis_ready,omitempty"`
-	Synthesis      string                         `json:"synthesis,omitempty" yaml:"synthesis,omitempty"`
-	Budget         ensembleBudgetSummary          `json:"budget,omitempty" yaml:"budget,omitempty"`
-	StatusCounts   ensembleStatusCounts           `json:"status_counts,omitempty" yaml:"status_counts,omitempty"`
-	Assignments    []ensembleAssignmentRow        `json:"assignments,omitempty" yaml:"assignments,omitempty"`
-	Contributions  *ensemble.ContributionReport   `json:"contributions,omitempty" yaml:"contributions,omitempty"`
+	GeneratedAt    time.Time                    `json:"generated_at" yaml:"generated_at"`
+	Session        string                       `json:"session" yaml:"session"`
+	Exists         bool                         `json:"exists" yaml:"exists"`
+	EnsembleName   string                       `json:"ensemble_name,omitempty" yaml:"ensemble_name,omitempty"`
+	Question       string                       `json:"question,omitempty" yaml:"question,omitempty"`
+	StartedAt      time.Time                    `json:"started_at,omitempty" yaml:"started_at,omitempty"`
+	Status         string                       `json:"status,omitempty" yaml:"status,omitempty"`
+	SynthesisReady bool                         `json:"synthesis_ready,omitempty" yaml:"synthesis_ready,omitempty"`
+	Synthesis      string                       `json:"synthesis,omitempty" yaml:"synthesis,omitempty"`
+	Budget         ensembleBudgetSummary        `json:"budget,omitempty" yaml:"budget,omitempty"`
+	StatusCounts   ensembleStatusCounts         `json:"status_counts,omitempty" yaml:"status_counts,omitempty"`
+	Assignments    []ensembleAssignmentRow      `json:"assignments,omitempty" yaml:"assignments,omitempty"`
+	Contributions  *ensemble.ContributionReport `json:"contributions,omitempty" yaml:"contributions,omitempty"`
 }
 
 func newEnsembleCmd() *cobra.Command {
@@ -111,6 +118,7 @@ Primary usage:
 	cmd.AddCommand(newEnsembleStopCmd())
 	cmd.AddCommand(newEnsembleSuggestCmd())
 	cmd.AddCommand(newEnsembleSynthesizeCmd())
+	cmd.AddCommand(newEnsembleExportFindingsCmd())
 	cmd.AddCommand(newEnsembleProvenanceCmd())
 	cmd.AddCommand(newEnsembleResumeCmd())
 	cmd.AddCommand(newEnsembleRerunModeCmd())
@@ -168,15 +176,15 @@ type ensembleStopOptions struct {
 }
 
 type ensembleStopOutput struct {
-	GeneratedAt time.Time               `json:"generated_at" yaml:"generated_at"`
-	Session     string                  `json:"session" yaml:"session"`
-	Success     bool                    `json:"success" yaml:"success"`
-	Message     string                  `json:"message,omitempty" yaml:"message,omitempty"`
-	Captured    int                     `json:"captured,omitempty" yaml:"captured,omitempty"`
-	Stopped     int                     `json:"stopped" yaml:"stopped"`
-	Errors      int                     `json:"errors,omitempty" yaml:"errors,omitempty"`
-	FinalStatus string                  `json:"final_status" yaml:"final_status"`
-	Error       string                  `json:"error,omitempty" yaml:"error,omitempty"`
+	GeneratedAt time.Time `json:"generated_at" yaml:"generated_at"`
+	Session     string    `json:"session" yaml:"session"`
+	Success     bool      `json:"success" yaml:"success"`
+	Message     string    `json:"message,omitempty" yaml:"message,omitempty"`
+	Captured    int       `json:"captured,omitempty" yaml:"captured,omitempty"`
+	Stopped     int       `json:"stopped" yaml:"stopped"`
+	Errors      int       `json:"errors,omitempty" yaml:"errors,omitempty"`
+	FinalStatus string    `json:"final_status" yaml:"final_status"`
+	Error       string    `json:"error,omitempty" yaml:"error,omitempty"`
 }
 
 func newEnsembleStopCmd() *cobra.Command {
@@ -905,6 +913,737 @@ func runEnsembleSynthesize(w io.Writer, session string, opts synthesizeOptions) 
 	return nil
 }
 
+type exportFindingsOptions struct {
+	Session string
+	RunID   string
+	All     bool
+	DryRun  bool
+	Format  string
+	Type    string
+	IDs     string
+}
+
+type exportFindingResult struct {
+	FindingID  string `json:"finding_id" yaml:"finding_id"`
+	Title      string `json:"title" yaml:"title"`
+	Impact     string `json:"impact" yaml:"impact"`
+	Confidence string `json:"confidence" yaml:"confidence"`
+	Priority   int    `json:"priority" yaml:"priority"`
+	BeadID     string `json:"bead_id,omitempty" yaml:"bead_id,omitempty"`
+}
+
+type exportFindingsOutput struct {
+	GeneratedAt time.Time             `json:"generated_at" yaml:"generated_at"`
+	Session     string                `json:"session,omitempty" yaml:"session,omitempty"`
+	RunID       string                `json:"run_id,omitempty" yaml:"run_id,omitempty"`
+	Question    string                `json:"question,omitempty" yaml:"question,omitempty"`
+	DryRun      bool                  `json:"dry_run,omitempty" yaml:"dry_run,omitempty"`
+	Created     int                   `json:"created,omitempty" yaml:"created,omitempty"`
+	Findings    []exportFindingResult `json:"findings" yaml:"findings"`
+	Errors      []string              `json:"errors,omitempty" yaml:"errors,omitempty"`
+}
+
+type exportFinding struct {
+	ID          string
+	Finding     ensemble.Finding
+	SourceModes []string
+	Provenance  *ensemble.ProvenanceChain
+}
+
+type exportFindingsContext struct {
+	Question   string
+	Session    string
+	RunID      string
+	ProjectDir string
+	Outputs    []ensemble.ModeOutput
+}
+
+type beadSpec struct {
+	Title       string
+	Type        string
+	Priority    int
+	Description string
+}
+
+const defaultBrTimeout = 30 * time.Second
+
+var runBrCommand = defaultBrCommand
+
+func newEnsembleExportFindingsCmd() *cobra.Command {
+	opts := exportFindingsOptions{
+		Format: "text",
+		Type:   "task",
+	}
+
+	cmd := &cobra.Command{
+		Use:   "export-findings [session]",
+		Short: "Convert ensemble findings into beads",
+		Long: `Convert findings from the latest ensemble run into beads issues.
+
+By default, this pulls findings from the current tmux session. Use --run-id
+to export from a checkpoint run instead. Without --all or --ids, an interactive
+selector is shown.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			session := opts.Session
+			if len(args) > 0 {
+				session = args[0]
+			}
+
+			return runEnsembleExportFindings(cmd.OutOrStdout(), session, opts)
+		},
+	}
+
+	cmd.Flags().StringVarP(&opts.Format, "format", "f", "text", "Output format: text, json, yaml")
+	cmd.Flags().StringVar(&opts.RunID, "run-id", "", "Checkpoint run ID to export (overrides session)")
+	cmd.Flags().BoolVar(&opts.All, "all", false, "Export all findings without prompting")
+	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Preview beads without creating them")
+	cmd.Flags().StringVar(&opts.Type, "type", "task", "Bead type (task, bug, feature, etc.)")
+	cmd.Flags().StringVar(&opts.IDs, "ids", "", "Comma-separated finding IDs to export")
+	cmd.Flags().StringVarP(&opts.Session, "session", "s", "", "Session name (default: current)")
+	cmd.ValidArgsFunction = completeSessionArgs
+	return cmd
+}
+
+func runEnsembleExportFindings(w io.Writer, session string, opts exportFindingsOptions) error {
+	format := strings.ToLower(strings.TrimSpace(opts.Format))
+	if format == "" {
+		format = "text"
+	}
+	if jsonOutput {
+		format = "json"
+	}
+
+	ctx, err := loadExportFindingsContext(session, opts)
+	if err != nil {
+		return err
+	}
+
+	findings, err := buildExportFindings(ctx)
+	if err != nil {
+		return err
+	}
+	if len(findings) == 0 {
+		return fmt.Errorf("no findings available to export")
+	}
+
+	selected, err := selectExportFindings(w, findings, opts, format)
+	if err != nil {
+		return err
+	}
+	if len(selected) == 0 {
+		return fmt.Errorf("no findings selected")
+	}
+
+	results := make([]exportFindingResult, 0, len(selected))
+	var errs []string
+	created := 0
+
+	for _, f := range selected {
+		priority := impactToBeadPriority(f.Finding.Impact)
+		spec := buildBeadSpec(ctx, f, opts, priority)
+
+		slog.Default().Info("export finding",
+			"finding_id", f.ID,
+			"impact", string(f.Finding.Impact),
+			"priority", priority,
+			"dry_run", opts.DryRun,
+		)
+
+		result := exportFindingResult{
+			FindingID:  f.ID,
+			Title:      spec.Title,
+			Impact:     string(f.Finding.Impact),
+			Confidence: f.Finding.Confidence.String(),
+			Priority:   priority,
+		}
+
+		if opts.DryRun {
+			results = append(results, result)
+			continue
+		}
+
+		ctxTimeout, cancel := context.WithTimeout(context.Background(), defaultBrTimeout)
+		beadID, err := runBrCreate(ctxTimeout, ctx.ProjectDir, spec)
+		cancel()
+		if err != nil {
+			errs = append(errs, err.Error())
+			slog.Default().Warn("export finding failed",
+				"finding_id", f.ID,
+				"error", err,
+			)
+			results = append(results, result)
+			continue
+		}
+
+		slog.Default().Info("bead created",
+			"finding_id", f.ID,
+			"bead_id", beadID,
+		)
+
+		result.BeadID = beadID
+		results = append(results, result)
+		created++
+	}
+
+	payload := exportFindingsOutput{
+		GeneratedAt: output.Timestamp(),
+		Session:     ctx.Session,
+		RunID:       ctx.RunID,
+		Question:    ctx.Question,
+		DryRun:      opts.DryRun,
+		Created:     created,
+		Findings:    results,
+	}
+	if len(errs) > 0 {
+		payload.Errors = errs
+	}
+
+	return renderExportFindingsOutput(w, payload, format)
+}
+
+func renderExportFindingsOutput(w io.Writer, payload exportFindingsOutput, format string) error {
+	switch format {
+	case "json":
+		return output.WriteJSON(w, payload, true)
+	case "yaml", "yml":
+		data, err := yaml.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("marshal yaml: %w", err)
+		}
+		if _, err := w.Write(data); err != nil {
+			return err
+		}
+		if len(data) == 0 || data[len(data)-1] != '\n' {
+			_, err = w.Write([]byte("\n"))
+			return err
+		}
+		return nil
+	default:
+		if payload.DryRun {
+			fmt.Fprintf(w, "Dry run: %d finding(s) selected\n", len(payload.Findings))
+		} else {
+			fmt.Fprintf(w, "Exported %d finding(s)\n", payload.Created)
+		}
+		if payload.Session != "" {
+			fmt.Fprintf(w, "Session: %s\n", payload.Session)
+		}
+		if payload.RunID != "" {
+			fmt.Fprintf(w, "Run ID: %s\n", payload.RunID)
+		}
+		if payload.Question != "" {
+			fmt.Fprintf(w, "Question: %s\n", payload.Question)
+		}
+
+		table := output.NewTable(w, "FINDING", "IMPACT", "CONF", "PRIORITY", "BEAD")
+		for _, row := range payload.Findings {
+			beadID := row.BeadID
+			if payload.DryRun && beadID == "" {
+				beadID = "preview"
+			}
+			table.AddRow(
+				truncateWithEllipsis(row.Title, 60),
+				row.Impact,
+				row.Confidence,
+				fmt.Sprintf("P%d", row.Priority),
+				beadID,
+			)
+		}
+		table.Render()
+
+		if len(payload.Errors) > 0 {
+			fmt.Fprintf(w, "\nErrors:\n")
+			for _, err := range payload.Errors {
+				fmt.Fprintf(w, "  - %s\n", err)
+			}
+		}
+		return nil
+	}
+}
+
+func loadExportFindingsContext(session string, opts exportFindingsOptions) (*exportFindingsContext, error) {
+	projectDir, err := resolveEnsembleProjectDir("")
+	if err != nil {
+		return nil, err
+	}
+
+	if opts.RunID != "" {
+		ctx, err := loadExportFindingsFromRun(opts.RunID)
+		if err != nil {
+			return nil, err
+		}
+		ctx.ProjectDir = projectDir
+		return ctx, nil
+	}
+
+	if session == "" {
+		session = tmux.GetCurrentSession()
+	}
+	if session == "" {
+		return nil, fmt.Errorf("session required (not in tmux or use --run-id)")
+	}
+
+	ctx, err := loadExportFindingsFromSession(session)
+	if err != nil {
+		return nil, err
+	}
+	ctx.ProjectDir = projectDir
+	return ctx, nil
+}
+
+func loadExportFindingsFromRun(runID string) (*exportFindingsContext, error) {
+	store, err := ensemble.NewCheckpointStore("")
+	if err != nil {
+		return nil, fmt.Errorf("open checkpoint store: %w", err)
+	}
+	if !store.RunExists(runID) {
+		return nil, fmt.Errorf("checkpoint run '%s' not found", runID)
+	}
+
+	meta, err := store.LoadMetadata(runID)
+	if err != nil {
+		return nil, fmt.Errorf("load checkpoint metadata: %w", err)
+	}
+
+	outs, err := store.GetCompletedOutputs(runID)
+	if err != nil {
+		return nil, fmt.Errorf("load checkpoint outputs: %w", err)
+	}
+
+	outputs := make([]ensemble.ModeOutput, 0, len(outs))
+	for _, o := range outs {
+		if o == nil {
+			continue
+		}
+		outputs = append(outputs, *o)
+	}
+	if len(outputs) == 0 {
+		return nil, fmt.Errorf("no completed outputs found for run '%s'", runID)
+	}
+
+	return &exportFindingsContext{
+		Question: meta.Question,
+		Session:  meta.SessionName,
+		RunID:    runID,
+		Outputs:  outputs,
+	}, nil
+}
+
+func loadExportFindingsFromSession(session string) (*exportFindingsContext, error) {
+	if err := tmux.EnsureInstalled(); err != nil {
+		return nil, err
+	}
+	if !tmux.SessionExists(session) {
+		return nil, fmt.Errorf("session '%s' not found", session)
+	}
+
+	state, err := ensemble.LoadSession(session)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("no ensemble running in session '%s'", session)
+		}
+		return nil, fmt.Errorf("load session: %w", err)
+	}
+
+	capture := ensemble.NewOutputCapture(tmux.DefaultClient)
+	captured, err := capture.CaptureAll(state)
+	if err != nil {
+		return nil, fmt.Errorf("capture outputs: %w", err)
+	}
+
+	outputs := make([]ensemble.ModeOutput, 0, len(captured))
+	for _, cap := range captured {
+		if cap.Parsed == nil {
+			continue
+		}
+		parsed := *cap.Parsed
+		if parsed.ModeID == "" {
+			parsed.ModeID = cap.ModeID
+		}
+		outputs = append(outputs, parsed)
+	}
+
+	if len(outputs) == 0 {
+		return nil, fmt.Errorf("no valid outputs captured for session '%s'", session)
+	}
+
+	return &exportFindingsContext{
+		Question: state.Question,
+		Session:  session,
+		Outputs:  outputs,
+	}, nil
+}
+
+func buildExportFindings(ctx *exportFindingsContext) ([]exportFinding, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("export context is nil")
+	}
+
+	modeIDs := make([]string, 0, len(ctx.Outputs))
+	for _, o := range ctx.Outputs {
+		if strings.TrimSpace(o.ModeID) != "" {
+			modeIDs = append(modeIDs, o.ModeID)
+		}
+	}
+	modeIDs = uniqueStrings(modeIDs)
+
+	tracker := ensemble.NewProvenanceTracker(ctx.Question, modeIDs)
+	merged := ensemble.MergeOutputsWithProvenance(ctx.Outputs, ensemble.DefaultMergeConfig(), tracker)
+
+	results := make([]exportFinding, 0, len(merged.Findings))
+	for i, mf := range merged.Findings {
+		id := mf.ProvenanceID
+		if id == "" {
+			id = fmt.Sprintf("finding-%02d", i+1)
+		}
+		var chain *ensemble.ProvenanceChain
+		if mf.ProvenanceID != "" {
+			if c, ok := tracker.GetChain(mf.ProvenanceID); ok {
+				chain = c
+			}
+		}
+		results = append(results, exportFinding{
+			ID:          id,
+			Finding:     mf.Finding,
+			SourceModes: mf.SourceModes,
+			Provenance:  chain,
+		})
+	}
+
+	return results, nil
+}
+
+func selectExportFindings(w io.Writer, findings []exportFinding, opts exportFindingsOptions, format string) ([]exportFinding, error) {
+	if opts.All {
+		return findings, nil
+	}
+
+	if strings.TrimSpace(opts.IDs) != "" {
+		ids := strings.Split(opts.IDs, ",")
+		for i := range ids {
+			ids[i] = strings.TrimSpace(ids[i])
+		}
+		return selectFindingsByIDs(findings, ids)
+	}
+
+	if (format != "text" && format != "table") || !IsInteractive(w) || IsJSONOutput() {
+		return nil, fmt.Errorf("non-interactive mode requires --all or --ids")
+	}
+
+	renderFindingsTable(w, findings)
+
+	fmt.Fprint(w, "\nSelect findings (e.g., 1,3-5 or 'all'): ")
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return nil, fmt.Errorf("read selection: %w", err)
+	}
+	indices, err := parseSelectionIndices(line, len(findings))
+	if err != nil {
+		return nil, err
+	}
+
+	selected := make([]exportFinding, 0, len(indices))
+	for _, idx := range indices {
+		if idx <= 0 || idx > len(findings) {
+			continue
+		}
+		selected = append(selected, findings[idx-1])
+	}
+	return selected, nil
+}
+
+func renderFindingsTable(w io.Writer, findings []exportFinding) {
+	table := output.NewTable(w, "#", "ID", "IMPACT", "CONF", "EVIDENCE", "FINDING")
+	for i, f := range findings {
+		evidence := f.Finding.EvidencePointer
+		if evidence == "" {
+			evidence = "-"
+		}
+		table.AddRow(
+			fmt.Sprintf("%d", i+1),
+			f.ID,
+			string(f.Finding.Impact),
+			f.Finding.Confidence.String(),
+			truncateWithEllipsis(evidence, 24),
+			truncateWithEllipsis(f.Finding.Finding, 60),
+		)
+	}
+	table.Render()
+}
+
+func parseSelectionIndices(input string, max int) ([]int, error) {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return nil, fmt.Errorf("selection cannot be empty")
+	}
+	if strings.EqualFold(trimmed, "all") {
+		indices := make([]int, 0, max)
+		for i := 1; i <= max; i++ {
+			indices = append(indices, i)
+		}
+		return indices, nil
+	}
+
+	indexSet := make(map[int]struct{})
+	parts := strings.Split(trimmed, ",")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if strings.Contains(part, "-") {
+			bounds := strings.SplitN(part, "-", 2)
+			if len(bounds) != 2 {
+				return nil, fmt.Errorf("invalid range %q", part)
+			}
+			start, err := strconv.Atoi(strings.TrimSpace(bounds[0]))
+			if err != nil {
+				return nil, fmt.Errorf("invalid range start %q", bounds[0])
+			}
+			end, err := strconv.Atoi(strings.TrimSpace(bounds[1]))
+			if err != nil {
+				return nil, fmt.Errorf("invalid range end %q", bounds[1])
+			}
+			if start > end {
+				start, end = end, start
+			}
+			for i := start; i <= end; i++ {
+				if i < 1 || i > max {
+					return nil, fmt.Errorf("selection %d out of range (1-%d)", i, max)
+				}
+				indexSet[i] = struct{}{}
+			}
+			continue
+		}
+
+		val, err := strconv.Atoi(part)
+		if err != nil {
+			return nil, fmt.Errorf("invalid selection %q", part)
+		}
+		if val < 1 || val > max {
+			return nil, fmt.Errorf("selection %d out of range (1-%d)", val, max)
+		}
+		indexSet[val] = struct{}{}
+	}
+
+	indices := make([]int, 0, len(indexSet))
+	for idx := range indexSet {
+		indices = append(indices, idx)
+	}
+	sort.Ints(indices)
+	return indices, nil
+}
+
+func selectFindingsByIDs(findings []exportFinding, ids []string) ([]exportFinding, error) {
+	selected := make([]exportFinding, 0, len(ids))
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		var matches []exportFinding
+		for _, f := range findings {
+			if strings.HasPrefix(f.ID, id) {
+				matches = append(matches, f)
+			}
+		}
+		if len(matches) == 0 {
+			return nil, fmt.Errorf("finding id '%s' not found", id)
+		}
+		if len(matches) > 1 {
+			return nil, fmt.Errorf("finding id '%s' is ambiguous", id)
+		}
+		selected = append(selected, matches[0])
+	}
+	return selected, nil
+}
+
+func impactToBeadPriority(impact ensemble.ImpactLevel) int {
+	switch impact {
+	case ensemble.ImpactCritical:
+		return 0
+	case ensemble.ImpactHigh:
+		return 1
+	case ensemble.ImpactMedium:
+		return 2
+	case ensemble.ImpactLow:
+		return 3
+	default:
+		return 2
+	}
+}
+
+func buildBeadSpec(ctx *exportFindingsContext, f exportFinding, opts exportFindingsOptions, priority int) beadSpec {
+	title := strings.TrimSpace(f.Finding.Finding)
+	if title == "" {
+		title = fmt.Sprintf("Finding %s", f.ID)
+	}
+	title = truncateWithEllipsis(title, 80)
+
+	beadType := strings.TrimSpace(opts.Type)
+	if beadType == "" {
+		beadType = "task"
+	}
+
+	return beadSpec{
+		Title:       title,
+		Type:        beadType,
+		Priority:    priority,
+		Description: formatBeadDescription(ctx, f),
+	}
+}
+
+func formatBeadDescription(ctx *exportFindingsContext, f exportFinding) string {
+	var b strings.Builder
+	b.WriteString("## Finding\n\n")
+	b.WriteString(f.Finding.Finding)
+	b.WriteString("\n\n")
+
+	b.WriteString("## Details\n\n")
+	b.WriteString(fmt.Sprintf("**Impact:** %s\n\n", string(f.Finding.Impact)))
+	b.WriteString(fmt.Sprintf("**Confidence:** %s\n\n", f.Finding.Confidence.String()))
+	if strings.TrimSpace(f.Finding.EvidencePointer) != "" {
+		b.WriteString(fmt.Sprintf("**Evidence:** `%s`\n\n", f.Finding.EvidencePointer))
+	}
+	if strings.TrimSpace(f.Finding.Reasoning) != "" {
+		b.WriteString(fmt.Sprintf("**Reasoning:** %s\n\n", f.Finding.Reasoning))
+	}
+
+	if len(f.SourceModes) > 0 {
+		modes := append([]string{}, f.SourceModes...)
+		sort.Strings(modes)
+		b.WriteString(fmt.Sprintf("**Source Modes:** %s\n\n", strings.Join(modes, ", ")))
+	}
+
+	if ctx != nil {
+		if ctx.Question != "" {
+			b.WriteString(fmt.Sprintf("**Question:** %s\n\n", ctx.Question))
+		}
+		if ctx.Session != "" {
+			b.WriteString(fmt.Sprintf("**Session:** %s\n\n", ctx.Session))
+		}
+		if ctx.RunID != "" {
+			b.WriteString(fmt.Sprintf("**Run ID:** %s\n\n", ctx.RunID))
+		}
+	}
+
+	if f.Provenance != nil {
+		b.WriteString("## Provenance\n\n")
+		b.WriteString(fmt.Sprintf("**Provenance ID:** `%s`\n\n", f.Provenance.FindingID))
+		if f.Provenance.SourceMode != "" {
+			b.WriteString(fmt.Sprintf("**Source Mode:** %s\n\n", f.Provenance.SourceMode))
+		}
+		if f.Provenance.ContextHash != "" {
+			b.WriteString(fmt.Sprintf("**Context Hash:** `%s`\n\n", f.Provenance.ContextHash))
+		}
+		if f.Provenance.OriginalText != "" && f.Provenance.OriginalText != f.Finding.Finding {
+			b.WriteString(fmt.Sprintf("**Original Text:** %s\n\n", f.Provenance.OriginalText))
+		}
+		if len(f.Provenance.Steps) > 0 {
+			b.WriteString("**Lifecycle:**\n")
+			for _, step := range f.Provenance.Steps {
+				details := step.Details
+				if details == "" {
+					details = step.Action
+				}
+				b.WriteString(fmt.Sprintf("- %s/%s: %s (%s)\n", step.Stage, step.Action, details, step.Timestamp.UTC().Format(time.RFC3339)))
+			}
+			b.WriteString("\n")
+		}
+	}
+
+	b.WriteString(fmt.Sprintf("---\n*Generated by ntm ensemble export-findings at %s*\n", time.Now().UTC().Format(time.RFC3339)))
+
+	return b.String()
+}
+
+func runBrCreate(ctx context.Context, dir string, spec beadSpec) (string, error) {
+	args := []string{
+		"create",
+		"--json",
+		"--title", spec.Title,
+		"--type", spec.Type,
+		"--priority", fmt.Sprintf("%d", spec.Priority),
+		"--description", spec.Description,
+	}
+
+	outputBytes, err := runBrCommand(ctx, dir, args...)
+	if err != nil {
+		msg := strings.TrimSpace(string(outputBytes))
+		if msg != "" {
+			return "", fmt.Errorf("br create failed: %w: %s", err, msg)
+		}
+		return "", fmt.Errorf("br create failed: %w", err)
+	}
+
+	id, err := parseBrCreateID(outputBytes)
+	if err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+func parseBrCreateID(outputBytes []byte) (string, error) {
+	var list []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(outputBytes, &list); err == nil {
+		if len(list) > 0 && list[0].ID != "" {
+			return list[0].ID, nil
+		}
+	}
+
+	var single struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(outputBytes, &single); err == nil {
+		if single.ID != "" {
+			return single.ID, nil
+		}
+	}
+
+	return "", fmt.Errorf("no bead ID returned")
+}
+
+func defaultBrCommand(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "br", args...)
+	if strings.TrimSpace(dir) != "" {
+		cmd.Dir = dir
+	}
+	return cmd.CombinedOutput()
+}
+
+func truncateWithEllipsis(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	if len(s) <= max {
+		return s
+	}
+	if max <= 3 {
+		return util.SafeSlice(s, max)
+	}
+	return util.SafeSlice(s, max-3) + "..."
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	unique := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		unique = append(unique, value)
+	}
+	sort.Strings(unique)
+	return unique
+}
+
 func countAgentStates(state *ensemble.EnsembleSession) (ready, pending, working int) {
 	for _, a := range state.Assignments {
 		switch a.Status {
@@ -929,12 +1668,12 @@ type provenanceOptions struct {
 }
 
 type provenanceOutput struct {
-	GeneratedAt time.Time                 `json:"generated_at" yaml:"generated_at"`
-	FindingID   string                    `json:"finding_id,omitempty" yaml:"finding_id,omitempty"`
-	Chain       *ensemble.ProvenanceChain `json:"chain,omitempty" yaml:"chain,omitempty"`
-	Stats       *ensemble.ProvenanceStats `json:"stats,omitempty" yaml:"stats,omitempty"`
+	GeneratedAt time.Time                   `json:"generated_at" yaml:"generated_at"`
+	FindingID   string                      `json:"finding_id,omitempty" yaml:"finding_id,omitempty"`
+	Chain       *ensemble.ProvenanceChain   `json:"chain,omitempty" yaml:"chain,omitempty"`
+	Stats       *ensemble.ProvenanceStats   `json:"stats,omitempty" yaml:"stats,omitempty"`
 	Chains      []*ensemble.ProvenanceChain `json:"chains,omitempty" yaml:"chains,omitempty"`
-	Error       string                    `json:"error,omitempty" yaml:"error,omitempty"`
+	Error       string                      `json:"error,omitempty" yaml:"error,omitempty"`
 }
 
 func newEnsembleProvenanceCmd() *cobra.Command {
