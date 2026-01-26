@@ -1,12 +1,12 @@
 # PROPOSED_HYPERSYNC_SPEC__CODEX.md
 
-Status: PROPOSED (rev 3; addresses scalability and robustness gaps)
+Status: PROPOSED (rev 4; correctness + determinism + implementability revisions)
 Date: 2026-01-26
 Owner: Codex (GPT-5)
 Scope: Leader-authoritative, log-structured workspace replication fabric for NTM multi-agent workloads
 Audience: NTM maintainers + HyperSync implementers
 
-SpecVersion: 0.3
+SpecVersion: 0.4
 ProtocolVersion: hypersync/1
 Compatibility: Linux-only V1 (see 0.1); macOS support is explicitly deferred.
 
@@ -247,6 +247,14 @@ This section is normative. If an implementation cannot satisfy a MUST here, it M
    - Leader may crash/restart. Workers may crash/restart.
    - Network may partition.
 
+5) Kernel/userspace interface constraints (Linux/FUSE correctness prerequisites)
+   - The replicated workspace MUST be mounted via a mechanism that allows userspace to:
+     - synchronously gate mutation visibility on a remote commit decision, AND
+     - actively invalidate kernel caches (inode data, dentries, attributes) when remote commits apply.
+   - For Linux V1, this implies:
+     - FUSE3 with support for notify invalidations (notify_inval_inode/notify_inval_entry).
+   - If the platform/kernel/libfuse combination cannot provide these primitives, hypersyncd MUST refuse to start.
+
 ### 0.1.2 Guarantees (What HyperSync Provides)
 1) No silent divergence
    - If the leader is unreachable, the replicated mount MUST become read-only (writes return EROFS).
@@ -255,6 +263,10 @@ This section is normative. If an implementation cannot satisfy a MUST here, it M
 2) Mutation commit semantics
    - A logged mutation syscall returns success iff the leader has durably committed the op into the op log and has verified all required payload bytes (6.3, 9.3).
    - The mutation's linearization point is the leader's commit at log_index k (5.3).
+
+2.1) Commit-gated visibility (kernel-visible effects)
+   - For any syscall classified as a "logged mutation" in this spec, the calling process MUST NOT observe the effects of that mutation (via reads, readdir, stat, open, mmap, etc.) until the leader has committed it and the worker has applied it.
+   - If hypersyncd cannot enforce this due to kernel caching behavior (e.g., writeback caching acknowledging write() before userspace sees it), it MUST refuse to start.
 
 3) Deterministic replay
    - Given the same log prefix and chunk bytes, workers MUST converge to identical state for all replicated metadata and file contents (5.2).
@@ -270,8 +282,16 @@ This section is normative. If an implementation cannot satisfy a MUST here, it M
 2) mmap writes
    - MAP_SHARED writable mmap is DISALLOWED in V1 by default (6.6). MAP_PRIVATE remains allowed.
 
+2.1) mmap read coherence (explicit)
+   - MAP_SHARED PROT_READ mmaps are permitted, but **coherence with remote writes is NOT guaranteed** unless the worker implements and the kernel honors page-cache invalidation for that mapping.
+   - Portable rule for users/tools: to observe remote writes reliably, reopen/remap after the worker applies the corresponding commit.
+
 3) fcntl range locks
    - V1 does not guarantee full POSIX fcntl byte-range semantics (10). Unsupported lock operations MUST return ENOTSUP.
+
+4) Advisory lock persistence
+   - Advisory lock state is runtime-only and is NOT persisted across leader restart (consistent with typical single-host crash behavior).
+   - Locks are NOT part of deterministic filesystem replay state S_k and are NOT included in Merkle roots or snapshots (10).
 
 ---
 
@@ -307,8 +327,11 @@ This section is normative. If an implementation cannot satisfy a MUST here, it M
   - SHOULD include human-readable fields for observability (agent_name, worker_id), but uniqueness MUST NOT rely on them.
 - seq_no: u64 strictly increasing per client_id; MUST NOT reset or wrap within a client_id lifetime.
 - NodeID: stable identifier for a filesystem object (inode-like; survives rename)
+- InodeNo: u64 inode number assigned by the leader at node creation; used as st_ino on all workers for determinism.
+- HandleID: u64 identifier for an open file handle (per worker mount); used for lock ownership and release-on-close semantics.
 - Chunk: content blob (<= 64 KiB) addressed by BLAKE3 hash
 - WorkspaceID: 128-bit random identifier for one replicated workspace instance; prevents cross-workspace replay accidents.
+- LeaderEpoch: u64 random identifier generated at leader startup; changes on leader restart; used to detect restart and reset ephemeral leases (locks/open-leases).
 
 Notation:
 - MUST/SHOULD/MAY are used in RFC-style normative sense.
@@ -383,8 +406,7 @@ Filesystem state S includes:
 - Per-node metadata: type, mode, uid, gid, size, xattrs
 - Canonical timestamps: mtime, ctime set by leader commit timestamp (see 9.4)
 - File content mapping: NodeID -> ordered extents referencing chunk hashes
-- Advisory lock state (see 10): lock table state is part of replicated state
-- Optional: reservation state digest included in Merkle root (see 11)
+- NOTE: Advisory lock state and open-file leases are runtime coordination state. They are NOT part of S_k, are NOT replayed, and are NOT included in fs Merkle roots or snapshots (10, 6.8).
 
 Host compatibility requirement:
 - For POSIX permission semantics to be meaningful, workers SHOULD share consistent uid/gid mappings (same numeric IDs). HyperSync replicates numeric uid/gid values; name mapping is a host concern.
@@ -397,6 +419,29 @@ Host compatibility requirement:
    - Content ops (write/truncate) follow POSIX regular-file semantics; implementations MUST NOT promise "all-or-nothing visibility" beyond what a single-host POSIX filesystem provides.
    - Cross-worker visibility is stepwise at op boundaries once Op[k] is applied; workers MUST NOT apply Op[k+1] before Op[k].
 4) Determinism: applying the same committed log prefix (and referenced chunk bytes) yields identical replicated state across workers
+
+### 5.2.1 Canonicalization Rules (Required for Determinism)
+These rules are normative; without them, "deterministic replay" is underspecified.
+
+1) Directory enumeration order (readdir)
+   - `readdir` results MUST be presented in strict bytewise lexicographic order of entry names (memcmp over raw bytes).
+   - This order MUST be stable across workers and independent of backing filesystem enumeration order.
+
+2) Xattr ordering
+   - xattr name/value sets MUST be stored and hashed in bytewise lexicographic order of xattr name.
+
+3) Extent normalization
+   - After applying any content mutation, a file's extent list MUST be normalized deterministically:
+     - extents sorted by offset ascending
+     - extents MUST NOT overlap
+     - adjacent extents MAY be merged only if they are exactly contiguous and reference the same chunk_hash AND the merge decision is deterministic (i.e., merge whenever possible).
+
+4) Inode numbers
+   - All workers MUST report st_ino = InodeNo assigned by the leader at node creation.
+   - InodeNo MUST be unique within a workspace and MUST NOT be reused within RETAIN_LOG_HOURS (to avoid confusing long-lived clients).
+
+5) Symlink bytes
+   - Symlink targets are treated as opaque bytes; no normalization (no path cleaning) is performed.
 
 ### 5.3 Linearization Points
 
@@ -436,7 +481,10 @@ Logged (mutations, forwarded to leader, globally ordered and leader-commit-gated
 - link, symlink
 - setxattr, removexattr
 - fsync, fdatasync (barriers)
+
+Leader-authoritative control-plane operations (NOT in the op log; still leader-ack gated):
 - flock/fcntl lock operations (see 10)
+- open-file lifetime leases (open-leases) used for safe unlink+GC behavior (6.8, 14.2)
 
 Extended attribute constraints (V1):
 - Maximum xattr value size: 64 KiB (XATTR_MAX_VALUE_SIZE)
@@ -458,12 +506,31 @@ Not logged (served locally from S_{a_i} and worker caches):
 Open/close note (important):
 - open/close are NOT part of the op log, but HyperSync MUST still coordinate them for correctness of unlink semantics and distributed locks (see 6.8 and 10).
 
+### 6.1.1 Unsupported/Explicitly-Handled Syscalls (V1)
+This list is normative to make implementation and testing unambiguous.
+
+MUST be supported (either as logged mutations or local reads):
+- openat, mkdirat, unlinkat, renameat, linkat, symlinkat (same semantics as their non-*at variants)
+- rename replace semantics (POSIX rename)
+
+MUST return ENOTSUP in V1 unless explicitly implemented and tested:
+- renameat2 flags other than "replace" semantics (e.g., RENAME_EXCHANGE, RENAME_NOREPLACE) unless leader implements them correctly
+- fallocate / FALLOC_FL_* (unless implemented as logged mutation with deterministic semantics)
+- copy_file_range, reflink/clone ioctls, fiemap, fs-verity ioctls
+- mknod (device/special files)
+
+If a syscall is not supported, the returned errno MUST be ENOTSUP (preferred) or ENOSYS, consistently across workers.
+
 ### 6.2 Freshness Barriers (Prevent stale-path anomalies)
 
 Workers may serve reads from S_{a_i}, but path-resolving mutations MUST NOT execute against stale state, or correctness becomes user-visible (ENOENT/EEXIST surprises).
 
 Definitions:
 - barrier_index: the leader commit_index value that the worker considers current at syscall start.
+
+Normative rule for choosing barrier_index:
+- barrier_index MUST be the worker's last-observed commit_index from the leader's control/log stream at the moment the worker begins handling the syscall.
+- If the worker has not received any leader heartbeat or commit_index update within LEADER_STALE_MS (default 250ms on LAN; configurable), the worker MUST issue a BarrierRequest (9.5) to refresh commit_index before choosing barrier_index.
 
 Rules:
 1) For any logged mutation specified by path (e.g., create/mkdir/rename/unlink/chmod/chown/setxattr on a path):
@@ -486,6 +553,23 @@ For every logged mutation M:
 - After CommitAck(k), the worker MUST ensure it has applied all ops up through k locally before returning (a_i >= k), so read-your-writes holds immediately on the same worker.
 
 This is the core correction: mutation syscalls are leader-commit-gated.
+
+### 6.3.2 FUSE Caching and Visibility Rules (Normative)
+To satisfy 0.1.2(2.1), the V1 Linux/FUSE implementation MUST enforce:
+
+1) No writeback caching
+   - The replicated mount MUST NOT use kernel writeback caching modes that allow write() to return before hypersyncd processes the write.
+   - In libfuse terms: writeback_cache MUST be disabled.
+
+2) Direct I/O for write-capable handles
+   - For any open handle that grants write capability (O_WRONLY or O_RDWR), the worker MUST set DIRECT_IO for that handle.
+   - Rationale: prevents kernel page-cache from exposing uncommitted writes and prevents MAP_SHARED PROT_WRITE.
+
+3) Cache invalidation on apply (required if any kernel caching is enabled)
+   - When applying a committed op that affects:
+     - file data: worker MUST invalidate cached data for that inode (notify_inval_inode for affected range; whole-file invalidation is acceptable in V1).
+     - directory entry set: worker MUST invalidate the relevant parent directory entry cache (notify_inval_entry) and attributes.
+   - If the worker cannot successfully issue invalidations, it MUST fall back to attr_timeout=0 and entry_timeout=0 behavior (no kernel attr/dentry caching) OR refuse to start.
 
 ### 6.3.1 Batch Commit (Performance Under Load)
 
@@ -534,6 +618,17 @@ In-flight mutation ambiguity (explicit deviation):
 - If a worker loses connectivity after transmitting an intent (and possibly chunk bytes) but before receiving CommitAck, the worker MAY be unable to know whether the intent committed.
 - V1 MUST implement IntentStatusRequest/Response (9.5) to resolve this ambiguity upon reconnection.
 - If the worker cannot resolve intent status within MUTATION_DEADLINE (configurable; default 30s), it MUST return EIO to the syscall and flip mount read-only.
+
+### 6.4.1 Apply Failures (Disk Full, IO Errors, Permission Mismatch)
+Workers may fail to apply committed ops due to local resource limits. This MUST NOT silently corrupt or diverge state.
+
+Rules (normative):
+1) If a worker cannot apply a committed op Op[k] (e.g., ENOSPC, EIO), it MUST:
+   - stop advancing a_i at k-1,
+   - flip the mount to read-only (EROFS for new mutations),
+   - surface a terminal error state in WorkerApplied (9.5) including the failing log_index and errno,
+   - continue serving reads from S_{a_i} (best-effort) unless the local materialization is itself corrupted.
+2) A worker in this state MUST recover only by operator action (free disk / fix config) and then snapshot/log catch-up (13).
 
 ### 6.5 fsync/fdatasync Semantics
 
@@ -587,14 +682,25 @@ V1 rules (normative):
      - TruncateIntent (for O_TRUNC)
    - The worker MUST NOT return open() success until those mutation(s) are committed and applied locally (a_i advanced).
 
-3) Unlink-on-open behavior without leader open-leases:
-   - Each worker MUST maintain local open-handle refcounts per NodeID.
-   - When a NodeID's link_count reaches 0 (unlinked everywhere), workers MUST keep local backing bytes available until their own open-handle refcount for that NodeID reaches 0.
-   - Leader-side GC MUST be conservative:
-     - Chunks reachable only from unlinked NodeIDs MUST be retained for ORPHAN_TTL (default 24h), unless the leader has explicit evidence that all workers have zero open refs (see OpenRefDelta in 9.5).
+3) Unlink-on-open behavior (correctness requirement) via Open-Leases (no per-open gating)
+   POSIX requires: after unlink, the bytes remain accessible through any open FD until last close.
+
+   V1 mechanism: per-worker per-NodeID "open-lease" state (control-plane; NOT in op log).
+   - Each worker maintains a local open refcount per NodeID (derived from FUSE open/release).
+   - When refcount transitions 0 -> 1, the worker MUST asynchronously send OpenLeaseAcquire(node_id) to the leader.
+   - When refcount transitions 1 -> 0, the worker MUST asynchronously send OpenLeaseRelease(node_id) to the leader.
+   - The leader associates open-leases with (worker_id, leader_epoch) and applies a lease TTL (OPEN_LEASE_TTL_MS, default 15000ms).
+   - Workers MUST renew active open-leases every ttl/3; if renewals stop (disconnect/crash), the leader may expire that worker's leases after TTL.
+
+   GC safety rule:
+   - The leader MUST NOT delete orphaned content (link_count==0) while ANY worker holds an open-lease for that NodeID.
+   - This preserves correct unlink-on-open semantics without turning open() into a leader RPC.
 
 4) close() is local:
-   - close()/release decrements local open refcounts and MAY emit a batched OpenRefDelta to the leader (9.5).
+   - close()/release decrements local open refcounts.
+   - close()/release MUST also trigger best-effort cleanup:
+     - if a HandleID holds advisory locks, the worker MUST send LockRelease(handle_id, node_id) (10.2).
+     - if NodeID refcount hits 0, worker sends OpenLeaseRelease(node_id).
 
 Rationale:
 - This avoids turning the leader into a high-QPS open()/close() authority while still preserving unlink-on-open safety and bounded GC behavior.
@@ -606,6 +712,10 @@ Rationale:
 ### 7.1 NodeID
 
 Each filesystem object has a stable NodeID (128-bit random) assigned by the leader at creation. NodeID persists across rename. This is required to make rename/write ordering unambiguous.
+
+Inode number determinism:
+- At creation, the leader MUST also assign InodeNo (u64) and replicate it as immutable node metadata.
+- Workers MUST report st_ino = InodeNo for all stat-like results.
 
 ### 7.1.1 Symlink Handling (Cross-Boundary Safety)
 
@@ -662,7 +772,10 @@ Each committed entry MUST include:
 - origin_agent_name (for hazard attribution)
 - op (one of the mutation operations)
 - hazard (optional, see 11)
-- merkle_root (hash after applying this op)
+- fs_merkle_root (hash of filesystem state after applying this op; excludes locks/open-leases/atime)
+
+Optional, recommended for observability (NOT used for replay correctness):
+- meta_digest (opaque bytes): leader-computed digest of hazard/reservation info attached to this op, if desired.
 
 ### 8.1.1 Incremental Merkle Root Computation (Mandatory for Performance)
 
@@ -790,6 +903,21 @@ Idempotency key used across all mutation intents:
 - intent_id = (client_id, seq_no)
 
 Control plane (QUIC reliable streams):
+- Hello (worker -> leader; connection handshake):
+  - protocol_version (string; must equal hypersync/1)
+  - workspace_id
+  - worker_id
+  - leader_epoch_seen (optional; last epoch seen, for observability)
+  - features: {quic_datagram_supported, raptorq_supported, compression_supported, ...}
+- Welcome (leader -> worker):
+  - workspace_id
+  - leader_epoch (LeaderEpoch; changes on restart)
+  - commit_index
+  - negotiated_params: {chunk_max, inline_threshold, batch_window_ms, ...}
+- Heartbeat (bidirectional; periodic):
+  - leader_epoch
+  - commit_index (leader->worker) OR applied_index a_i (worker->leader)
+
 - BarrierRequest (optional but recommended for strict modes):
   - workspace_id
   - request_id (u64)
@@ -803,15 +931,19 @@ Control plane (QUIC reliable streams):
 - IntentStatusResponse:
   - intent_id
   - status: {COMMITTED, NOT_FOUND, IN_FLIGHT}
-  - if COMMITTED: {log_index, op_id, committed_at, merkle_root}
+  - if COMMITTED: {log_index, op_id, committed_at, fs_merkle_root}
 
 - WriteIntentHeader:
   - intent_id
+  - handle_id (optional; present for FD-based mutations; required for correct close/unlock behavior)
   - node_id (preferred) OR path (for path-based operations prior to node resolution)
   - op_type (WRITE/TRUNCATE/RENAME/UNLINK/etc.)
-  - offset, len (as applicable)
+  - write_mode (for writes): {PWRITE, APPEND}
+  - offset (required iff write_mode==PWRITE)
+  - len (as applicable)
   - chunks: list of {chunk_hash, chunk_len}
   - inline_bytes (optional; present iff payload <= INLINE_THRESHOLD)
+  - open_flags (optional but recommended for correctness): includes O_APPEND bit for validation
   - reservation_context (optional; if present):
     - project_key
     - reservation_id (or ids)
@@ -820,14 +952,27 @@ Control plane (QUIC reliable streams):
     - expires_at (optional)
 
 - LockRequest:
+  - intent_id (idempotency; REQUIRED)
   - client_id
+  - handle_id (REQUIRED; locks are released when handle closes or explicit unlock)
   - node_id
   - lock_kind (flock_shared, flock_exclusive, fcntl_read, fcntl_write, unlock)
   - range (optional for fcntl): {start, len}
 - LockResponse:
   - status (granted/denied)
   - holder (if denied)
+  - lock_id (assigned by leader when granted)
   - lease_ttl_ms (required when granted; see 10.2)
+
+- LockRenew (worker -> leader):
+  - lock_id
+  - worker_id
+  - leader_epoch
+
+- LockRelease (worker -> leader; best-effort but SHOULD be sent on close):
+  - lock_id
+  - worker_id
+  - leader_epoch
 
 - ChunkNeed:
   - intent_id
@@ -841,14 +986,15 @@ Control plane (QUIC reliable streams):
   - op_id
   - log_index
   - committed_at
-  - merkle_root
+  - fs_merkle_root
   - hazard (optional)
+  - applied_offset (optional; present iff write_mode==APPEND; leader-chosen EOF offset)
   - errno (0 on success; else a Linux errno value)
 
 - LogEntry (leader -> worker):
   - log_index, op_id, committed_at
   - op (mutation-only)
-  - merkle_root
+  - fs_merkle_root
   - hazard (optional)
 
 - WorkerApplied (worker -> leader; periodic):
@@ -856,10 +1002,20 @@ Control plane (QUIC reliable streams):
   - read_only (bool)
   - missing_chunks_count
   - local_pressure (cpu, mem, disk)
+  - last_apply_error (optional): {log_index, errno, message}
 
-- OpenRefDelta (worker -> leader; periodic, best-effort):
-  - deltas: list of {node_id, delta_s32}
-  - epoch (monotonic per worker; used to dedupe/ignore duplicates)
+- OpenLeaseAcquire (worker -> leader; async, best-effort):
+  - worker_id
+  - leader_epoch
+  - node_id
+- OpenLeaseRelease (worker -> leader; async, best-effort):
+  - worker_id
+  - leader_epoch
+  - node_id
+- OpenLeaseRenew (worker -> leader; periodic):
+  - worker_id
+  - leader_epoch
+  - node_ids[] (batched)
 
 Data plane (RaptorQ symbols over QUIC DATAGRAM preferred):
 - ChunkSymbolFrame:
@@ -875,7 +1031,7 @@ Catch-up:
   - target_index (or "latest")
 - SnapshotManifest:
   - snapshot_index
-  - merkle_root
+  - fs_merkle_root
   - manifest_hash (content-addressed)
   - manifest_bytes (or chunk refs)
 
@@ -888,15 +1044,16 @@ Catch-up:
 Programs like git rely on advisory locks and O_EXCL lockfiles. A multi-host shared workspace without a distributed lock story will corrupt .git state and/or create heisenbugs.
 
 Therefore:
-- HyperSync MUST implement a leader lock manager for flock/fcntl semantics on the mounted workspace.
+- HyperSync MUST implement a leader lock manager for flock semantics and atomic O_CREAT|O_EXCL behavior.
 - Agent Mail reservations remain the human-level coordination mechanism for agent behavior (who should edit what).
 
 ### 10.2 HyperSync Lock Manager (Normative)
 
-Lock operations are treated as replicated state:
-- The leader is authoritative for lock acquisition/release.
-- Workers forward lock ops and block until leader acks.
-- Locks are released on disconnect (worker lease timeout) to avoid deadlock.
+Lock operations are leader-authoritative runtime state (NOT in op log, NOT in snapshots, NOT in fs_merkle_root):
+- The leader is authoritative for lock acquisition/release/renew.
+- Workers forward lock ops and block the calling process until leader acks (grant/deny).
+- Locks are released on disconnect / lease expiry to avoid deadlock.
+- On leader restart (LeaderEpoch changes), all outstanding locks are considered lost and MUST be treated as released (explicit deviation; matches crash semantics).
 
 V1 scope correction (implementable + correct):
 1) Lockfiles (O_CREAT|O_EXCL) are the primary correctness mechanism for git-like workloads.
@@ -936,6 +1093,10 @@ V1 scope correction (implementable + correct):
 - LockExpiryWarning (leader -> worker):
   - lock_id, node_id, expires_at, grace_remaining_ms
 
+Release-on-close requirement:
+- If a process closes a file descriptor that holds a lock without explicit unlock, the worker MUST attempt to send LockRelease for that lock_id during FUSE release.
+- If the LockRelease message is lost, TTL/GRACE safety still prevents permanent deadlock, but timely release is REQUIRED for tooling performance (git lockfiles).
+
 ### 10.3 Agent Mail Reservations (Hazards, Not Hard Blocks)
 
 Agent Mail reservations are checked and attached to mutation intents as ReservationContext:
@@ -958,21 +1119,25 @@ HyperSync surfaces, not hides, cross-agent conflicts.
 
 ### 11.2 Detection Algorithm (Practical, Deterministic)
 
-Leader maintains per NodeID a small rolling window of recent unreserved mutations (e.g., last 256 ops or last 5 seconds). On committing a new unreserved mutation, it checks for overlaps/conflicts within that window and, if found:
+Leader maintains per NodeID a small rolling window of recent unreserved mutations.
+Determinism requirement:
+- The window MUST be defined purely in terms of log index distance (e.g., "last 256 committed ops for this NodeID").
+- Time-based pruning is permitted ONLY if based on leader committed_at and yields deterministic results given the op log.
+
+On committing a new unreserved mutation, it checks for overlaps/conflicts within that window and, if found:
 - marks the op with hazard metadata referencing the conflicting log_index
 - emits an Agent Mail message to both involved agents (high importance)
 - increments hazard counters for UI/robot output
 
 Hazards do not block commits by default; they are surfaced immediately.
 
-### 11.3 Merkle Root Includes Hazard/Reservation Digest (Integrity)
+### 11.3 Merkle Root Excludes Runtime/Coordination State (Integrity)
 
-Each committed Merkle root SHOULD incorporate:
-- file tree state hash
-- hazard state digest (recent hazards)
-- reservation digest (cached reservation state)
+fs_merkle_root MUST represent only filesystem state (tree + metadata + content) and MUST exclude hazard/reservation/lock/open-lease runtime state.
 
-This makes "what state are we in?" auditable.
+If auditing of hazards/reservations is desired:
+- include hazard metadata on log entries (already required), and/or
+- include a separate meta_digest in log entries (8.1) that is not used for replay integrity.
 
 ---
 
@@ -1018,7 +1183,10 @@ Apply pipeline (performance + determinism):
 - Recommended implementation structure:
   1) decode/prefetch stage (parallel): ensure bytes for future ops
   2) apply stage (ordered): apply Op[a_i+1] to local materialization
-  3) invalidate stage: invalidate kernel caches for affected NodeIDs (page cache/dentry) if enabled
+  3) invalidate stage (NORMATIVE if any kernel caching is enabled):
+     - invalidate inode data ranges for file content mutations
+     - invalidate dentry/attr caches for namespace mutations
+     - see 6.3.2 for required invalidation behavior
 This provides high throughput on 64-core systems without breaking deterministic replay.
 
 ### 12.4 Replication Backpressure
