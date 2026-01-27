@@ -1,11 +1,9 @@
-//go:build ensemble_experimental
-// +build ensemble_experimental
-
 package ensemble
 
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"math"
 	"sort"
 	"strings"
@@ -20,6 +18,33 @@ type EstimateOptions struct {
 	ContextPack *ContextPack
 	// DisableContext skips context pack generation when true.
 	DisableContext bool
+}
+
+// EstimateInput provides configuration for estimate calculations.
+type EstimateInput struct {
+	ModeIDs      []string
+	Question     string
+	ProjectDir   string
+	Budget       BudgetConfig
+	Cache        CacheConfig
+	AllowAdvanced bool
+}
+
+// Estimator computes context-aware token estimates.
+type Estimator struct {
+	Catalog *ModeCatalog
+	Logger  *slog.Logger
+}
+
+// NewEstimator creates an estimator with the provided catalog and logger.
+func NewEstimator(catalog *ModeCatalog, logger *slog.Logger) *Estimator {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Estimator{
+		Catalog: catalog,
+		Logger:  logger,
+	}
 }
 
 // EnsembleEstimate summarizes token estimates for an ensemble run.
@@ -66,41 +91,53 @@ type ModeAlternative struct {
 	Reason          string  `json:"reason,omitempty"`
 }
 
-// EstimateEnsemble estimates token usage and budget fit for an ensemble config.
-func (m *EnsembleManager) EstimateEnsemble(ctx context.Context, cfg *EnsembleConfig, opts EstimateOptions) (*EnsembleEstimate, error) {
-	if cfg == nil {
-		return nil, fmt.Errorf("ensemble config is nil")
-	}
+// Estimate computes token usage and budget fit for the provided input.
+func (e *Estimator) Estimate(ctx context.Context, input EstimateInput, opts EstimateOptions) (*EnsembleEstimate, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	logger := m.logger()
-	catalog, err := m.catalog()
-	if err != nil {
-		return nil, fmt.Errorf("load mode catalog: %w", err)
+	if e == nil || e.Catalog == nil {
+		return nil, fmt.Errorf("mode catalog is nil")
 	}
 
-	var registry *EnsembleRegistry
-	if cfg.Ensemble != "" {
-		registry, err = m.registry(catalog)
-		if err != nil {
-			return nil, fmt.Errorf("load ensemble registry: %w", err)
-		}
+	if len(input.ModeIDs) == 0 {
+		return nil, fmt.Errorf("no modes to estimate")
 	}
 
-	modeIDs, resolvedCfg, _, err := resolveEnsembleConfig(cfg, catalog, registry)
-	if err != nil {
-		return nil, err
+	logger := e.Logger
+	if logger == nil {
+		logger = slog.Default()
 	}
 
-	question := strings.TrimSpace(cfg.Question)
+	question := strings.TrimSpace(input.Question)
+	projectDir := strings.TrimSpace(input.ProjectDir)
+	if projectDir == "" {
+		projectDir = "."
+	}
+
+	budget := mergeBudgetDefaults(input.Budget, DefaultBudgetConfig())
+	cacheCfg := input.Cache
+	if cacheCfg == (CacheConfig{}) {
+		cacheCfg = DefaultCacheConfig()
+		cacheCfg.Enabled = false
+	}
 
 	var pack *ContextPack
 	if opts.ContextPack != nil {
 		pack = opts.ContextPack
 	} else if !opts.DisableContext {
-		generator, cacheCfg := m.contextPackGenerator(cfg.ProjectDir, resolvedCfg.cache)
+		var cache *ContextPackCache
+		if cacheCfg.Enabled {
+			created, cacheErr := NewContextPackCache(cacheCfg, logger)
+			if cacheErr != nil {
+				logger.Warn("context pack cache init failed", "error", cacheErr)
+				cacheCfg.Enabled = false
+			} else {
+				cache = created
+			}
+		}
+		generator := NewContextPackGenerator(projectDir, cache, logger)
 		if generated, genErr := generator.Generate(question, "", cacheCfg); genErr == nil {
 			pack = generated
 		} else {
@@ -109,7 +146,7 @@ func (m *EnsembleManager) EstimateEnsemble(ctx context.Context, cfg *EnsembleCon
 	}
 
 	engine := NewPreambleEngine()
-	estimateCache := make(map[string]ModeEstimate, len(modeIDs))
+	estimateCache := make(map[string]ModeEstimate, len(input.ModeIDs))
 
 	estimateMode := func(mode *ReasoningMode) (ModeEstimate, error) {
 		if cached, ok := estimateCache[mode.ID]; ok {
@@ -120,7 +157,7 @@ func (m *EnsembleManager) EstimateEnsemble(ctx context.Context, cfg *EnsembleCon
 			Problem:     question,
 			ContextPack: pack,
 			Mode:        mode,
-			TokenCap:    resolvedCfg.budget.MaxTokensPerMode,
+			TokenCap:    budget.MaxTokensPerMode,
 		})
 		if err != nil {
 			return ModeEstimate{}, fmt.Errorf("render preamble for %s: %w", mode.ID, err)
@@ -138,8 +175,8 @@ func (m *EnsembleManager) EstimateEnsemble(ctx context.Context, cfg *EnsembleCon
 
 		typicalOutput := estimateTypicalCost(mode)
 		outputTokens := typicalOutput
-		if resolvedCfg.budget.MaxTokensPerMode > 0 && outputTokens > resolvedCfg.budget.MaxTokensPerMode {
-			outputTokens = resolvedCfg.budget.MaxTokensPerMode
+		if budget.MaxTokensPerMode > 0 && outputTokens > budget.MaxTokensPerMode {
+			outputTokens = budget.MaxTokensPerMode
 		}
 
 		totalTokens := promptTokens + outputTokens
@@ -182,14 +219,13 @@ func (m *EnsembleManager) EstimateEnsemble(ctx context.Context, cfg *EnsembleCon
 	result := &EnsembleEstimate{
 		GeneratedAt: time.Now().UTC(),
 		Question:    question,
-		PresetUsed:  resolvedCfg.presetName,
-		ModeCount:   len(modeIDs),
-		Budget:      resolvedCfg.budget,
-		Modes:       make([]ModeEstimate, 0, len(modeIDs)),
+		ModeCount:   len(input.ModeIDs),
+		Budget:      budget,
+		Modes:       make([]ModeEstimate, 0, len(input.ModeIDs)),
 	}
 
-	for _, modeID := range modeIDs {
-		mode := catalog.GetMode(modeID)
+	for _, modeID := range input.ModeIDs {
+		mode := e.Catalog.GetMode(modeID)
 		if mode == nil {
 			return nil, fmt.Errorf("mode %q not found in catalog", modeID)
 		}
@@ -201,30 +237,30 @@ func (m *EnsembleManager) EstimateEnsemble(ctx context.Context, cfg *EnsembleCon
 		result.EstimatedTotalTokens += estimate.TotalTokens
 	}
 
-	reserveTokens := resolvedCfg.budget.SynthesisReserveTokens + resolvedCfg.budget.ContextReserveTokens
+	reserveTokens := budget.SynthesisReserveTokens + budget.ContextReserveTokens
 	if reserveTokens > 0 {
 		result.EstimatedTotalTokens += reserveTokens
 	}
 
-	if resolvedCfg.budget.MaxTotalTokens > 0 && result.EstimatedTotalTokens > resolvedCfg.budget.MaxTotalTokens {
+	if budget.MaxTotalTokens > 0 && result.EstimatedTotalTokens > budget.MaxTotalTokens {
 		result.OverBudget = true
-		result.OverBy = result.EstimatedTotalTokens - resolvedCfg.budget.MaxTotalTokens
+		result.OverBy = result.EstimatedTotalTokens - budget.MaxTotalTokens
 		result.Warnings = append(result.Warnings,
 			fmt.Sprintf("estimated tokens (%d) exceed budget (%d) by %d",
-				result.EstimatedTotalTokens, resolvedCfg.budget.MaxTotalTokens, result.OverBy),
+				result.EstimatedTotalTokens, budget.MaxTotalTokens, result.OverBy),
 		)
 	}
 
 	for _, est := range result.Modes {
-		if resolvedCfg.budget.MaxTokensPerMode > 0 && est.TypicalOutputTokens > resolvedCfg.budget.MaxTokensPerMode {
+		if budget.MaxTokensPerMode > 0 && est.TypicalOutputTokens > budget.MaxTokensPerMode {
 			result.Warnings = append(result.Warnings,
 				fmt.Sprintf("mode %s typical output (%d) exceeds per-mode cap (%d)",
-					est.ID, est.TypicalOutputTokens, resolvedCfg.budget.MaxTokensPerMode),
+					est.ID, est.TypicalOutputTokens, budget.MaxTokensPerMode),
 			)
 		}
 	}
 
-	allowAdvanced := cfg.AllowAdvanced
+	allowAdvanced := input.AllowAdvanced
 	if !allowAdvanced {
 		for _, est := range result.Modes {
 			if est.Tier != string(TierCore) {
@@ -236,22 +272,47 @@ func (m *EnsembleManager) EstimateEnsemble(ctx context.Context, cfg *EnsembleCon
 
 	if result.OverBudget {
 		for i := range result.Modes {
-			mode := catalog.GetMode(result.Modes[i].ID)
+			mode := e.Catalog.GetMode(result.Modes[i].ID)
 			if mode == nil {
 				continue
 			}
-			result.Modes[i].Alternatives = suggestAlternatives(mode, result.Modes[i], catalog, allowAdvanced, estimateMode)
+			result.Modes[i].Alternatives = suggestAlternatives(mode, result.Modes[i], e.Catalog, allowAdvanced, estimateMode)
 		}
 	}
 
 	logger.Info("ensemble estimate summary",
 		"modes", len(result.Modes),
 		"estimated_total_tokens", result.EstimatedTotalTokens,
-		"budget_total", resolvedCfg.budget.MaxTotalTokens,
+		"budget_total", budget.MaxTotalTokens,
 		"over_budget", result.OverBudget,
 	)
 
 	return result, nil
+}
+
+func mergeBudgetDefaults(current, defaults BudgetConfig) BudgetConfig {
+	if current.MaxTokensPerMode == 0 {
+		current.MaxTokensPerMode = defaults.MaxTokensPerMode
+	}
+	if current.MaxTotalTokens == 0 {
+		current.MaxTotalTokens = defaults.MaxTotalTokens
+	}
+	if current.SynthesisReserveTokens == 0 {
+		current.SynthesisReserveTokens = defaults.SynthesisReserveTokens
+	}
+	if current.ContextReserveTokens == 0 {
+		current.ContextReserveTokens = defaults.ContextReserveTokens
+	}
+	if current.TimeoutPerMode == 0 {
+		current.TimeoutPerMode = defaults.TimeoutPerMode
+	}
+	if current.TotalTimeout == 0 {
+		current.TotalTimeout = defaults.TotalTimeout
+	}
+	if current.MaxRetries == 0 {
+		current.MaxRetries = defaults.MaxRetries
+	}
+	return current
 }
 
 func modeValueScore(mode *ReasoningMode) float64 {

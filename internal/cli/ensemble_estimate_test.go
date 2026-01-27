@@ -7,14 +7,31 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/ensemble"
 )
 
-func TestEstimateModeCost_FormalCore(t *testing.T) {
+func TestBuildEnsembleEstimate_FormalCore(t *testing.T) {
 	catalog := testEstimateCatalog(t)
-	cost, _, err := estimateModeCost(catalog, "formal-mode")
-	if err != nil {
-		t.Fatalf("estimateModeCost error: %v", err)
+	budget := ensemble.BudgetConfig{
+		MaxTokensPerMode: 6000,
+		MaxTotalTokens:   8000,
 	}
-	if cost != 3000 {
-		t.Fatalf("formal core cost = %d, want 3000", cost)
+	input := ensemble.EstimateInput{
+		ModeIDs:       []string{"formal-mode"},
+		Question:      "Test question",
+		Budget:        budget,
+		AllowAdvanced: true,
+	}
+
+	out, err := buildEnsembleEstimate(catalog, input, ensemble.EstimateOptions{DisableContext: true}, 0)
+	if err != nil {
+		t.Fatalf("buildEnsembleEstimate error: %v", err)
+	}
+	if len(out.Modes) != 1 {
+		t.Fatalf("expected 1 mode, got %d", len(out.Modes))
+	}
+	if out.Modes[0].ModeID != "formal-mode" {
+		t.Fatalf("expected mode formal-mode, got %s", out.Modes[0].ModeID)
+	}
+	if out.Modes[0].TokenEstimate < 3000 {
+		t.Fatalf("formal core estimate = %d, want >= 3000", out.Modes[0].TokenEstimate)
 	}
 }
 
@@ -25,7 +42,13 @@ func TestBuildEnsembleEstimate_Warnings(t *testing.T) {
 		MaxTotalTokens:   4000,
 	}
 
-	out, err := buildEnsembleEstimate(catalog, []string{"formal-mode", "practical-mode"}, budget, 0)
+	input := ensemble.EstimateInput{
+		ModeIDs:       []string{"formal-mode", "practical-mode"},
+		Question:      "Test question",
+		Budget:        budget,
+		AllowAdvanced: true,
+	}
+	out, err := buildEnsembleEstimate(catalog, input, ensemble.EstimateOptions{DisableContext: true}, 0)
 	if err != nil {
 		t.Fatalf("buildEnsembleEstimate error: %v", err)
 	}

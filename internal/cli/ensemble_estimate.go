@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -17,7 +19,6 @@ import (
 
 const (
 	estimateNearBudgetThreshold = 0.85
-	defaultModeTokenEstimate    = 2000
 )
 
 type ensembleEstimateMode struct {
@@ -121,10 +122,13 @@ func runEnsembleEstimate(w io.Writer, presetName string, modes []string, budgetO
 	}
 
 	var (
-		modeIDs     []string
-		presetLabel string
-		presetUsed  string
-		budget      = ensemble.DefaultBudgetConfig()
+		modeIDs       []string
+		presetLabel   string
+		presetUsed    string
+		question      string
+		allowAdvanced bool
+		cacheCfg      ensemble.CacheConfig
+		budget        = ensemble.DefaultBudgetConfig()
 	)
 
 	if presetName != "" {
@@ -147,15 +151,37 @@ func runEnsembleEstimate(w io.Writer, presetName string, modes []string, budgetO
 			return fmt.Errorf("resolve preset modes: %w", err)
 		}
 		budget = mergeBudgetDefaults(preset.Budget, budget)
+		cacheCfg = preset.Cache
+		allowAdvanced = preset.AllowAdvanced
+		question = preset.Description
 	} else {
 		var err error
 		modeIDs, err = resolveModeIDs(modes, catalog)
 		if err != nil {
 			return err
 		}
+		allowAdvanced = true
 	}
 
-	payload, err := buildEnsembleEstimate(catalog, modeIDs, budget, budgetOverride)
+	if budgetOverride > 0 {
+		budget.MaxTotalTokens = budgetOverride
+	}
+
+	projectDir, err := os.Getwd()
+	if err != nil || strings.TrimSpace(projectDir) == "" {
+		projectDir = "."
+	}
+
+	input := ensemble.EstimateInput{
+		ModeIDs:       modeIDs,
+		Question:      question,
+		ProjectDir:    projectDir,
+		Budget:        budget,
+		Cache:         cacheCfg,
+		AllowAdvanced: allowAdvanced,
+	}
+
+	payload, err := buildEnsembleEstimate(catalog, input, ensemble.EstimateOptions{}, budgetOverride)
 	if err != nil {
 		return err
 	}
@@ -165,38 +191,37 @@ func runEnsembleEstimate(w io.Writer, presetName string, modes []string, budgetO
 	return renderEnsembleEstimate(w, payload, format)
 }
 
-func buildEnsembleEstimate(catalog *ensemble.ModeCatalog, modeIDs []string, budget ensemble.BudgetConfig, budgetOverride int) (ensembleEstimateOutput, error) {
+func buildEnsembleEstimate(catalog *ensemble.ModeCatalog, input ensemble.EstimateInput, opts ensemble.EstimateOptions, budgetOverride int) (ensembleEstimateOutput, error) {
 	if catalog == nil {
 		return ensembleEstimateOutput{}, fmt.Errorf("mode catalog is nil")
 	}
-	if len(modeIDs) == 0 {
+	if len(input.ModeIDs) == 0 {
 		return ensembleEstimateOutput{}, fmt.Errorf("no modes to estimate")
 	}
+	if strings.TrimSpace(input.ProjectDir) == "" {
+		input.ProjectDir = "."
+	}
 
-	rows, modeTokens, err := buildEstimateRows(catalog, modeIDs)
+	estimator := ensemble.NewEstimator(catalog, slog.Default())
+	estimate, err := estimator.Estimate(context.Background(), input, opts)
 	if err != nil {
 		return ensembleEstimateOutput{}, err
 	}
 
-	effectiveBudget := budget.MaxTotalTokens
-	if budgetOverride > 0 {
-		effectiveBudget = budgetOverride
-	}
-
-	total := modeTokens + budget.SynthesisReserveTokens + budget.ContextReserveTokens
-	warnings := estimateWarnings(total, effectiveBudget, budget.MaxTokensPerMode, rows)
-	suggestions := suggestModeReplacements(catalog, rows, effectiveBudget, total)
+	rows, modeTokens := buildEstimateRows(estimate)
+	warnings := buildEstimateWarnings(estimate)
+	suggestions := buildEstimateSuggestions(estimate)
 
 	payload := ensembleEstimateOutput{
-		GeneratedAt: time.Now().UTC(),
+		GeneratedAt: estimate.GeneratedAt,
 		Modes:       rows,
 		Budget: ensembleEstimateBudget{
-			MaxTokensPerMode:       budget.MaxTokensPerMode,
-			MaxTotalTokens:         effectiveBudget,
-			SynthesisReserveTokens: budget.SynthesisReserveTokens,
-			ContextReserveTokens:   budget.ContextReserveTokens,
+			MaxTokensPerMode:       estimate.Budget.MaxTokensPerMode,
+			MaxTotalTokens:         estimate.Budget.MaxTotalTokens,
+			SynthesisReserveTokens: estimate.Budget.SynthesisReserveTokens,
+			ContextReserveTokens:   estimate.Budget.ContextReserveTokens,
 			EstimatedModeTokens:    modeTokens,
-			EstimatedTotalTokens:   total,
+			EstimatedTotalTokens:   estimate.EstimatedTotalTokens,
 			ModeCount:              len(rows),
 			BudgetOverride:         budgetOverride,
 		},
@@ -207,170 +232,79 @@ func buildEnsembleEstimate(catalog *ensemble.ModeCatalog, modeIDs []string, budg
 	return payload, nil
 }
 
-func buildEstimateRows(catalog *ensemble.ModeCatalog, modeIDs []string) ([]ensembleEstimateMode, int, error) {
-	rows := make([]ensembleEstimateMode, 0, len(modeIDs))
+func buildEstimateRows(estimate *ensemble.EnsembleEstimate) ([]ensembleEstimateMode, int) {
+	if estimate == nil {
+		return nil, 0
+	}
+
+	rows := make([]ensembleEstimateMode, 0, len(estimate.Modes))
 	total := 0
-
-	for _, modeID := range modeIDs {
-		cost, mode, err := estimateModeCost(catalog, modeID)
-		if err != nil {
-			return nil, 0, err
-		}
-
-		valueScore := modeValueScore(mode)
-		valuePerToken := 0.0
-		if cost > 0 {
-			valuePerToken = valueScore / float64(cost)
-		}
-
+	for _, mode := range estimate.Modes {
 		rows = append(rows, ensembleEstimateMode{
 			ModeID:        mode.ID,
 			ModeCode:      mode.Code,
 			ModeName:      mode.Name,
-			Category:      mode.Category.String(),
-			Tier:          mode.Tier.String(),
-			TokenEstimate: cost,
-			ValueScore:    valueScore,
-			ValuePerToken: valuePerToken,
+			Category:      mode.Category,
+			Tier:          mode.Tier,
+			TokenEstimate: mode.TotalTokens,
+			ValueScore:    mode.ValueScore,
+			ValuePerToken: mode.ValuePerToken,
 		})
-		total += cost
+		total += mode.TotalTokens
 	}
 
-	return rows, total, nil
+	return rows, total
 }
 
-func estimateModeCost(catalog *ensemble.ModeCatalog, modeID string) (int, *ensemble.ReasoningMode, error) {
-	mode := catalog.GetMode(modeID)
-	if mode == nil {
-		return 0, nil, fmt.Errorf("mode %q not found in catalog", modeID)
+func buildEstimateWarnings(estimate *ensemble.EnsembleEstimate) []string {
+	if estimate == nil {
+		return nil
 	}
 
-	card, err := catalog.GetModeCard(modeID)
-	if err != nil {
-		slog.Debug("mode card lookup failed", "mode", modeID, "err", err)
-	}
-	if card != nil && card.TypicalCost > 0 {
-		return card.TypicalCost, mode, nil
-	}
-
-	return defaultModeTokenEstimate, mode, nil
-}
-
-func modeValueScore(mode *ensemble.ReasoningMode) float64 {
-	if mode == nil {
-		return 0
-	}
-
-	score := 1.0
-	switch mode.Tier {
-	case ensemble.TierAdvanced:
-		score = 1.1
-	case ensemble.TierExperimental:
-		score = 1.2
-	}
-	return score
-}
-
-func estimateWarnings(total, budgetTotal, perModeBudget int, rows []ensembleEstimateMode) []string {
-	var warnings []string
-
-	if budgetTotal > 0 {
-		if total > budgetTotal {
-			warnings = append(warnings, fmt.Sprintf("estimated tokens (%d) exceed budget (%d)", total, budgetTotal))
-		} else if float64(total) >= estimateNearBudgetThreshold*float64(budgetTotal) {
-			warnings = append(warnings, fmt.Sprintf("estimated tokens (%d) are near budget (%d)", total, budgetTotal))
-		}
-	}
-
-	if perModeBudget > 0 {
-		for _, row := range rows {
-			if row.TokenEstimate > perModeBudget {
-				warnings = append(warnings, fmt.Sprintf("mode %q estimate (%d) exceeds per-mode budget (%d)", row.ModeID, row.TokenEstimate, perModeBudget))
-			}
+	warnings := append([]string(nil), estimate.Warnings...)
+	budgetTotal := estimate.Budget.MaxTotalTokens
+	if budgetTotal > 0 && !estimate.OverBudget {
+		if float64(estimate.EstimatedTotalTokens) >= estimateNearBudgetThreshold*float64(budgetTotal) {
+			warnings = append(warnings, fmt.Sprintf("estimated tokens (%d) are near budget (%d)", estimate.EstimatedTotalTokens, budgetTotal))
 		}
 	}
 
 	return warnings
 }
 
-func suggestModeReplacements(catalog *ensemble.ModeCatalog, rows []ensembleEstimateMode, budgetTotal, estimatedTotal int) []ensembleEstimateSuggestion {
-	if budgetTotal <= 0 || estimatedTotal <= budgetTotal {
+func buildEstimateSuggestions(estimate *ensemble.EnsembleEstimate) []ensembleEstimateSuggestion {
+	if estimate == nil || !estimate.OverBudget {
 		return nil
 	}
 
-	sorted := make([]ensembleEstimateMode, len(rows))
-	copy(sorted, rows)
-	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].TokenEstimate > sorted[j].TokenEstimate
+	modes := make([]ensemble.ModeEstimate, len(estimate.Modes))
+	copy(modes, estimate.Modes)
+	sort.Slice(modes, func(i, j int) bool {
+		return modes[i].TotalTokens > modes[j].TotalTokens
 	})
 
-	var suggestions []ensembleEstimateSuggestion
-	remaining := estimatedTotal
-
-	for _, row := range sorted {
-		if remaining <= budgetTotal || len(suggestions) >= 3 {
+	suggestions := make([]ensembleEstimateSuggestion, 0, 3)
+	for _, mode := range modes {
+		if len(mode.Alternatives) == 0 {
+			continue
+		}
+		alt := mode.Alternatives[0]
+		suggestions = append(suggestions, ensembleEstimateSuggestion{
+			ReplaceModeID:     mode.ID,
+			ReplaceModeName:   mode.Name,
+			ReplaceTokens:     mode.TotalTokens,
+			SuggestedModeID:   alt.ID,
+			SuggestedModeName: alt.Name,
+			SuggestedTokens:   alt.EstimatedTokens,
+			SavingsTokens:     alt.Savings,
+			Reason:            alt.Reason,
+		})
+		if len(suggestions) >= 3 {
 			break
 		}
-		mode := catalog.GetMode(row.ModeID)
-		if mode == nil {
-			continue
-		}
-		replacement := bestReplacement(mode, row.TokenEstimate, row.ValuePerToken, catalog)
-		if replacement == nil || replacement.TypicalCost <= 0 {
-			continue
-		}
-
-		savings := row.TokenEstimate - replacement.TypicalCost
-		if savings <= 0 {
-			continue
-		}
-
-		suggestions = append(suggestions, ensembleEstimateSuggestion{
-			ReplaceModeID:     row.ModeID,
-			ReplaceModeName:   row.ModeName,
-			ReplaceTokens:     row.TokenEstimate,
-			SuggestedModeID:   replacement.ModeID,
-			SuggestedModeName: replacement.Name,
-			SuggestedTokens:   replacement.TypicalCost,
-			SavingsTokens:     savings,
-			Reason:            "higher value/cost in same category",
-		})
-
-		remaining -= savings
 	}
 
 	return suggestions
-}
-
-func bestReplacement(mode *ensemble.ReasoningMode, currentCost int, currentRatio float64, catalog *ensemble.ModeCatalog) *ensemble.ModeCard {
-	if mode == nil || catalog == nil {
-		return nil
-	}
-
-	candidates := catalog.ListByCategory(mode.Category)
-	var best *ensemble.ModeCard
-	bestRatio := currentRatio
-
-	for _, cand := range candidates {
-		if cand.ID == mode.ID {
-			continue
-		}
-		card, err := catalog.GetModeCard(cand.ID)
-		if err != nil || card == nil {
-			continue
-		}
-		if card.TypicalCost <= 0 || card.TypicalCost >= currentCost {
-			continue
-		}
-
-		ratio := modeValueScore(&cand) / float64(card.TypicalCost)
-		if ratio > bestRatio {
-			bestRatio = ratio
-			best = card
-		}
-	}
-
-	return best
 }
 
 func renderEnsembleEstimate(w io.Writer, payload ensembleEstimateOutput, format string) error {

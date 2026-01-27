@@ -1,6 +1,3 @@
-//go:build ensemble_experimental
-// +build ensemble_experimental
-
 package ensemble
 
 import (
@@ -10,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestEstimateEnsemble_OverBudgetWarningAndCap(t *testing.T) {
+func TestEstimator_OverBudgetWarningAndCap(t *testing.T) {
 	mode := ReasoningMode{
 		ID:          "formal-expensive",
 		Code:        "A1",
@@ -27,17 +24,14 @@ func TestEstimateEnsemble_OverBudgetWarningAndCap(t *testing.T) {
 		t.Fatalf("NewModeCatalog: %v", err)
 	}
 
-	manager := &EnsembleManager{
-		Catalog: catalog,
-		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
-	}
+	estimator := NewEstimator(catalog, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	cfg := &EnsembleConfig{
+	input := EstimateInput{
+		ModeIDs:  []string{mode.ID},
 		Question: "Test question",
-		Modes:    []string{mode.ID},
 		Budget: BudgetConfig{
 			MaxTokensPerMode: 500,
-			MaxTotalTokens:   600,
+			MaxTotalTokens:   400,
 		},
 	}
 
@@ -45,9 +39,9 @@ func TestEstimateEnsemble_OverBudgetWarningAndCap(t *testing.T) {
 		ContextPack: &ContextPack{TokenEstimate: 100},
 	}
 
-	estimate, err := manager.EstimateEnsemble(context.Background(), cfg, opts)
+	estimate, err := estimator.Estimate(context.Background(), input, opts)
 	if err != nil {
-		t.Fatalf("EstimateEnsemble: %v", err)
+		t.Fatalf("Estimate: %v", err)
 	}
 	if len(estimate.Modes) != 1 {
 		t.Fatalf("expected 1 mode estimate, got %d", len(estimate.Modes))
@@ -63,7 +57,7 @@ func TestEstimateEnsemble_OverBudgetWarningAndCap(t *testing.T) {
 	}
 }
 
-func TestEstimateEnsemble_AlternativesSuggested(t *testing.T) {
+func TestEstimator_AlternativesSuggested(t *testing.T) {
 	expensive := ReasoningMode{
 		ID:          "formal-exp",
 		Code:        "A1",
@@ -90,14 +84,11 @@ func TestEstimateEnsemble_AlternativesSuggested(t *testing.T) {
 		t.Fatalf("NewModeCatalog: %v", err)
 	}
 
-	manager := &EnsembleManager{
-		Catalog: catalog,
-		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
-	}
+	estimator := NewEstimator(catalog, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	cfg := &EnsembleConfig{
+	input := EstimateInput{
+		ModeIDs:       []string{expensive.ID},
 		Question:      "Test question",
-		Modes:         []string{expensive.ID},
 		AllowAdvanced: true,
 		Budget: BudgetConfig{
 			MaxTokensPerMode: 5000,
@@ -109,9 +100,9 @@ func TestEstimateEnsemble_AlternativesSuggested(t *testing.T) {
 		DisableContext: true,
 	}
 
-	estimate, err := manager.EstimateEnsemble(context.Background(), cfg, opts)
+	estimate, err := estimator.Estimate(context.Background(), input, opts)
 	if err != nil {
-		t.Fatalf("EstimateEnsemble: %v", err)
+		t.Fatalf("Estimate: %v", err)
 	}
 	if len(estimate.Modes) != 1 {
 		t.Fatalf("expected 1 mode estimate, got %d", len(estimate.Modes))
