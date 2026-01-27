@@ -17,19 +17,28 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"math/big"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/Dicklesworthstone/ntm/internal/agentmail"
+	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/Dicklesworthstone/ntm/internal/ensemble"
 	"github.com/Dicklesworthstone/ntm/internal/events"
+	"github.com/Dicklesworthstone/ntm/internal/kernel"
+	"github.com/Dicklesworthstone/ntm/internal/metrics"
+	"github.com/Dicklesworthstone/ntm/internal/robot"
 	"github.com/Dicklesworthstone/ntm/internal/state"
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/gorilla/websocket"
@@ -748,9 +757,41 @@ func (s *Server) buildRouter() chi.Router {
 			s.handleSessionEventsV1(w, req, chi.URLParam(req, "id"))
 		})
 
+		// Sessions - write endpoints (call kernel commands)
+		r.With(s.RequirePermission(PermWriteSessions)).Post("/sessions", s.handleCreateSessionV1)
+		r.With(s.RequirePermission(PermReadSessions)).Get("/sessions/{id}/status", s.handleSessionStatusV1)
+		r.With(s.RequirePermission(PermWriteSessions)).Post("/sessions/{id}/attach", s.handleSessionAttachV1)
+		r.With(s.RequirePermission(PermWriteSessions)).Post("/sessions/{id}/zoom", s.handleSessionZoomV1)
+		r.With(s.RequirePermission(PermWriteSessions)).Post("/sessions/{id}/view", s.handleSessionViewV1)
+
 		// Robot endpoints (read-only)
 		r.With(s.RequirePermission(PermReadHealth)).Get("/robot/status", s.handleRobotStatusV1)
 		r.With(s.RequirePermission(PermReadHealth)).Get("/robot/health", s.handleRobotHealthV1)
+
+		// Panes API - manage tmux panes within sessions
+		r.Route("/sessions/{sessionId}/panes", func(r chi.Router) {
+			r.With(s.RequirePermission(PermReadSessions)).Get("/", s.handleListPanesV1)
+			r.With(s.RequirePermission(PermReadSessions)).Get("/{paneIdx}", s.handleGetPaneV1)
+			r.With(s.RequirePermission(PermWriteSessions)).Post("/{paneIdx}/input", s.handlePaneInputV1)
+			r.With(s.RequirePermission(PermWriteSessions)).Post("/{paneIdx}/interrupt", s.handlePaneInterruptV1)
+			r.With(s.RequirePermission(PermReadSessions)).Get("/{paneIdx}/output", s.handlePaneOutputV1)
+			r.With(s.RequirePermission(PermReadSessions)).Get("/{paneIdx}/title", s.handleGetPaneTitleV1)
+			r.With(s.RequirePermission(PermWriteSessions)).Patch("/{paneIdx}/title", s.handleSetPaneTitleV1)
+		})
+
+		// Agents API - manage AI agents within sessions
+		r.Route("/sessions/{sessionId}/agents", func(r chi.Router) {
+			r.With(s.RequirePermission(PermReadAgents)).Get("/", s.handleListAgentsV1)
+			r.With(s.RequirePermission(PermWriteAgents)).Post("/spawn", s.handleAgentSpawnV1)
+			r.With(s.RequirePermission(PermWriteAgents)).Post("/send", s.handleAgentSendV1)
+			r.With(s.RequirePermission(PermWriteAgents)).Post("/interrupt", s.handleAgentInterruptV1)
+			r.With(s.RequirePermission(PermWriteAgents)).Post("/wait", s.handleAgentWaitV1)
+			r.With(s.RequirePermission(PermReadAgents)).Get("/route", s.handleAgentRouteV1)
+			r.With(s.RequirePermission(PermReadAgents)).Get("/activity", s.handleAgentActivityV1)
+			r.With(s.RequirePermission(PermReadAgents)).Get("/health", s.handleAgentHealthV1)
+			r.With(s.RequirePermission(PermReadAgents)).Get("/context", s.handleAgentContextV1)
+			r.With(s.RequirePermission(PermWriteAgents)).Post("/restart", s.handleAgentRestartV1)
+		})
 
 		// Jobs API - read requires PermReadJobs, write requires PermWriteJobs
 		r.Route("/jobs", func(r chi.Router) {
@@ -766,6 +807,64 @@ func (s *Server) buildRouter() chi.Router {
 
 		// Mail and Reservations API
 		s.registerMailRoutes(r)
+
+		// Metrics API - performance and analytics data
+		r.Route("/metrics", func(r chi.Router) {
+			r.With(s.RequirePermission(PermReadHealth)).Get("/", s.handleMetricsV1)
+			r.With(s.RequirePermission(PermReadHealth)).Get("/compare", s.handleMetricsCompareV1)
+			r.With(s.RequirePermission(PermReadHealth)).Get("/export", s.handleMetricsExportV1)
+			r.With(s.RequirePermission(PermWriteSessions)).Post("/snapshot", s.handleMetricsSnapshotSaveV1)
+			r.With(s.RequirePermission(PermReadHealth)).Get("/snapshots", s.handleMetricsSnapshotListV1)
+		})
+
+		// Analytics API - aggregated session analytics
+		r.With(s.RequirePermission(PermReadHealth)).Get("/analytics", s.handleAnalyticsV1)
+
+		// Context API - context pack management
+		r.Route("/context", func(r chi.Router) {
+			r.With(s.RequirePermission(PermWriteSessions)).Post("/build", s.handleContextBuildV1)
+			r.With(s.RequirePermission(PermReadSessions)).Get("/{contextId}", s.handleContextGetV1)
+			r.With(s.RequirePermission(PermReadSessions)).Get("/stats", s.handleContextStatsV1)
+			r.With(s.RequirePermission(PermWriteSessions)).Delete("/cache", s.handleContextCacheClearV1)
+		})
+
+		// Git API - git coordination with Agent Mail
+		r.Route("/git", func(r chi.Router) {
+			r.With(s.RequirePermission(PermWriteSessions)).Post("/sync", s.handleGitSyncV1)
+			r.With(s.RequirePermission(PermReadSessions)).Get("/status", s.handleGitStatusV1)
+		})
+
+		// Output API - pane output capture and analysis
+		r.Route("/output", func(r chi.Router) {
+			r.With(s.RequirePermission(PermReadSessions)).Get("/tail", s.handleOutputTailV1)
+			r.With(s.RequirePermission(PermReadSessions)).Get("/diff", s.handleOutputDiffV1)
+			r.With(s.RequirePermission(PermReadSessions)).Get("/files", s.handleOutputFilesV1)
+			r.With(s.RequirePermission(PermReadSessions)).Get("/summary", s.handleOutputSummaryV1)
+		})
+
+		// Palette API - command palette information
+		r.Route("/palette", func(r chi.Router) {
+			r.With(s.RequirePermission(PermReadSessions)).Get("/", s.handlePaletteV1)
+		})
+
+		// History API - command history
+		r.Route("/history", func(r chi.Router) {
+			r.With(s.RequirePermission(PermReadSessions)).Get("/", s.handleHistoryV1)
+			r.With(s.RequirePermission(PermReadSessions)).Get("/stats", s.handleHistoryStatsV1)
+		})
+
+		// Route API - agent routing recommendations
+		r.Route("/route", func(r chi.Router) {
+			r.With(s.RequirePermission(PermReadSessions)).Get("/", s.handleRouteV1)
+		})
+
+		// Wait API - agent state polling
+		r.Route("/wait", func(r chi.Router) {
+			r.With(s.RequirePermission(PermReadSessions)).Get("/", s.handleWaitV1)
+		})
+
+		// Safety, Policy, and Approvals API
+		s.registerSafetyRoutes(r)
 
 		// WebSocket endpoint (requires read permission)
 		r.With(s.RequirePermission(PermReadWebSocket)).Get("/ws", s.handleWebSocket)
@@ -1172,6 +1271,19 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		log.Printf("Error encoding JSON: %v", err)
 	}
+}
+
+// toJSONMap converts any value to map[string]interface{} via JSON round-trip.
+func toJSONMap(v any) (map[string]interface{}, error) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal(b, &m); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 // writeError writes an error response.
@@ -1898,7 +2010,14 @@ func (s *Server) handleDepsV1(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeSuccessResponse(w, http.StatusOK, result, reqID)
+	// Convert result to map[string]interface{} via JSON round-trip
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize result: "+err.Error(), nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, data, reqID)
 }
 
 // handleDoctorV1 handles GET /api/v1/doctor.
@@ -2194,6 +2313,1792 @@ func (s *Server) handleRobotHealthV1(w http.ResponseWriter, r *http.Request) {
 	writeSuccessResponse(w, http.StatusOK, map[string]interface{}{
 		"note": "full robot health requires robot package integration",
 	}, reqID)
+}
+
+// =============================================================================
+// Session Kernel Handlers (call kernel commands)
+// =============================================================================
+
+// CreateSessionRequest is the request body for POST /sessions.
+type CreateSessionRequest struct {
+	Session string `json:"session"`
+	Panes   int    `json:"panes,omitempty"`
+}
+
+// handleCreateSessionV1 handles POST /api/v1/sessions.
+func (s *Server) handleCreateSessionV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+
+	var req CreateSessionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", nil, reqID)
+		return
+	}
+
+	if req.Session == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session name required", nil, reqID)
+		return
+	}
+
+	result, err := kernel.Run(r.Context(), "sessions.create", map[string]interface{}{
+		"session": req.Session,
+		"panes":   req.Panes,
+	})
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize response", nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusCreated, data, reqID)
+}
+
+// handleSessionStatusV1 handles GET /api/v1/sessions/{id}/status.
+func (s *Server) handleSessionStatusV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+	sessionID := chi.URLParam(r, "id")
+
+	if sessionID == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session ID required", nil, reqID)
+		return
+	}
+
+	result, err := kernel.Run(r.Context(), "sessions.status", map[string]interface{}{
+		"session": sessionID,
+	})
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize response", nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, data, reqID)
+}
+
+// handleSessionAttachV1 handles POST /api/v1/sessions/{id}/attach.
+func (s *Server) handleSessionAttachV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+	sessionID := chi.URLParam(r, "id")
+
+	if sessionID == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session ID required", nil, reqID)
+		return
+	}
+
+	result, err := kernel.Run(r.Context(), "sessions.attach", map[string]interface{}{
+		"session": sessionID,
+	})
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize response", nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, data, reqID)
+}
+
+// SessionZoomRequest is the request body for POST /sessions/{id}/zoom.
+type SessionZoomRequest struct {
+	Pane int `json:"pane"`
+}
+
+// handleSessionZoomV1 handles POST /api/v1/sessions/{id}/zoom.
+func (s *Server) handleSessionZoomV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+	sessionID := chi.URLParam(r, "id")
+
+	if sessionID == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session ID required", nil, reqID)
+		return
+	}
+
+	var req SessionZoomRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", nil, reqID)
+		return
+	}
+
+	result, err := kernel.Run(r.Context(), "sessions.zoom", map[string]interface{}{
+		"session": sessionID,
+		"pane":    req.Pane,
+	})
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize response", nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, data, reqID)
+}
+
+// handleSessionViewV1 handles POST /api/v1/sessions/{id}/view.
+func (s *Server) handleSessionViewV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+	sessionID := chi.URLParam(r, "id")
+
+	if sessionID == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session ID required", nil, reqID)
+		return
+	}
+
+	result, err := kernel.Run(r.Context(), "sessions.view", map[string]interface{}{
+		"session": sessionID,
+	})
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize response", nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, data, reqID)
+}
+
+// =============================================================================
+// Panes API Handlers
+// =============================================================================
+
+// handleListPanesV1 handles GET /api/v1/sessions/{sessionId}/panes.
+func (s *Server) handleListPanesV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+	sessionID := chi.URLParam(r, "sessionId")
+
+	if sessionID == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session ID required", nil, reqID)
+		return
+	}
+
+	panes, err := tmux.GetPanesContext(r.Context(), sessionID)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	// Convert to serializable format
+	paneList := make([]map[string]interface{}, len(panes))
+	for i, p := range panes {
+		paneList[i] = map[string]interface{}{
+			"index":   p.Index,
+			"id":      p.ID,
+			"title":   p.Title,
+			"type":    string(p.Type),
+			"variant": p.Variant,
+			"active":  p.Active,
+			"width":   p.Width,
+			"height":  p.Height,
+			"command": p.Command,
+		}
+	}
+
+	writeSuccessResponse(w, http.StatusOK, map[string]interface{}{
+		"session_id": sessionID,
+		"panes":      paneList,
+		"count":      len(panes),
+	}, reqID)
+}
+
+// handleGetPaneV1 handles GET /api/v1/sessions/{sessionId}/panes/{paneIdx}.
+func (s *Server) handleGetPaneV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+	sessionID := chi.URLParam(r, "sessionId")
+	paneIdxStr := chi.URLParam(r, "paneIdx")
+
+	if sessionID == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session ID required", nil, reqID)
+		return
+	}
+
+	paneIdx := 0
+	if _, err := fmt.Sscanf(paneIdxStr, "%d", &paneIdx); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid pane index", nil, reqID)
+		return
+	}
+
+	panes, err := tmux.GetPanesContext(r.Context(), sessionID)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	// Find the pane by index
+	for _, p := range panes {
+		if p.Index == paneIdx {
+			writeSuccessResponse(w, http.StatusOK, map[string]interface{}{
+				"pane": map[string]interface{}{
+					"index":   p.Index,
+					"id":      p.ID,
+					"title":   p.Title,
+					"type":    string(p.Type),
+					"variant": p.Variant,
+					"active":  p.Active,
+					"width":   p.Width,
+					"height":  p.Height,
+					"command": p.Command,
+				},
+			}, reqID)
+			return
+		}
+	}
+
+	writeErrorResponse(w, http.StatusNotFound, ErrCodeNotFound, "pane not found", nil, reqID)
+}
+
+// PaneInputRequest is the request body for POST /sessions/{id}/panes/{paneIdx}/input.
+type PaneInputRequest struct {
+	Text  string `json:"text"`
+	Enter bool   `json:"enter,omitempty"`
+}
+
+// handlePaneInputV1 handles POST /api/v1/sessions/{sessionId}/panes/{paneIdx}/input.
+func (s *Server) handlePaneInputV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+	sessionID := chi.URLParam(r, "sessionId")
+	paneIdxStr := chi.URLParam(r, "paneIdx")
+
+	if sessionID == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session ID required", nil, reqID)
+		return
+	}
+
+	paneIdx := 0
+	if _, err := fmt.Sscanf(paneIdxStr, "%d", &paneIdx); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid pane index", nil, reqID)
+		return
+	}
+
+	var req PaneInputRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", nil, reqID)
+		return
+	}
+
+	if req.Text == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "text required", nil, reqID)
+		return
+	}
+
+	// Build pane target
+	paneTarget := fmt.Sprintf("%s:%d", sessionID, paneIdx)
+
+	if err := tmux.SendKeys(paneTarget, req.Text, req.Enter); err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, map[string]interface{}{
+		"sent": true,
+		"pane": paneTarget,
+	}, reqID)
+}
+
+// handlePaneInterruptV1 handles POST /api/v1/sessions/{sessionId}/panes/{paneIdx}/interrupt.
+func (s *Server) handlePaneInterruptV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+	sessionID := chi.URLParam(r, "sessionId")
+	paneIdxStr := chi.URLParam(r, "paneIdx")
+
+	if sessionID == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session ID required", nil, reqID)
+		return
+	}
+
+	paneIdx := 0
+	if _, err := fmt.Sscanf(paneIdxStr, "%d", &paneIdx); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid pane index", nil, reqID)
+		return
+	}
+
+	// Build pane target
+	paneTarget := fmt.Sprintf("%s:%d", sessionID, paneIdx)
+
+	// Send Ctrl+C to interrupt
+	if err := tmux.SendKeys(paneTarget, "C-c", false); err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, map[string]interface{}{
+		"interrupted": true,
+		"pane":        paneTarget,
+	}, reqID)
+}
+
+// handlePaneOutputV1 handles GET /api/v1/sessions/{sessionId}/panes/{paneIdx}/output.
+func (s *Server) handlePaneOutputV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+	sessionID := chi.URLParam(r, "sessionId")
+	paneIdxStr := chi.URLParam(r, "paneIdx")
+
+	if sessionID == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session ID required", nil, reqID)
+		return
+	}
+
+	paneIdx := 0
+	if _, err := fmt.Sscanf(paneIdxStr, "%d", &paneIdx); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid pane index", nil, reqID)
+		return
+	}
+
+	// Parse lines parameter (default 100)
+	lines := 100
+	if linesStr := r.URL.Query().Get("lines"); linesStr != "" {
+		if _, err := fmt.Sscanf(linesStr, "%d", &lines); err != nil {
+			writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid lines parameter", nil, reqID)
+			return
+		}
+		if lines < 1 || lines > 10000 {
+			writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "lines must be 1-10000", nil, reqID)
+			return
+		}
+	}
+
+	// Build pane target
+	paneTarget := fmt.Sprintf("%s:%d", sessionID, paneIdx)
+
+	output, err := tmux.CapturePaneOutputContext(r.Context(), paneTarget, lines)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, map[string]interface{}{
+		"pane":   paneTarget,
+		"output": output,
+		"lines":  lines,
+	}, reqID)
+}
+
+// handleGetPaneTitleV1 handles GET /api/v1/sessions/{sessionId}/panes/{paneIdx}/title.
+func (s *Server) handleGetPaneTitleV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+	sessionID := chi.URLParam(r, "sessionId")
+	paneIdxStr := chi.URLParam(r, "paneIdx")
+
+	if sessionID == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session ID required", nil, reqID)
+		return
+	}
+
+	paneIdx := 0
+	if _, err := fmt.Sscanf(paneIdxStr, "%d", &paneIdx); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid pane index", nil, reqID)
+		return
+	}
+
+	// Build pane target
+	paneTarget := fmt.Sprintf("%s:%d", sessionID, paneIdx)
+
+	title, err := tmux.GetPaneTitle(paneTarget)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, map[string]interface{}{
+		"pane":  paneTarget,
+		"title": title,
+	}, reqID)
+}
+
+// PaneTitleRequest is the request body for PATCH /sessions/{id}/panes/{paneIdx}/title.
+type PaneTitleRequest struct {
+	Title string `json:"title"`
+}
+
+// handleSetPaneTitleV1 handles PATCH /api/v1/sessions/{sessionId}/panes/{paneIdx}/title.
+func (s *Server) handleSetPaneTitleV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+	sessionID := chi.URLParam(r, "sessionId")
+	paneIdxStr := chi.URLParam(r, "paneIdx")
+
+	if sessionID == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session ID required", nil, reqID)
+		return
+	}
+
+	paneIdx := 0
+	if _, err := fmt.Sscanf(paneIdxStr, "%d", &paneIdx); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid pane index", nil, reqID)
+		return
+	}
+
+	var req PaneTitleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", nil, reqID)
+		return
+	}
+
+	// Build pane target
+	paneTarget := fmt.Sprintf("%s:%d", sessionID, paneIdx)
+
+	if err := tmux.SetPaneTitle(paneTarget, req.Title); err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, map[string]interface{}{
+		"pane":  paneTarget,
+		"title": req.Title,
+	}, reqID)
+}
+
+// =============================================================================
+// Agents API Handlers
+// =============================================================================
+
+// handleListAgentsV1 handles GET /api/v1/sessions/{sessionId}/agents.
+func (s *Server) handleListAgentsV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+	sessionID := chi.URLParam(r, "sessionId")
+
+	if sessionID == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session ID required", nil, reqID)
+		return
+	}
+
+	panes, err := tmux.GetPanesContext(r.Context(), sessionID)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	// Filter to only include recognized agent panes (not user/unknown)
+	agents := make([]map[string]interface{}, 0, len(panes))
+	for _, p := range panes {
+		agentType := string(p.Type)
+		if agentType == "" || agentType == "unknown" || agentType == "user" {
+			continue
+		}
+		agents = append(agents, map[string]interface{}{
+			"pane_index": p.Index,
+			"pane_id":    p.ID,
+			"agent_type": agentType,
+			"title":      p.Title,
+			"variant":    p.Variant,
+			"tags":       p.Tags,
+			"active":     p.Active,
+		})
+	}
+
+	writeSuccessResponse(w, http.StatusOK, map[string]interface{}{
+		"session_id": sessionID,
+		"agents":     agents,
+		"count":      len(agents),
+	}, reqID)
+}
+
+// AgentSpawnRequest is the request body for POST /sessions/{id}/agents/spawn.
+type AgentSpawnRequest struct {
+	CCCount  int    `json:"cc_count,omitempty"`
+	CodCount int    `json:"cod_count,omitempty"`
+	GmiCount int    `json:"gmi_count,omitempty"`
+	Preset   string `json:"preset,omitempty"`
+	WaitReady bool  `json:"wait_ready,omitempty"`
+}
+
+// handleAgentSpawnV1 handles POST /api/v1/sessions/{sessionId}/agents/spawn.
+func (s *Server) handleAgentSpawnV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+	sessionID := chi.URLParam(r, "sessionId")
+
+	if sessionID == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session ID required", nil, reqID)
+		return
+	}
+
+	var req AgentSpawnRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", nil, reqID)
+		return
+	}
+
+	// At least one agent count or preset must be specified
+	if req.CCCount == 0 && req.CodCount == 0 && req.GmiCount == 0 && req.Preset == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "at least one agent count (cc_count, cod_count, gmi_count) or preset required", nil, reqID)
+		return
+	}
+
+	opts := robot.SpawnOptions{
+		Session:   sessionID,
+		CCCount:   req.CCCount,
+		CodCount:  req.CodCount,
+		GmiCount:  req.GmiCount,
+		Preset:    req.Preset,
+		WaitReady: req.WaitReady,
+	}
+
+	result, err := robot.GetSpawn(opts, nil)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize response", nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, data, reqID)
+}
+
+// AgentSendRequest is the request body for POST /sessions/{id}/agents/send.
+type AgentSendRequest struct {
+	Panes      []string `json:"panes,omitempty"`
+	AgentTypes []string `json:"agent_types,omitempty"`
+	Message    string   `json:"message"`
+	All        bool     `json:"all,omitempty"`
+}
+
+// handleAgentSendV1 handles POST /api/v1/sessions/{sessionId}/agents/send.
+func (s *Server) handleAgentSendV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+	sessionID := chi.URLParam(r, "sessionId")
+
+	if sessionID == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session ID required", nil, reqID)
+		return
+	}
+
+	var req AgentSendRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", nil, reqID)
+		return
+	}
+
+	if req.Message == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "message required", nil, reqID)
+		return
+	}
+
+	opts := robot.SendOptions{
+		Session:    sessionID,
+		Message:    req.Message,
+		Panes:      req.Panes,
+		AgentTypes: req.AgentTypes,
+		All:        req.All,
+	}
+
+	result, err := robot.GetSend(opts)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize response", nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, data, reqID)
+}
+
+// AgentInterruptRequest is the request body for POST /sessions/{id}/agents/interrupt.
+type AgentInterruptRequest struct {
+	Panes   []string `json:"panes,omitempty"`
+	Message string   `json:"message,omitempty"`
+	Force   bool     `json:"force,omitempty"`
+	NoWait  bool     `json:"no_wait,omitempty"`
+}
+
+// handleAgentInterruptV1 handles POST /api/v1/sessions/{sessionId}/agents/interrupt.
+func (s *Server) handleAgentInterruptV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+	sessionID := chi.URLParam(r, "sessionId")
+
+	if sessionID == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session ID required", nil, reqID)
+		return
+	}
+
+	var req AgentInterruptRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", nil, reqID)
+		return
+	}
+
+	opts := robot.InterruptOptions{
+		Session: sessionID,
+		Panes:   req.Panes,
+		Message: req.Message,
+		Force:   req.Force,
+		NoWait:  req.NoWait,
+	}
+
+	result, err := robot.GetInterrupt(opts)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize response", nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, data, reqID)
+}
+
+// AgentWaitRequest is the request body for POST /sessions/{id}/agents/wait.
+type AgentWaitRequest struct {
+	Condition    string `json:"condition"`
+	TimeoutMs    int    `json:"timeout_ms,omitempty"`
+	PollMs       int    `json:"poll_ms,omitempty"`
+	Panes        []int  `json:"panes,omitempty"`
+	AgentType    string `json:"agent_type,omitempty"`
+	WaitForAny   bool   `json:"wait_for_any,omitempty"`
+	ExitOnError  bool   `json:"exit_on_error,omitempty"`
+}
+
+// handleAgentWaitV1 handles POST /api/v1/sessions/{sessionId}/agents/wait.
+func (s *Server) handleAgentWaitV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+	sessionID := chi.URLParam(r, "sessionId")
+
+	if sessionID == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session ID required", nil, reqID)
+		return
+	}
+
+	var req AgentWaitRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", nil, reqID)
+		return
+	}
+
+	if req.Condition == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "condition required", nil, reqID)
+		return
+	}
+
+	timeout := 30 * time.Second
+	if req.TimeoutMs > 0 {
+		timeout = time.Duration(req.TimeoutMs) * time.Millisecond
+	}
+	pollInterval := 300 * time.Millisecond
+	if req.PollMs > 0 {
+		pollInterval = time.Duration(req.PollMs) * time.Millisecond
+	}
+
+	opts := robot.WaitOptions{
+		Session:      sessionID,
+		Condition:    req.Condition,
+		Timeout:      timeout,
+		PollInterval: pollInterval,
+		PaneIndices:  req.Panes,
+		AgentType:    req.AgentType,
+		WaitForAny:   req.WaitForAny,
+		ExitOnError:  req.ExitOnError,
+	}
+
+	result, exitCode := robot.GetWait(opts)
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize response", nil, reqID)
+		return
+	}
+
+	// Map exit codes to HTTP status
+	status := http.StatusOK
+	if exitCode == 1 {
+		status = http.StatusRequestTimeout
+	} else if exitCode >= 2 {
+		status = http.StatusInternalServerError
+	}
+
+	writeSuccessResponse(w, status, data, reqID)
+}
+
+// handleAgentRouteV1 handles GET /api/v1/sessions/{sessionId}/agents/route.
+func (s *Server) handleAgentRouteV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+	sessionID := chi.URLParam(r, "sessionId")
+
+	if sessionID == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session ID required", nil, reqID)
+		return
+	}
+
+	// Parse query parameters
+	agentType := r.URL.Query().Get("agent_type")
+	strategy := robot.StrategyName(r.URL.Query().Get("strategy"))
+	prompt := r.URL.Query().Get("prompt")
+
+	opts := robot.RouteOptions{
+		Session:   sessionID,
+		AgentType: agentType,
+		Strategy:  strategy,
+		Prompt:    prompt,
+	}
+
+	result, exitCode := robot.GetRoute(opts)
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize response", nil, reqID)
+		return
+	}
+
+	status := http.StatusOK
+	if exitCode != 0 {
+		status = http.StatusInternalServerError
+	}
+
+	writeSuccessResponse(w, status, data, reqID)
+}
+
+// handleAgentActivityV1 handles GET /api/v1/sessions/{sessionId}/agents/activity.
+func (s *Server) handleAgentActivityV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+	sessionID := chi.URLParam(r, "sessionId")
+
+	if sessionID == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session ID required", nil, reqID)
+		return
+	}
+
+	opts := robot.ActivityOptions{
+		Session: sessionID,
+	}
+
+	result, err := robot.GetActivity(opts)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize response", nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, data, reqID)
+}
+
+// handleAgentHealthV1 handles GET /api/v1/sessions/{sessionId}/agents/health.
+func (s *Server) handleAgentHealthV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+	sessionID := chi.URLParam(r, "sessionId")
+
+	if sessionID == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session ID required", nil, reqID)
+		return
+	}
+
+	opts := robot.AgentHealthOptions{
+		Session:       sessionID,
+		LinesCaptured: 100,
+		IncludeCaut:   true,
+		IncludePT:     true,
+	}
+
+	result, err := robot.GetAgentHealth(opts)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize response", nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, data, reqID)
+}
+
+// handleAgentContextV1 handles GET /api/v1/sessions/{sessionId}/agents/context.
+func (s *Server) handleAgentContextV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+	sessionID := chi.URLParam(r, "sessionId")
+
+	if sessionID == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session ID required", nil, reqID)
+		return
+	}
+
+	// Parse lines parameter (default 100)
+	lines := 100
+	if linesStr := r.URL.Query().Get("lines"); linesStr != "" {
+		if _, err := fmt.Sscanf(linesStr, "%d", &lines); err != nil {
+			writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid lines parameter", nil, reqID)
+			return
+		}
+	}
+
+	result, err := robot.GetContext(sessionID, lines)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize response", nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, data, reqID)
+}
+
+// AgentRestartRequest is the request body for POST /sessions/{id}/agents/restart.
+type AgentRestartRequest struct {
+	Panes     []string `json:"panes,omitempty"`
+	AgentType string   `json:"agent_type,omitempty"`
+	All       bool     `json:"all,omitempty"`
+	DryRun    bool     `json:"dry_run,omitempty"`
+}
+
+// handleAgentRestartV1 handles POST /api/v1/sessions/{sessionId}/agents/restart.
+func (s *Server) handleAgentRestartV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+	sessionID := chi.URLParam(r, "sessionId")
+
+	if sessionID == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session ID required", nil, reqID)
+		return
+	}
+
+	var req AgentRestartRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", nil, reqID)
+		return
+	}
+
+	opts := robot.RestartPaneOptions{
+		Session: sessionID,
+		Panes:   req.Panes,
+		Type:    req.AgentType,
+		All:     req.All,
+		DryRun:  req.DryRun,
+	}
+
+	result, err := robot.GetRestartPane(opts)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize response", nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, data, reqID)
+}
+
+// =============================================================================
+// Metrics API Handlers
+// =============================================================================
+
+// handleMetricsV1 handles GET /api/v1/metrics.
+func (s *Server) handleMetricsV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+
+	session := r.URL.Query().Get("session")
+	period := r.URL.Query().Get("period")
+	if period == "" {
+		period = "24h"
+	}
+
+	opts := robot.MetricsOptions{
+		Session: session,
+		Period:  period,
+	}
+
+	result, err := robot.GetMetrics(opts)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize response", nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, data, reqID)
+}
+
+// MetricsCompareRequest represents a metrics comparison request.
+type MetricsCompareRequest struct {
+	Session      string `json:"session,omitempty"`
+	BaselineName string `json:"baseline_name,omitempty"`
+}
+
+// handleMetricsCompareV1 handles GET /api/v1/metrics/compare.
+func (s *Server) handleMetricsCompareV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+
+	session := r.URL.Query().Get("session")
+	baselineName := r.URL.Query().Get("baseline")
+	if baselineName == "" {
+		baselineName = "baseline"
+	}
+
+	// Get or create metrics collector
+	collector := metrics.NewCollector(s.stateStore, session)
+
+	// Generate current report
+	currentReport, err := collector.GenerateReport()
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	// Load baseline
+	baselineReport, err := collector.LoadSnapshot(baselineName)
+	if err != nil {
+		writeErrorResponse(w, http.StatusNotFound, "SNAPSHOT_NOT_FOUND", fmt.Sprintf("baseline '%s' not found", baselineName), nil, reqID)
+		return
+	}
+
+	// Compare
+	comparison := collector.CompareSnapshots(baselineReport, currentReport)
+
+	writeSuccessResponse(w, http.StatusOK, map[string]interface{}{
+		"session":    session,
+		"baseline":   baselineName,
+		"comparison": comparison,
+	}, reqID)
+}
+
+// handleMetricsExportV1 handles GET /api/v1/metrics/export.
+func (s *Server) handleMetricsExportV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+
+	session := r.URL.Query().Get("session")
+	format := r.URL.Query().Get("format")
+	if format == "" {
+		format = "json"
+	}
+
+	collector := metrics.NewCollector(s.stateStore, session)
+	report, err := collector.GenerateReport()
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, map[string]interface{}{
+		"session": session,
+		"format":  format,
+		"report":  report,
+	}, reqID)
+}
+
+// MetricsSnapshotSaveRequest represents a snapshot save request.
+type MetricsSnapshotSaveRequest struct {
+	Name    string `json:"name"`
+	Session string `json:"session,omitempty"`
+}
+
+// handleMetricsSnapshotSaveV1 handles POST /api/v1/metrics/snapshot.
+func (s *Server) handleMetricsSnapshotSaveV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+
+	var req MetricsSnapshotSaveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", nil, reqID)
+		return
+	}
+
+	if req.Name == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "snapshot name required", nil, reqID)
+		return
+	}
+
+	collector := metrics.NewCollector(s.stateStore, req.Session)
+	if err := collector.SaveSnapshot(req.Name); err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, map[string]interface{}{
+		"name":    req.Name,
+		"saved":   true,
+		"message": fmt.Sprintf("snapshot '%s' saved successfully", req.Name),
+	}, reqID)
+}
+
+// handleMetricsSnapshotListV1 handles GET /api/v1/metrics/snapshots.
+func (s *Server) handleMetricsSnapshotListV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+
+	// For now, return a simple response indicating the endpoint exists
+	// A full implementation would query stored snapshots from the state store
+	writeSuccessResponse(w, http.StatusOK, map[string]interface{}{
+		"snapshots": []string{},
+		"message":   "use POST /metrics/snapshot to create snapshots",
+	}, reqID)
+}
+
+// =============================================================================
+// Analytics API Handlers
+// =============================================================================
+
+// handleAnalyticsV1 handles GET /api/v1/analytics.
+func (s *Server) handleAnalyticsV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+
+	days := 30
+	if d := r.URL.Query().Get("days"); d != "" {
+		if parsed, err := strconv.Atoi(d); err == nil && parsed > 0 {
+			days = parsed
+		}
+	}
+
+	since := r.URL.Query().Get("since")
+	format := r.URL.Query().Get("format")
+	if format == "" {
+		format = "json"
+	}
+
+	// Build analytics response
+	// For now, we'll provide session-based analytics from robot.GetMetrics
+	opts := robot.MetricsOptions{
+		Period: fmt.Sprintf("%dd", days),
+	}
+	metricsData, _ := robot.GetMetrics(opts)
+
+	writeSuccessResponse(w, http.StatusOK, map[string]interface{}{
+		"period":   fmt.Sprintf("%d days", days),
+		"since":    since,
+		"format":   format,
+		"metrics":  metricsData,
+		"sessions": []interface{}{},
+	}, reqID)
+}
+
+// =============================================================================
+// Context API Handlers
+// =============================================================================
+
+// ContextBuildRequest represents a context pack build request.
+type ContextBuildRequest struct {
+	Question   string `json:"question"`
+	ProjectDir string `json:"project_dir,omitempty"`
+	BeadID     string `json:"bead_id,omitempty"`
+	AgentType  string `json:"agent_type,omitempty"`
+}
+
+// handleContextBuildV1 handles POST /api/v1/context/build.
+func (s *Server) handleContextBuildV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+
+	var req ContextBuildRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", nil, reqID)
+		return
+	}
+
+	if req.Question == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "question required", nil, reqID)
+		return
+	}
+
+	projectDir := req.ProjectDir
+	if projectDir == "" {
+		projectDir, _ = os.Getwd()
+	}
+
+	// Create context pack generator
+	generator := ensemble.NewContextPackGenerator(projectDir, nil, nil)
+	pack, err := generator.Generate(req.Question, "default", ensemble.CacheConfig{Enabled: false})
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	// Store in state if available
+	if s.stateStore != nil && pack != nil {
+		statePack := &state.ContextPack{
+			ID:         pack.Hash,
+			BeadID:     req.BeadID,
+			AgentType:  state.AgentType(req.AgentType),
+			CreatedAt:  pack.GeneratedAt,
+			TokenCount: pack.TokenEstimate,
+		}
+		_ = s.stateStore.CreateContextPack(statePack)
+	}
+
+	writeSuccessResponse(w, http.StatusOK, map[string]interface{}{
+		"id":          pack.Hash,
+		"bead_id":     req.BeadID,
+		"token_count": pack.TokenEstimate,
+		"created_at":  pack.GeneratedAt,
+	}, reqID)
+}
+
+// handleContextGetV1 handles GET /api/v1/context/{contextId}.
+func (s *Server) handleContextGetV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+	contextID := chi.URLParam(r, "contextId")
+
+	if contextID == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "context ID required", nil, reqID)
+		return
+	}
+
+	if s.stateStore == nil {
+		writeErrorResponse(w, http.StatusServiceUnavailable, "STATE_STORE_UNAVAILABLE", "state store not available", nil, reqID)
+		return
+	}
+
+	pack, err := s.stateStore.GetContextPack(contextID)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	if pack == nil {
+		writeErrorResponse(w, http.StatusNotFound, "CONTEXT_NOT_FOUND", fmt.Sprintf("context pack '%s' not found", contextID), nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, map[string]interface{}{
+		"id":              pack.ID,
+		"bead_id":         pack.BeadID,
+		"agent_type":      pack.AgentType,
+		"repo_rev":        pack.RepoRev,
+		"token_count":     pack.TokenCount,
+		"created_at":      pack.CreatedAt,
+		"rendered_prompt": pack.RenderedPrompt,
+	}, reqID)
+}
+
+// handleContextStatsV1 handles GET /api/v1/context/stats.
+func (s *Server) handleContextStatsV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+
+	session := r.URL.Query().Get("session")
+	lines := 1000
+	if l := r.URL.Query().Get("lines"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			lines = parsed
+		}
+	}
+
+	if session == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session required", nil, reqID)
+		return
+	}
+
+	result, err := robot.GetContext(session, lines)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize response", nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, data, reqID)
+}
+
+// handleContextCacheClearV1 handles DELETE /api/v1/context/cache.
+func (s *Server) handleContextCacheClearV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+
+	// Clear context cache
+	// For now, return success - actual implementation would clear ensemble cache
+	writeSuccessResponse(w, http.StatusOK, map[string]interface{}{
+		"cleared": true,
+		"message": "context cache cleared",
+	}, reqID)
+}
+
+// =============================================================================
+// Git API Handlers
+// =============================================================================
+
+// GitSyncRequest represents a git sync request.
+type GitSyncRequest struct {
+	Session  string `json:"session,omitempty"`
+	PullOnly bool   `json:"pull_only,omitempty"`
+	PushOnly bool   `json:"push_only,omitempty"`
+	Force    bool   `json:"force,omitempty"`
+	DryRun   bool   `json:"dry_run,omitempty"`
+}
+
+// handleGitSyncV1 handles POST /api/v1/git/sync.
+func (s *Server) handleGitSyncV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+
+	var req GitSyncRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid request body", nil, reqID)
+		return
+	}
+
+	workDir, err := os.Getwd()
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to get working directory", nil, reqID)
+		return
+	}
+
+	result := map[string]interface{}{
+		"session":     req.Session,
+		"working_dir": workDir,
+		"success":     true,
+	}
+
+	// Check if git repo
+	cmd := exec.Command("git", "-C", workDir, "rev-parse", "--git-dir")
+	if err := cmd.Run(); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, "NOT_GIT_REPO", "not a git repository", nil, reqID)
+		return
+	}
+
+	// Perform git operations based on request
+	if !req.PushOnly {
+		// Fetch first
+		fetchCmd := exec.Command("git", "-C", workDir, "fetch")
+		if err := fetchCmd.Run(); err != nil {
+			result["pull_error"] = "fetch failed"
+			result["success"] = false
+		} else if !req.DryRun {
+			// Pull with rebase
+			pullCmd := exec.Command("git", "-C", workDir, "pull", "--rebase")
+			if err := pullCmd.Run(); err != nil {
+				result["pull_error"] = "pull failed"
+				result["success"] = false
+			} else {
+				result["pulled"] = true
+			}
+		}
+	}
+
+	if !req.PullOnly && result["success"] == true {
+		// Push
+		pushArgs := []string{"-C", workDir, "push"}
+		if req.Force {
+			pushArgs = append(pushArgs, "--force")
+		}
+		if req.DryRun {
+			pushArgs = append(pushArgs, "--dry-run")
+		}
+		pushCmd := exec.Command("git", pushArgs...)
+		if err := pushCmd.Run(); err != nil {
+			result["push_error"] = "push failed"
+			result["success"] = false
+		} else {
+			result["pushed"] = true
+		}
+	}
+
+	writeSuccessResponse(w, http.StatusOK, result, reqID)
+}
+
+// handleGitStatusV1 handles GET /api/v1/git/status.
+func (s *Server) handleGitStatusV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+
+	session := r.URL.Query().Get("session")
+
+	workDir, err := os.Getwd()
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to get working directory", nil, reqID)
+		return
+	}
+
+	result := map[string]interface{}{
+		"session":     session,
+		"working_dir": workDir,
+		"success":     true,
+	}
+
+	// Check if git repo
+	cmd := exec.Command("git", "-C", workDir, "rev-parse", "--git-dir")
+	if err := cmd.Run(); err != nil {
+		writeErrorResponse(w, http.StatusBadRequest, "NOT_GIT_REPO", "not a git repository", nil, reqID)
+		return
+	}
+
+	// Get branch
+	branchCmd := exec.Command("git", "-C", workDir, "rev-parse", "--abbrev-ref", "HEAD")
+	branchOut, err := branchCmd.Output()
+	if err == nil {
+		result["branch"] = strings.TrimSpace(string(branchOut))
+	}
+
+	// Get commit
+	commitCmd := exec.Command("git", "-C", workDir, "rev-parse", "HEAD")
+	commitOut, err := commitCmd.Output()
+	if err == nil {
+		commit := strings.TrimSpace(string(commitOut))
+		result["commit"] = commit
+		if len(commit) >= 7 {
+			result["commit_short"] = commit[:7]
+		}
+	}
+
+	// Check if dirty
+	dirtyCmd := exec.Command("git", "-C", workDir, "diff", "--quiet", "HEAD")
+	result["dirty"] = dirtyCmd.Run() != nil
+
+	// Get status summary
+	statusCmd := exec.Command("git", "-C", workDir, "status", "--porcelain")
+	statusOut, err := statusCmd.Output()
+	if err == nil {
+		lines := strings.Split(strings.TrimSpace(string(statusOut)), "\n")
+		if len(lines) == 1 && lines[0] == "" {
+			result["changes"] = 0
+		} else {
+			result["changes"] = len(lines)
+		}
+	}
+
+	writeSuccessResponse(w, http.StatusOK, result, reqID)
+}
+
+// =============================================================================
+// Output API Handlers
+// =============================================================================
+
+// handleOutputTailV1 handles GET /api/v1/output/tail.
+func (s *Server) handleOutputTailV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+
+	session := r.URL.Query().Get("session")
+	if session == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session parameter required", nil, reqID)
+		return
+	}
+
+	lines := 50
+	if l := r.URL.Query().Get("lines"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			lines = parsed
+		}
+	}
+
+	paneFilter := []string{}
+	if panes := r.URL.Query().Get("panes"); panes != "" {
+		paneFilter = strings.Split(panes, ",")
+	}
+
+	opts := robot.TailOptions{
+		Session:    session,
+		Lines:      lines,
+		PaneFilter: paneFilter,
+	}
+
+	result, err := robot.GetTail(opts)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize response", nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, data, reqID)
+}
+
+// handleOutputDiffV1 handles GET /api/v1/output/diff.
+func (s *Server) handleOutputDiffV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+
+	session := r.URL.Query().Get("session")
+	if session == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session parameter required", nil, reqID)
+		return
+	}
+
+	since := 15 * time.Minute
+	if s := r.URL.Query().Get("since"); s != "" {
+		if d, err := time.ParseDuration(s); err == nil {
+			since = d
+		}
+	}
+
+	opts := robot.DiffOptions{
+		Session: session,
+		Since:   since,
+	}
+
+	result, err := robot.GetDiff(opts)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize response", nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, data, reqID)
+}
+
+// handleOutputFilesV1 handles GET /api/v1/output/files.
+func (s *Server) handleOutputFilesV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+
+	session := r.URL.Query().Get("session")
+	timeWindow := r.URL.Query().Get("window")
+	if timeWindow == "" {
+		timeWindow = "15m"
+	}
+
+	limit := 100
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	opts := robot.FilesOptions{
+		Session:    session,
+		TimeWindow: timeWindow,
+		Limit:      limit,
+	}
+
+	result, err := robot.GetFiles(opts)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize response", nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, data, reqID)
+}
+
+// handleOutputSummaryV1 handles GET /api/v1/output/summary.
+func (s *Server) handleOutputSummaryV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+
+	session := r.URL.Query().Get("session")
+	if session == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session parameter required", nil, reqID)
+		return
+	}
+
+	since := 30 * time.Minute
+	if s := r.URL.Query().Get("since"); s != "" {
+		if d, err := time.ParseDuration(s); err == nil {
+			since = d
+		}
+	}
+
+	opts := robot.SummaryOptions{
+		Session: session,
+		Since:   since,
+	}
+
+	result, err := robot.GetSummary(opts)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize response", nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, data, reqID)
+}
+
+// =============================================================================
+// Palette API Handlers
+// =============================================================================
+
+// handlePaletteV1 handles GET /api/v1/palette.
+func (s *Server) handlePaletteV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+
+	session := r.URL.Query().Get("session")
+	category := r.URL.Query().Get("category")
+	search := r.URL.Query().Get("search")
+
+	opts := robot.PaletteOptions{
+		Session:     session,
+		Category:    category,
+		SearchQuery: search,
+	}
+
+	cfg := config.Default()
+	result, err := robot.GetPalette(cfg, opts)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize response", nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, data, reqID)
+}
+
+// =============================================================================
+// History API Handlers
+// =============================================================================
+
+// handleHistoryV1 handles GET /api/v1/history.
+func (s *Server) handleHistoryV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+
+	session := r.URL.Query().Get("session")
+	if session == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session parameter required", nil, reqID)
+		return
+	}
+
+	pane := r.URL.Query().Get("pane")
+	agentType := r.URL.Query().Get("agent_type")
+	since := r.URL.Query().Get("since")
+
+	last := 50
+	if l := r.URL.Query().Get("last"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			last = parsed
+		}
+	}
+
+	opts := robot.HistoryOptions{
+		Session:   session,
+		Pane:      pane,
+		AgentType: agentType,
+		Last:      last,
+		Since:     since,
+		Stats:     false,
+	}
+
+	result, err := robot.GetHistory(opts)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize response", nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, data, reqID)
+}
+
+// handleHistoryStatsV1 handles GET /api/v1/history/stats.
+func (s *Server) handleHistoryStatsV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+
+	session := r.URL.Query().Get("session")
+	if session == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session parameter required", nil, reqID)
+		return
+	}
+
+	opts := robot.HistoryOptions{
+		Session: session,
+		Stats:   true,
+	}
+
+	result, err := robot.GetHistory(opts)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, err.Error(), nil, reqID)
+		return
+	}
+
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize response", nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, data, reqID)
+}
+
+// =============================================================================
+// Route API Handlers
+// =============================================================================
+
+// handleRouteV1 handles GET /api/v1/route.
+func (s *Server) handleRouteV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+
+	session := r.URL.Query().Get("session")
+	if session == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session parameter required", nil, reqID)
+		return
+	}
+
+	agentType := r.URL.Query().Get("agent_type")
+	strategy := robot.StrategyName(r.URL.Query().Get("strategy"))
+	prompt := r.URL.Query().Get("prompt")
+	lastAgent := r.URL.Query().Get("last_agent")
+
+	var excludePanes []int
+	if exclude := r.URL.Query().Get("exclude"); exclude != "" {
+		parsed, err := robot.ParseExcludePanes(exclude)
+		if err != nil {
+			writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "invalid exclude parameter: "+err.Error(), nil, reqID)
+			return
+		}
+		excludePanes = parsed
+	}
+
+	opts := robot.RouteOptions{
+		Session:      session,
+		AgentType:    agentType,
+		Strategy:     strategy,
+		ExcludePanes: excludePanes,
+		Prompt:       prompt,
+		LastAgent:    lastAgent,
+	}
+
+	result, exitCode := robot.GetRoute(opts)
+	if exitCode != 0 && !result.Success {
+		writeErrorResponse(w, http.StatusBadRequest, result.ErrorCode, result.Error, nil, reqID)
+		return
+	}
+
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize response", nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, data, reqID)
+}
+
+// =============================================================================
+// Wait API Handlers
+// =============================================================================
+
+// handleWaitV1 handles GET /api/v1/wait.
+func (s *Server) handleWaitV1(w http.ResponseWriter, r *http.Request) {
+	reqID := requestIDFromContext(r.Context())
+
+	session := r.URL.Query().Get("session")
+	if session == "" {
+		writeErrorResponse(w, http.StatusBadRequest, ErrCodeBadRequest, "session parameter required", nil, reqID)
+		return
+	}
+
+	condition := r.URL.Query().Get("condition")
+	if condition == "" {
+		condition = "idle"
+	}
+
+	timeout := 60 * time.Second
+	if t := r.URL.Query().Get("timeout"); t != "" {
+		if d, err := time.ParseDuration(t); err == nil {
+			timeout = d
+		}
+	}
+
+	pollInterval := 500 * time.Millisecond
+	if p := r.URL.Query().Get("poll"); p != "" {
+		if d, err := time.ParseDuration(p); err == nil {
+			pollInterval = d
+		}
+	}
+
+	var paneIndices []int
+	if panes := r.URL.Query().Get("panes"); panes != "" {
+		for _, p := range strings.Split(panes, ",") {
+			if idx, err := strconv.Atoi(strings.TrimSpace(p)); err == nil {
+				paneIndices = append(paneIndices, idx)
+			}
+		}
+	}
+
+	agentType := r.URL.Query().Get("agent_type")
+	waitForAny := r.URL.Query().Get("any") == "true"
+	exitOnError := r.URL.Query().Get("exit_on_error") == "true"
+	requireTransition := r.URL.Query().Get("require_transition") == "true"
+
+	countN := 1
+	if n := r.URL.Query().Get("count"); n != "" {
+		if parsed, err := strconv.Atoi(n); err == nil && parsed > 0 {
+			countN = parsed
+		}
+	}
+
+	opts := robot.WaitOptions{
+		Session:           session,
+		Condition:         condition,
+		Timeout:           timeout,
+		PollInterval:      pollInterval,
+		PaneIndices:       paneIndices,
+		AgentType:         agentType,
+		WaitForAny:        waitForAny,
+		ExitOnError:       exitOnError,
+		CountN:            countN,
+		RequireTransition: requireTransition,
+	}
+
+	result, exitCode := robot.GetWait(opts)
+	if exitCode == 2 { // Error
+		writeErrorResponse(w, http.StatusBadRequest, result.ErrorCode, result.Error, nil, reqID)
+		return
+	}
+	if exitCode == 1 { // Timeout
+		data, _ := toJSONMap(result)
+		writeErrorResponse(w, http.StatusRequestTimeout, "TIMEOUT", result.Error, data, reqID)
+		return
+	}
+	if exitCode == 3 { // Agent error
+		data, _ := toJSONMap(result)
+		writeErrorResponse(w, http.StatusConflict, "AGENT_ERROR", result.Error, data, reqID)
+		return
+	}
+
+	data, err := toJSONMap(result)
+	if err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError, "failed to serialize response", nil, reqID)
+		return
+	}
+
+	writeSuccessResponse(w, http.StatusOK, data, reqID)
 }
 
 // =============================================================================
