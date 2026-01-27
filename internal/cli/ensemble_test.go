@@ -149,3 +149,218 @@ func TestRunBrCreateParsesID(t *testing.T) {
 		t.Fatalf("expected runBrCommand to be called")
 	}
 }
+
+func TestFormatBeadDescriptionIncludesProvenance(t *testing.T) {
+	ctx := &exportFindingsContext{
+		Question: "What are the security risks?",
+		Session:  "test-session",
+		RunID:    "run-abc123",
+	}
+
+	f := exportFinding{
+		ID: "finding-01",
+		Finding: ensemble.Finding{
+			Finding:         "SQL injection vulnerability detected",
+			Impact:          ensemble.ImpactCritical,
+			Confidence:      0.95,
+			EvidencePointer: "api/handler.go:42",
+			Reasoning:       "Unsanitized user input passed to query builder",
+		},
+		SourceModes: []string{"mode-a", "mode-b"},
+		Provenance: &ensemble.ProvenanceChain{
+			FindingID:    "prov-001",
+			SourceMode:   "mode-a",
+			ContextHash:  "abc123def456",
+			OriginalText: "SQL injection found",
+			Steps: []ensemble.ProvenanceStep{
+				{
+					Stage:     "discovery",
+					Action:    "mode-output",
+					Timestamp: time.Now(),
+					Details:   "Found by security mode",
+				},
+			},
+		},
+	}
+
+	desc := formatBeadDescription(ctx, f)
+
+	// Check that all required sections are present
+	requiredSections := []string{
+		"## Finding",
+		"SQL injection vulnerability detected",
+		"## Details",
+		"**Impact:** critical",
+		"**Confidence:** 95%",
+		"**Evidence:** `api/handler.go:42`",
+		"**Reasoning:**",
+		"**Source Modes:** mode-a, mode-b",
+		"**Question:** What are the security risks?",
+		"**Session:** test-session",
+		"**Run ID:** run-abc123",
+		"## Provenance",
+		"**Provenance ID:** `prov-001`",
+		"**Source Mode:** mode-a",
+		"**Context Hash:** `abc123def456`",
+		"**Lifecycle:**",
+		"discovery/mode-output",
+	}
+
+	for _, section := range requiredSections {
+		if !strings.Contains(desc, section) {
+			t.Errorf("formatBeadDescription missing required section: %q", section)
+		}
+	}
+}
+
+func TestFormatBeadDescriptionMinimal(t *testing.T) {
+	ctx := &exportFindingsContext{}
+
+	f := exportFinding{
+		ID: "finding-01",
+		Finding: ensemble.Finding{
+			Finding:    "Simple finding",
+			Impact:     ensemble.ImpactMedium,
+			Confidence: 0.7,
+		},
+		SourceModes: nil,
+		Provenance:  nil,
+	}
+
+	desc := formatBeadDescription(ctx, f)
+
+	// Should still have basic structure
+	if !strings.Contains(desc, "## Finding") {
+		t.Error("missing Finding section")
+	}
+	if !strings.Contains(desc, "Simple finding") {
+		t.Error("missing finding text")
+	}
+	if !strings.Contains(desc, "**Impact:** medium") {
+		t.Error("missing impact")
+	}
+
+	// Should NOT have provenance section when nil
+	if strings.Contains(desc, "## Provenance") {
+		t.Error("should not have Provenance section when provenance is nil")
+	}
+}
+
+func TestParseBrCreateID(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantID  string
+		wantErr bool
+	}{
+		{
+			name:   "array format",
+			input:  `[{"id":"bd-abc123"}]`,
+			wantID: "bd-abc123",
+		},
+		{
+			name:   "object format",
+			input:  `{"id":"bd-xyz789"}`,
+			wantID: "bd-xyz789",
+		},
+		{
+			name:   "array with extra fields",
+			input:  `[{"id":"bd-test","title":"Test","status":"open"}]`,
+			wantID: "bd-test",
+		},
+		{
+			name:    "empty array",
+			input:   `[]`,
+			wantErr: true,
+		},
+		{
+			name:    "array with empty id",
+			input:   `[{"id":""}]`,
+			wantErr: true,
+		},
+		{
+			name:    "invalid json",
+			input:   `not json`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			id, err := parseBrCreateID([]byte(tt.input))
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("expected error, got id=%q", id)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+			if id != tt.wantID {
+				t.Errorf("parseBrCreateID = %q, want %q", id, tt.wantID)
+			}
+		})
+	}
+}
+
+func TestSelectFindingsByIDs(t *testing.T) {
+	findings := []exportFinding{
+		{ID: "finding-01", Finding: ensemble.Finding{Finding: "First"}},
+		{ID: "finding-02", Finding: ensemble.Finding{Finding: "Second"}},
+		{ID: "finding-03", Finding: ensemble.Finding{Finding: "Third"}},
+	}
+
+	tests := []struct {
+		name    string
+		ids     []string
+		wantLen int
+		wantErr bool
+	}{
+		{
+			name:    "single valid id",
+			ids:     []string{"finding-01"},
+			wantLen: 1,
+		},
+		{
+			name:    "multiple valid ids",
+			ids:     []string{"finding-01", "finding-03"},
+			wantLen: 2,
+		},
+		{
+			name:    "invalid id",
+			ids:     []string{"finding-99"},
+			wantErr: true,
+		},
+		{
+			name:    "mixed valid and invalid",
+			ids:     []string{"finding-01", "finding-99"},
+			wantErr: true,
+		},
+		{
+			name:    "empty ids",
+			ids:     []string{},
+			wantLen: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			selected, err := selectFindingsByIDs(findings, tt.ids)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("expected error, got %d findings", len(selected))
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+			if len(selected) != tt.wantLen {
+				t.Errorf("selectFindingsByIDs returned %d findings, want %d", len(selected), tt.wantLen)
+			}
+		})
+	}
+}
