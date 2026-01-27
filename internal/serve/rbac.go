@@ -50,15 +50,19 @@ const (
 	PermReadApprovals   Permission = "approvals:read"
 	PermReadJobs        Permission = "jobs:read"
 	PermReadHealth      Permission = "health:read"
-	PermReadEvents      Permission = "events:read"
-	PermReadWebSocket   Permission = "ws:read"
+	PermReadEvents       Permission = "events:read"
+	PermReadWebSocket    Permission = "ws:read"
+	PermReadMail         Permission = "mail:read"
+	PermReadReservations Permission = "reservations:read"
 
 	// Write/operation permissions
 	PermWriteSessions   Permission = "sessions:write"
 	PermWriteAgents     Permission = "agents:write"
 	PermWritePipelines  Permission = "pipelines:write"
-	PermWriteJobs       Permission = "jobs:write"
-	PermApproveRequests Permission = "approvals:approve"
+	PermWriteJobs         Permission = "jobs:write"
+	PermWriteMail         Permission = "mail:write"
+	PermWriteReservations Permission = "reservations:write"
+	PermApproveRequests   Permission = "approvals:approve"
 
 	// Dangerous operations (require admin or approval)
 	PermDangerousOps    Permission = "dangerous:execute"
@@ -78,6 +82,8 @@ var rolePermissions = map[Role][]Permission{
 		PermReadHealth,
 		PermReadEvents,
 		PermReadWebSocket,
+		PermReadMail,
+		PermReadReservations,
 	},
 	RoleOperator: {
 		// Viewer permissions
@@ -89,11 +95,15 @@ var rolePermissions = map[Role][]Permission{
 		PermReadHealth,
 		PermReadEvents,
 		PermReadWebSocket,
+		PermReadMail,
+		PermReadReservations,
 		// Operator permissions
 		PermWriteSessions,
 		PermWriteAgents,
 		PermWritePipelines,
 		PermWriteJobs,
+		PermWriteMail,
+		PermWriteReservations,
 	},
 	RoleAdmin: {
 		// All viewer and operator permissions
@@ -105,10 +115,14 @@ var rolePermissions = map[Role][]Permission{
 		PermReadHealth,
 		PermReadEvents,
 		PermReadWebSocket,
+		PermReadMail,
+		PermReadReservations,
 		PermWriteSessions,
 		PermWriteAgents,
 		PermWritePipelines,
 		PermWriteJobs,
+		PermWriteMail,
+		PermWriteReservations,
 		// Admin-only permissions
 		PermApproveRequests,
 		PermDangerousOps,

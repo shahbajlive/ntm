@@ -27,6 +27,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Dicklesworthstone/ntm/internal/agentmail"
 	"github.com/Dicklesworthstone/ntm/internal/events"
 	"github.com/Dicklesworthstone/ntm/internal/state"
 	"github.com/go-chi/chi/v5"
@@ -61,6 +62,11 @@ type Server struct {
 
 	// WebSocket hub for real-time subscriptions
 	wsHub *WSHub
+
+	// Agent Mail client (lazy-init)
+	mailClient *agentmail.Client
+	projectDir string
+	mu         sync.Mutex
 }
 
 // AuthMode configures authentication for the server.
@@ -156,6 +162,7 @@ type IdempotencyStore struct {
 	mu      sync.RWMutex
 	entries map[string]*idempotencyEntry
 	ttl     time.Duration
+	stop    chan struct{}
 }
 
 type idempotencyEntry struct {
@@ -172,23 +179,35 @@ func NewIdempotencyStore(ttl time.Duration) *IdempotencyStore {
 	store := &IdempotencyStore{
 		entries: make(map[string]*idempotencyEntry),
 		ttl:     ttl,
+		stop:    make(chan struct{}),
 	}
 	// Start cleanup goroutine
 	go store.cleanup()
 	return store
 }
 
+// Stop terminates the cleanup goroutine. Call this when the store is no longer needed.
+func (s *IdempotencyStore) Stop() {
+	close(s.stop)
+}
+
 func (s *IdempotencyStore) cleanup() {
 	ticker := time.NewTicker(time.Minute)
-	for range ticker.C {
-		s.mu.Lock()
-		now := time.Now()
-		for key, entry := range s.entries {
-			if now.Sub(entry.createdAt) > s.ttl {
-				delete(s.entries, key)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.stop:
+			return
+		case <-ticker.C:
+			s.mu.Lock()
+			now := time.Now()
+			for key, entry := range s.entries {
+				if now.Sub(entry.createdAt) > s.ttl {
+					delete(s.entries, key)
+				}
 			}
+			s.mu.Unlock()
 		}
-		s.mu.Unlock()
 	}
 }
 
@@ -736,6 +755,9 @@ func (s *Server) buildRouter() chi.Router {
 
 		// Pipeline API
 		s.registerPipelineRoutes(r)
+
+		// Mail and Reservations API
+		s.registerMailRoutes(r)
 
 		// WebSocket endpoint (requires read permission)
 		r.With(s.RequirePermission(PermReadWebSocket)).Get("/ws", s.handleWebSocket)
@@ -2134,9 +2156,22 @@ func (s *Server) checkWSOrigin(r *http.Request) bool {
 		return true
 	}
 
-	// Check against configured allowed origins
+	// Parse the origin URL to extract scheme and host
+	originURL, err := url.Parse(origin)
+	if err != nil {
+		log.Printf("ws: invalid origin URL %q: %v", origin, err)
+		return false
+	}
+
+	// Check against configured allowed origins using full URL comparison
+	// (not prefix matching, which would allow https://evil.com to match https://e)
 	for _, allowed := range s.corsAllowedOrigins {
-		if strings.HasPrefix(origin, allowed) {
+		allowedURL, err := url.Parse(allowed)
+		if err != nil {
+			continue
+		}
+		// Compare scheme and host (host includes port if specified)
+		if originURL.Scheme == allowedURL.Scheme && originURL.Host == allowedURL.Host {
 			return true
 		}
 	}
