@@ -117,6 +117,7 @@ Primary usage:
 	cmd.AddCommand(newEnsembleStatusCmd())
 	cmd.AddCommand(newEnsembleStopCmd())
 	cmd.AddCommand(newEnsembleSuggestCmd())
+	cmd.AddCommand(newEnsembleEstimateCmd())
 	cmd.AddCommand(newEnsembleSynthesizeCmd())
 	cmd.AddCommand(newEnsembleExportFindingsCmd())
 	cmd.AddCommand(newEnsembleProvenanceCmd())
