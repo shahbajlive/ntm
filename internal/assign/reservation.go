@@ -232,5 +232,10 @@ func (m *FileReservationManager) RenewReservations(ctx context.Context, agentNam
 		return nil
 	}
 
-	return m.client.RenewReservations(ctx, m.projectKey, agentName, extendSeconds)
+	_, err := m.client.RenewReservations(ctx, agentmail.RenewReservationsOptions{
+		ProjectKey:    m.projectKey,
+		AgentName:     agentName,
+		ExtendSeconds: extendSeconds,
+	})
+	return err
 }

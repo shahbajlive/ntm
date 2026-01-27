@@ -105,7 +105,11 @@ func SummarizeSession(ctx context.Context, opts Options) (*SessionSummary, error
 			data.errors = appendUnique(data.errors, "agent mail project key missing")
 		} else {
 			for _, tid := range opts.ThreadIDs {
-				thread, err := opts.AgentMailClient.SummarizeThread(ctx, opts.ProjectKey, tid, false)
+				thread, err := opts.AgentMailClient.SummarizeThread(ctx, agentmail.SummarizeThreadOptions{
+					ProjectKey:      opts.ProjectKey,
+					ThreadID:        tid,
+					IncludeExamples: false,
+				})
 				if err != nil {
 					data.errors = appendUnique(data.errors, fmt.Sprintf("agent mail summarize %s: %v", tid, err))
 					continue
