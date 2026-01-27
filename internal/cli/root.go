@@ -151,6 +151,13 @@ Shell Integration:
 			}
 			return
 		}
+		if cmd.Flags().Changed("robot-docs") {
+			if err := robot.PrintDocs(robotDocs); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
 		if robotPlan {
 			if err := robot.PrintPlan(); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -1412,6 +1419,7 @@ var (
 	robotStatus                bool
 	robotVersion               bool
 	robotCapabilities          bool
+	robotDocs                  string // --robot-docs topic
 	robotPlan                  bool
 	robotSnapshot              bool   // unified state query
 	robotSince                 string // ISO8601 timestamp for delta snapshot
@@ -1773,6 +1781,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&robotStatus, "robot-status", false, "Get tmux sessions, panes, agent states. Start here. Example: ntm --robot-status")
 	rootCmd.Flags().BoolVar(&robotVersion, "robot-version", false, "Get ntm version, commit, build info (JSON). Example: ntm --robot-version")
 	rootCmd.Flags().BoolVar(&robotCapabilities, "robot-capabilities", false, "Get all available robot commands with parameters and descriptions (JSON). Machine-discoverable API")
+	rootCmd.Flags().StringVar(&robotDocs, "robot-docs", "", "Get documentation for a topic (JSON). Topics: quickstart, commands, examples, exit-codes. Example: ntm --robot-docs=quickstart")
 	rootCmd.Flags().BoolVar(&robotPlan, "robot-plan", false, "Get bv execution plan with parallelizable tracks (JSON). Example: ntm --robot-plan")
 	rootCmd.Flags().BoolVar(&robotSnapshot, "robot-snapshot", false, "Unified state: sessions + beads + alerts + mail. Use --since for delta. Example: ntm --robot-snapshot")
 	rootCmd.Flags().StringVar(&robotSince, "since", "", "RFC3339 timestamp for delta snapshot. Optional with --robot-snapshot. Example: --since=2025-12-15T10:00:00Z")
