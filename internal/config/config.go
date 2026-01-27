@@ -460,6 +460,9 @@ type AgentConfig struct {
 	Claude       string            `toml:"claude"`
 	Codex        string            `toml:"codex"`
 	Gemini       string            `toml:"gemini"`
+	Cursor       string            `toml:"cursor"`
+	Windsurf     string            `toml:"windsurf"`
+	Aider        string            `toml:"aider"`
 	Plugins      map[string]string `toml:"plugins"` // Custom agent commands keyed by type
 	DefaultCount int               `toml:"default_count"`
 }
@@ -1899,6 +1902,15 @@ func Print(cfg *Config, w io.Writer) error {
 	fmt.Fprintf(w, "claude = %q\n", cfg.Agents.Claude)
 	fmt.Fprintf(w, "codex = %q\n", cfg.Agents.Codex)
 	fmt.Fprintf(w, "gemini = %q\n", cfg.Agents.Gemini)
+	if cfg.Agents.Cursor != "" {
+		fmt.Fprintf(w, "cursor = %q\n", cfg.Agents.Cursor)
+	}
+	if cfg.Agents.Windsurf != "" {
+		fmt.Fprintf(w, "windsurf = %q\n", cfg.Agents.Windsurf)
+	}
+	if cfg.Agents.Aider != "" {
+		fmt.Fprintf(w, "aider = %q\n", cfg.Agents.Aider)
+	}
 	fmt.Fprintln(w)
 
 	fmt.Fprintln(w, "[tmux]")
