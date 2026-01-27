@@ -676,6 +676,9 @@ Examples:
 	cmd.Flags().Var(NewAgentSpecsValue(AgentTypeClaude, &agentSpecs), "cc", "Claude agents (N or N:model, model charset: a-zA-Z0-9._/@:+-)")
 	cmd.Flags().Var(NewAgentSpecsValue(AgentTypeCodex, &agentSpecs), "cod", "Codex agents (N or N:model, model charset: a-zA-Z0-9._/@:+-)")
 	cmd.Flags().Var(NewAgentSpecsValue(AgentTypeGemini, &agentSpecs), "gmi", "Gemini agents (N or N:model, model charset: a-zA-Z0-9._/@:+-)")
+	cmd.Flags().Var(NewAgentSpecsValue(AgentTypeCursor, &agentSpecs), "cursor", "Cursor agents (N or N:model)")
+	cmd.Flags().Var(NewAgentSpecsValue(AgentTypeWindsurf, &agentSpecs), "windsurf", "Windsurf agents (N or N:model)")
+	cmd.Flags().Var(NewAgentSpecsValue(AgentTypeAider, &agentSpecs), "aider", "Aider agents (N or N:model)")
 	cmd.Flags().Var(&personaSpecs, "persona", "Persona-defined agents (name or name:count)")
 	cmd.Flags().BoolVar(&noUserPane, "no-user", false, "don't reserve a pane for the user")
 	cmd.Flags().StringVarP(&recipeName, "recipe", "r", "", "use a recipe for agent configuration")
@@ -759,9 +762,9 @@ func spawnSessionLogic(opts SpawnOptions) error {
 	// Calculate total agents - either from Agents slice or explicit counts (legacy path)
 	var totalAgents int
 	if len(opts.Agents) == 0 {
-		totalAgents = opts.CCCount + opts.CodCount + opts.GmiCount
+		totalAgents = opts.CCCount + opts.CodCount + opts.GmiCount + opts.CursorCount + opts.WindsurfCount + opts.AiderCount
 		if totalAgents == 0 {
-			return outputError(fmt.Errorf("no agents specified (use --cc, --cod, --gmi, or plugin flags)"))
+			return outputError(fmt.Errorf("no agents specified (use --cc, --cod, --gmi, --cursor, --windsurf, --aider or plugin flags)"))
 		}
 	} else {
 		totalAgents = len(opts.Agents)
@@ -788,10 +791,13 @@ func spawnSessionLogic(opts SpawnOptions) error {
 		SessionName: opts.Session,
 		ProjectDir:  dir,
 		AdditionalEnv: map[string]string{
-			"NTM_AGENT_COUNT_CC":    fmt.Sprintf("%d", opts.CCCount),
-			"NTM_AGENT_COUNT_COD":   fmt.Sprintf("%d", opts.CodCount),
-			"NTM_AGENT_COUNT_GMI":   fmt.Sprintf("%d", opts.GmiCount),
-			"NTM_AGENT_COUNT_TOTAL": fmt.Sprintf("%d", totalAgents),
+			"NTM_AGENT_COUNT_CC":       fmt.Sprintf("%d", opts.CCCount),
+			"NTM_AGENT_COUNT_COD":      fmt.Sprintf("%d", opts.CodCount),
+			"NTM_AGENT_COUNT_GMI":      fmt.Sprintf("%d", opts.GmiCount),
+			"NTM_AGENT_COUNT_CURSOR":   fmt.Sprintf("%d", opts.CursorCount),
+			"NTM_AGENT_COUNT_WINDSURF": fmt.Sprintf("%d", opts.WindsurfCount),
+			"NTM_AGENT_COUNT_AIDER":    fmt.Sprintf("%d", opts.AiderCount),
+			"NTM_AGENT_COUNT_TOTAL":    fmt.Sprintf("%d", totalAgents),
 		},
 	}
 
@@ -1060,6 +1066,12 @@ func spawnSessionLogic(opts SpawnOptions) error {
 			agentCmdTemplate = cfg.Agents.Codex
 		case AgentTypeGemini:
 			agentCmdTemplate = cfg.Agents.Gemini
+		case AgentTypeCursor:
+			agentCmdTemplate = cfg.Agents.Cursor
+		case AgentTypeWindsurf:
+			agentCmdTemplate = cfg.Agents.Windsurf
+		case AgentTypeAider:
+			agentCmdTemplate = cfg.Agents.Aider
 		default:
 			// Check plugins
 			if p, ok := opts.PluginMap[string(agent.Type)]; ok {
@@ -1873,6 +1885,12 @@ func agentTypeToProgram(agentType string) string {
 		return "codex-cli"
 	case "gmi":
 		return "gemini-cli"
+	case "cursor":
+		return "cursor"
+	case "windsurf":
+		return "windsurf"
+	case "aider":
+		return "aider"
 	default:
 		return agentType
 	}
@@ -2670,7 +2688,7 @@ func waitForAgentsReady(session string, timeout time.Duration) (int, error) {
 			}
 			agentCount++
 
-			scrollback, _ := tmux.CapturePaneOutput(pane.ID, 10)
+			scrollback, _ := tmux.CaptureForStatusDetection(pane.ID)
 			state := determineAgentState(scrollback, at)
 			if state == "idle" {
 				readyCount++
@@ -2713,7 +2731,7 @@ func sendInitPromptToReadyAgents(session, prompt string) (int, error) {
 			continue
 		}
 
-		scrollback, _ := tmux.CapturePaneOutput(pane.ID, 10)
+		scrollback, _ := tmux.CaptureForStatusDetection(pane.ID)
 		state := determineAgentState(scrollback, at)
 		if state != "idle" {
 			continue

@@ -132,6 +132,9 @@ func newAddCmd() *cobra.Command {
 	cmd.Flags().Var(NewAgentSpecsValue(AgentTypeClaude, &agentSpecs), "cc", "Claude agents (N or N:model)")
 	cmd.Flags().Var(NewAgentSpecsValue(AgentTypeCodex, &agentSpecs), "cod", "Codex agents (N or N:model)")
 	cmd.Flags().Var(NewAgentSpecsValue(AgentTypeGemini, &agentSpecs), "gmi", "Gemini agents (N or N:model)")
+	cmd.Flags().Var(NewAgentSpecsValue(AgentTypeCursor, &agentSpecs), "cursor", "Cursor agents (N or N:model)")
+	cmd.Flags().Var(NewAgentSpecsValue(AgentTypeWindsurf, &agentSpecs), "windsurf", "Windsurf agents (N or N:model)")
+	cmd.Flags().Var(NewAgentSpecsValue(AgentTypeAider, &agentSpecs), "aider", "Aider agents (N or N:model)")
 	cmd.Flags().Var(&personaSpecs, "persona", "Persona-defined agents (name or name:count)")
 
 	// CASS context flags
@@ -293,7 +296,7 @@ func runAdd(opts AddOptions) error {
 
 	// Add agents
 	flatAgents := opts.Agents.Flatten()
-	ccCount, codCount, gmiCount := 0, 0, 0
+	ccCount, codCount, gmiCount, cursorCount, windsurfCount, aiderCount := 0, 0, 0, 0, 0, 0
 
 	for _, agent := range flatAgents {
 		agentTypeStr := string(agent.Type)
@@ -326,6 +329,15 @@ func runAdd(opts AddOptions) error {
 		case AgentTypeGemini:
 			agentCmd = cfg.Agents.Gemini
 			gmiCount++
+		case AgentTypeCursor:
+			agentCmd = cfg.Agents.Cursor
+			cursorCount++
+		case AgentTypeWindsurf:
+			agentCmd = cfg.Agents.Windsurf
+			windsurfCount++
+		case AgentTypeAider:
+			agentCmd = cfg.Agents.Aider
+			aiderCount++
 		default:
 			if p, ok := opts.PluginMap[agentTypeStr]; ok {
 				agentCmd = p.Command
@@ -505,6 +517,9 @@ func runAdd(opts AddOptions) error {
 			AddedClaude:         ccCount,
 			AddedCodex:          codCount,
 			AddedGemini:         gmiCount,
+			AddedCursor:         cursorCount,
+			AddedWindsurf:       windsurfCount,
+			AddedAider:          aiderCount,
 			TotalAdded:          totalAgents,
 			NewPanes:            newPanes,
 		})
