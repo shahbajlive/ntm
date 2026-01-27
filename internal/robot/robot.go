@@ -2870,12 +2870,13 @@ type SnapshotAgentMailStats struct {
 // BeadLimit controls how many ready/in-progress beads to include in snapshot
 var BeadLimit = 5
 
-// PrintSnapshot outputs complete system state for AI orchestration
-func PrintSnapshot(cfg *config.Config) error {
+// GetSnapshot retrieves complete system state for AI orchestration.
+// This function returns the data struct directly, enabling CLI/REST parity.
+func GetSnapshot(cfg *config.Config) (*SnapshotOutput, error) {
 	if cfg == nil {
 		cfg = config.Default()
 	}
-	output := SnapshotOutput{
+	output := &SnapshotOutput{
 		RobotResponse: NewRobotResponse(true),
 		Timestamp:     time.Now().UTC().Format(time.RFC3339),
 		Sessions:      []SnapshotSession{},
@@ -2890,7 +2891,7 @@ func PrintSnapshot(cfg *config.Config) error {
 			"Install tmux to enable snapshot",
 		)
 		output.Alerts = append(output.Alerts, "tmux is not installed")
-		return encodeJSON(output)
+		return output, nil
 	}
 
 	// Fetch Agent Mail data early
@@ -2918,7 +2919,7 @@ func PrintSnapshot(cfg *config.Config) error {
 	sessions, err := tmux.ListSessions()
 	if err != nil {
 		// No sessions is not an error for snapshot
-		return encodeJSON(output)
+		return output, nil
 	}
 
 	for _, sess := range sessions {
@@ -3062,6 +3063,15 @@ func PrintSnapshot(cfg *config.Config) error {
 		}
 	}
 
+	return output, nil
+}
+
+// PrintSnapshot outputs complete system state for AI orchestration
+func PrintSnapshot(cfg *config.Config) error {
+	output, err := GetSnapshot(cfg)
+	if err != nil {
+		return err
+	}
 	return encodeJSON(output)
 }
 
@@ -4228,6 +4238,139 @@ func (t TerseState) String() string {
 		alertStr)
 }
 
+// TerseOutput wraps terse state for robot API output.
+type TerseOutput struct {
+	RobotResponse
+	States     []TerseState `json:"states"`
+	TerseLines []string     `json:"terse_lines"` // Pre-formatted terse strings
+}
+
+// GetTerse retrieves ultra-compact single-line state for token-constrained scenarios.
+func GetTerse(cfg *config.Config) (*TerseOutput, error) {
+	output := &TerseOutput{
+		RobotResponse: RobotResponse{
+			Success:   true,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		},
+		States:     []TerseState{},
+		TerseLines: []string{},
+	}
+
+	// Get alert breakdown (critical vs warning)
+	var criticalAlerts, warningAlerts int
+	if cfg != nil {
+		alertCfg := alerts.ToConfigAlerts(
+			cfg.Alerts.Enabled,
+			cfg.Alerts.AgentStuckMinutes,
+			cfg.Alerts.DiskLowThresholdGB,
+			cfg.Alerts.MailBacklogThreshold,
+			cfg.Alerts.BeadStaleHours,
+			cfg.Alerts.ResolvedPruneMinutes,
+			cfg.ProjectsBase,
+		)
+		activeAlerts := alerts.GetActiveAlerts(alertCfg)
+		for _, a := range activeAlerts {
+			switch a.Severity {
+			case alerts.SeverityCritical:
+				criticalAlerts++
+			case alerts.SeverityWarning:
+				warningAlerts++
+			}
+		}
+	}
+
+	// Get beads summary (same for all sessions in same project)
+	var beadsSummary *bv.BeadsSummary
+	if bv.IsInstalled() {
+		beadsSummary = bv.GetBeadsSummary("", 0)
+	}
+
+	// Get mail count (best-effort)
+	mailCount := getTerseMailCount()
+
+	// Get all sessions
+	sessions, err := tmux.ListSessions()
+	if err != nil {
+		// No sessions - output minimal state with just beads info
+		state := TerseState{
+			Session:        "-",
+			CriticalAlerts: criticalAlerts,
+			WarningAlerts:  warningAlerts,
+			UnreadMail:     mailCount,
+		}
+		if beadsSummary != nil {
+			state.ReadyBeads = beadsSummary.Ready
+			state.BlockedBeads = beadsSummary.Blocked
+			state.InProgressBead = beadsSummary.InProgress
+		}
+
+		output.States = append(output.States, state)
+		output.TerseLines = append(output.TerseLines, state.String())
+		return output, nil
+	}
+
+	for _, sess := range sessions {
+		state := TerseState{
+			Session:        sess.Name,
+			CriticalAlerts: criticalAlerts,
+			WarningAlerts:  warningAlerts,
+			UnreadMail:     mailCount,
+		}
+
+		// Get panes for this session
+		panes, err := tmux.GetPanes(sess.Name)
+		if err == nil {
+			state.TotalAgents = len(panes)
+			// Count agents by state: working (active), idle, error
+			for _, pane := range panes {
+				agentType := agentTypeString(pane.Type)
+				if agentType != "user" && agentType != "unknown" {
+					// Capture output to detect state
+					captured, captureErr := tmux.CapturePaneOutput(pane.ID, 20)
+					if captureErr == nil {
+						_ = splitLines(status.StripANSI(captured)) // Just for consistency, unused here
+						paneState := determineState(captured, agentType)
+						switch paneState {
+						case "active":
+							state.WorkingAgents++
+							state.ActiveAgents++
+						case "idle":
+							state.IdleAgents++
+							state.ActiveAgents++
+						case "error":
+							state.ErrorAgents++
+							state.ActiveAgents++
+						default:
+							// Unknown state counts as active
+							state.ActiveAgents++
+						}
+					} else {
+						// Assume active/working if we can't capture
+						state.WorkingAgents++
+						state.ActiveAgents++
+					}
+				}
+			}
+		}
+
+		// Add beads summary (same for all sessions in same project)
+		if beadsSummary != nil {
+			state.ReadyBeads = beadsSummary.Ready
+			state.BlockedBeads = beadsSummary.Blocked
+			state.InProgressBead = beadsSummary.InProgress
+		}
+
+		// Context percentage is not available at session level yet
+		// Would require aggregating from individual agent outputs
+		state.ContextPct = 0
+
+		output.States = append(output.States, state)
+		output.TerseLines = append(output.TerseLines, state.String())
+	}
+
+	return output, nil
+}
+
 // ParseTerse parses the ultra-compact terse string into a TerseState.
 // Format: S:session|A:active/total|W:working|I:idle|E:errors|C:ctx%|B:Rn/In/Bn|M:mail|!:
 func ParseTerse(s string) (*TerseState, error) {
@@ -4307,120 +4450,13 @@ func ParseTerse(s string) (*TerseState, error) {
 // Output format: S:session|A:active/total|W:working|I:idle|E:errors|C:ctx%|B:Rn/In/Bn|M:mail|!:
 // Multiple sessions are separated by semicolons.
 func PrintTerse(cfg *config.Config) error {
-	var results []string
-
-	// Get alert breakdown (critical vs warning)
-	var criticalAlerts, warningAlerts int
-	if cfg != nil {
-		alertCfg := alerts.ToConfigAlerts(
-			cfg.Alerts.Enabled,
-			cfg.Alerts.AgentStuckMinutes,
-			cfg.Alerts.DiskLowThresholdGB,
-			cfg.Alerts.MailBacklogThreshold,
-			cfg.Alerts.BeadStaleHours,
-			cfg.Alerts.ResolvedPruneMinutes,
-			cfg.ProjectsBase,
-		)
-		activeAlerts := alerts.GetActiveAlerts(alertCfg)
-		for _, a := range activeAlerts {
-			switch a.Severity {
-			case alerts.SeverityCritical:
-				criticalAlerts++
-			case alerts.SeverityWarning:
-				warningAlerts++
-			}
-		}
-	}
-
-	// Get beads summary (same for all sessions in same project)
-	var beadsSummary *bv.BeadsSummary
-	if bv.IsInstalled() {
-		beadsSummary = bv.GetBeadsSummary("", 0)
-	}
-
-	// Get mail count (best-effort)
-	mailCount := getTerseMailCount()
-
-	// Get all sessions
-	sessions, err := tmux.ListSessions()
+	output, err := GetTerse(cfg)
 	if err != nil {
-		// No sessions - output minimal state with just beads info
-		state := TerseState{
-			Session:        "-",
-			CriticalAlerts: criticalAlerts,
-			WarningAlerts:  warningAlerts,
-			UnreadMail:     mailCount,
-		}
-		if beadsSummary != nil {
-			state.ReadyBeads = beadsSummary.Ready
-			state.BlockedBeads = beadsSummary.Blocked
-			state.InProgressBead = beadsSummary.InProgress
-		}
-
-		fmt.Println(state.String())
-		return nil
+		return err
 	}
 
-	for _, sess := range sessions {
-		state := TerseState{
-			Session:        sess.Name,
-			CriticalAlerts: criticalAlerts,
-			WarningAlerts:  warningAlerts,
-			UnreadMail:     mailCount,
-		}
-
-		// Get panes for this session
-		panes, err := tmux.GetPanes(sess.Name)
-		if err == nil {
-			state.TotalAgents = len(panes)
-			// Count agents by state: working (active), idle, error
-			for _, pane := range panes {
-				agentType := agentTypeString(pane.Type)
-				if agentType != "user" && agentType != "unknown" {
-					// Capture output to detect state
-					captured, captureErr := tmux.CapturePaneOutput(pane.ID, 20)
-					if captureErr == nil {
-						_ = splitLines(status.StripANSI(captured)) // Just for consistency, unused here
-						paneState := determineState(captured, agentType)
-						switch paneState {
-						case "active":
-							state.WorkingAgents++
-							state.ActiveAgents++
-						case "idle":
-							state.IdleAgents++
-							state.ActiveAgents++
-						case "error":
-							state.ErrorAgents++
-							state.ActiveAgents++
-						default:
-							// Unknown state counts as active
-							state.ActiveAgents++
-						}
-					} else {
-						// Assume active/working if we can't capture
-						state.WorkingAgents++
-						state.ActiveAgents++
-					}
-				}
-			}
-		}
-
-		// Add beads summary (same for all sessions in same project)
-		if beadsSummary != nil {
-			state.ReadyBeads = beadsSummary.Ready
-			state.BlockedBeads = beadsSummary.Blocked
-			state.InProgressBead = beadsSummary.InProgress
-		}
-
-		// Context percentage is not available at session level yet
-		// Would require aggregating from individual agent outputs
-		state.ContextPct = 0
-
-		results = append(results, state.String())
-	}
-
-	// Output all sessions separated by semicolons
-	fmt.Println(strings.Join(results, ";"))
+	// Output all sessions separated by semicolons (preserving original format)
+	fmt.Println(strings.Join(output.TerseLines, ";"))
 	return nil
 }
 
