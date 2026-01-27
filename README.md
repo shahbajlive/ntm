@@ -631,6 +631,45 @@ sessions[1]{attached,name,windows}:
   true	myproject	1
 ```
 
+**Robot JSON Envelope Spec (v1.0.0):**
+
+All robot outputs share a common envelope structure:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `success` | boolean | Yes | Whether the operation succeeded |
+| `timestamp` | string | Yes | RFC3339 timestamp (UTC) |
+| `version` | string | Yes | Envelope schema version (semver, currently "1.0.0") |
+| `output_format` | string | Yes | Output format used ("json" or "toon") |
+| `error` | string | No | Human-readable error message (on failure) |
+| `error_code` | string | No | Machine-parseable error code (e.g., "SESSION_NOT_FOUND") |
+| `hint` | string | No | Suggested remediation action |
+| `_meta` | object | No | Optional timing/debug metadata |
+
+The `_meta` field (when present) contains:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `duration_ms` | integer | Command execution time in milliseconds |
+| `exit_code` | integer | Process exit code (0=success) |
+| `command` | string | The robot command that was executed |
+
+Example envelope:
+
+```json
+{
+  "success": true,
+  "timestamp": "2026-01-27T07:00:00Z",
+  "version": "1.0.0",
+  "output_format": "json",
+  "_meta": {
+    "duration_ms": 42,
+    "command": "robot-status"
+  },
+  "sessions": [...]
+}
+```
+
 **State Inspection:**
 
 ```bash

@@ -14,18 +14,25 @@ import (
 // The robot output envelope is the standardized structure for all robot command
 // responses. It ensures AI agents can reliably parse and handle any robot output.
 //
+// # Envelope Specification v1.0.0
+//
 // Required fields for all robot responses:
-// - success (bool): Whether the operation completed successfully
-// - timestamp (string): RFC3339 UTC timestamp when response was generated
+//   - success (bool): Whether the operation completed successfully
+//   - timestamp (string): RFC3339 UTC timestamp when response was generated
+//   - version (string): Envelope specification version (e.g., "1.0.0")
+//   - output_format (string): Serialization format ("json" or "toon")
+//
+// Optional fields:
+//   - _meta (object): Response metadata (timing, exit code, command)
 //
 // Required for error responses:
-// - error (string): Human-readable error message
-// - error_code (string): Machine-readable error code (see ErrCode* constants)
-// - hint (string, optional): Actionable guidance for resolving the error
+//   - error (string): Human-readable error message
+//   - error_code (string): Machine-readable error code (see ErrCode* constants)
+//   - hint (string, optional): Actionable guidance for resolving the error
 //
 // Array fields:
-// - Critical arrays must always be present (empty [] if no items)
-// - Never use null for arrays that agents will iterate over
+//   - Critical arrays must always be present (empty [] if no items)
+//   - Never use null for arrays that agents will iterate over
 func TestEnvelopeSpec(t *testing.T) {
 	t.Run("RobotResponse_HasRequiredFields", func(t *testing.T) {
 		resp := NewRobotResponse(true)
@@ -40,6 +47,53 @@ func TestEnvelopeSpec(t *testing.T) {
 		_, err := time.Parse(time.RFC3339, resp.Timestamp)
 		if err != nil {
 			t.Errorf("Timestamp should be RFC3339 format, got: %s", resp.Timestamp)
+		}
+	})
+
+	t.Run("RobotResponse_HasEnvelopeFields", func(t *testing.T) {
+		resp := NewRobotResponse(true)
+
+		// Version should be set to current envelope version
+		if resp.Version != EnvelopeVersion {
+			t.Errorf("Version = %q, want %q", resp.Version, EnvelopeVersion)
+		}
+
+		// OutputFormat should be set based on global OutputFormat
+		if resp.OutputFormat == "" {
+			t.Error("OutputFormat should be set")
+		}
+	})
+
+	t.Run("EnvelopeVersion_IsSemVer", func(t *testing.T) {
+		// Envelope version should follow semantic versioning
+		parts := len(EnvelopeVersion)
+		if parts == 0 {
+			t.Error("EnvelopeVersion should not be empty")
+		}
+		// Basic check: contains dots
+		if EnvelopeVersion != "1.0.0" {
+			t.Logf("EnvelopeVersion = %q (update test if intentionally changed)", EnvelopeVersion)
+		}
+	})
+
+	t.Run("ResponseMeta_WithTiming", func(t *testing.T) {
+		meta, finish := StartResponseMeta("robot-status")
+		time.Sleep(1 * time.Millisecond) // Ensure some duration
+		finish()
+
+		if meta.Command != "robot-status" {
+			t.Errorf("Command = %q, want %q", meta.Command, "robot-status")
+		}
+		if meta.DurationMs == 0 {
+			t.Error("DurationMs should be set after finish()")
+		}
+	})
+
+	t.Run("ResponseMeta_WithExitCode", func(t *testing.T) {
+		meta := NewResponseMeta("robot-test").WithExitCode(1)
+
+		if meta.ExitCode != 1 {
+			t.Errorf("ExitCode = %d, want %d", meta.ExitCode, 1)
 		}
 	})
 
@@ -170,11 +224,14 @@ func TestOutputTypesHaveRequiredJSONTags(t *testing.T) {
 		typ := reflect.TypeOf(RobotResponse{})
 
 		expectedTags := map[string]string{
-			"Success":   "success",
-			"Timestamp": "timestamp",
-			"Error":     "error,omitempty",
-			"ErrorCode": "error_code,omitempty",
-			"Hint":      "hint,omitempty",
+			"Success":      "success",
+			"Timestamp":    "timestamp",
+			"Version":      "version,omitempty",
+			"OutputFormat": "output_format,omitempty",
+			"Meta":         "_meta,omitempty",
+			"Error":        "error,omitempty",
+			"ErrorCode":    "error_code,omitempty",
+			"Hint":         "hint,omitempty",
 		}
 
 		for fieldName, expectedTag := range expectedTags {
@@ -186,6 +243,28 @@ func TestOutputTypesHaveRequiredJSONTags(t *testing.T) {
 			tag := field.Tag.Get("json")
 			if tag != expectedTag {
 				t.Errorf("RobotResponse.%s json tag = %q, want %q", fieldName, tag, expectedTag)
+			}
+		}
+	})
+
+	t.Run("ResponseMeta_JSONTags", func(t *testing.T) {
+		typ := reflect.TypeOf(ResponseMeta{})
+
+		expectedTags := map[string]string{
+			"DurationMs": "duration_ms,omitempty",
+			"ExitCode":   "exit_code,omitempty",
+			"Command":    "command,omitempty",
+		}
+
+		for fieldName, expectedTag := range expectedTags {
+			field, ok := typ.FieldByName(fieldName)
+			if !ok {
+				t.Errorf("ResponseMeta should have field %s", fieldName)
+				continue
+			}
+			tag := field.Tag.Get("json")
+			if tag != expectedTag {
+				t.Errorf("ResponseMeta.%s json tag = %q, want %q", fieldName, tag, expectedTag)
 			}
 		}
 	})

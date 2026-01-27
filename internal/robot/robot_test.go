@@ -361,35 +361,42 @@ func TestPrintVersion(t *testing.T) {
 		t.Fatalf("PrintVersion failed: %v", err)
 	}
 
-	// Parse output as JSON
+	// Parse output as JSON - version info is now nested under system
 	var result struct {
-		Version   string `json:"version"`
-		Commit    string `json:"commit"`
-		BuildDate string `json:"build_date"`
-		BuiltBy   string `json:"built_by"`
-		GoVersion string `json:"go_version"`
-		OS        string `json:"os"`
-		Arch      string `json:"arch"`
+		RobotResponse
+		System struct {
+			Version   string `json:"version"`
+			Commit    string `json:"commit"`
+			BuildDate string `json:"build_date"`
+			GoVersion string `json:"go_version"`
+			OS        string `json:"os"`
+			Arch      string `json:"arch"`
+		} `json:"system"`
 	}
 
 	if err := json.Unmarshal([]byte(output), &result); err != nil {
 		t.Fatalf("Failed to parse JSON: %v\nOutput: %s", err, output)
 	}
 
-	if result.Version != "1.2.3" {
-		t.Errorf("Version = %s, want 1.2.3", result.Version)
+	// Check envelope version
+	if result.Version != EnvelopeVersion {
+		t.Errorf("Envelope Version = %s, want %s", result.Version, EnvelopeVersion)
 	}
-	if result.Commit != "abc123" {
-		t.Errorf("Commit = %s, want abc123", result.Commit)
+	// Check system version
+	if result.System.Version != "1.2.3" {
+		t.Errorf("System.Version = %s, want 1.2.3", result.System.Version)
 	}
-	if result.GoVersion != runtime.Version() {
-		t.Errorf("GoVersion = %s, want %s", result.GoVersion, runtime.Version())
+	if result.System.Commit != "abc123" {
+		t.Errorf("System.Commit = %s, want abc123", result.System.Commit)
 	}
-	if result.OS != runtime.GOOS {
-		t.Errorf("OS = %s, want %s", result.OS, runtime.GOOS)
+	if result.System.GoVersion != runtime.Version() {
+		t.Errorf("System.GoVersion = %s, want %s", result.System.GoVersion, runtime.Version())
 	}
-	if result.Arch != runtime.GOARCH {
-		t.Errorf("Arch = %s, want %s", result.Arch, runtime.GOARCH)
+	if result.System.OS != runtime.GOOS {
+		t.Errorf("System.OS = %s, want %s", result.System.OS, runtime.GOOS)
+	}
+	if result.System.Arch != runtime.GOARCH {
+		t.Errorf("System.Arch = %s, want %s", result.System.Arch, runtime.GOARCH)
 	}
 }
 

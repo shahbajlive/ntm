@@ -2007,13 +2007,7 @@ func getGraphMetrics() *GraphMetrics {
 // VersionOutput represents the output for --robot-version
 type VersionOutput struct {
 	RobotResponse
-	Version   string `json:"version"`
-	Commit    string `json:"commit"`
-	BuildDate string `json:"build_date"`
-	BuiltBy   string `json:"built_by"`
-	GoVersion string `json:"go_version"`
-	OS        string `json:"os"`
-	Arch      string `json:"arch"`
+	System SystemInfo `json:"system"`
 }
 
 // GetVersion returns version information.
@@ -2021,13 +2015,14 @@ type VersionOutput struct {
 func GetVersion() (*VersionOutput, error) {
 	return &VersionOutput{
 		RobotResponse: NewRobotResponse(true),
-		Version:   Version,
-		Commit:    Commit,
-		BuildDate: Date,
-		BuiltBy:   BuiltBy,
-		GoVersion: runtime.Version(),
-		OS:        runtime.GOOS,
-		Arch:      runtime.GOARCH,
+		System: SystemInfo{
+			Version:   Version,
+			Commit:    Commit,
+			BuildDate: Date,
+			GoVersion: runtime.Version(),
+			OS:        runtime.GOOS,
+			Arch:      runtime.GOARCH,
+		},
 	}, nil
 }
 
