@@ -123,6 +123,7 @@ Primary usage:
 	cmd.AddCommand(newEnsembleSynthesizeCmd())
 	cmd.AddCommand(newEnsembleExportFindingsCmd())
 	cmd.AddCommand(newEnsembleProvenanceCmd())
+	cmd.AddCommand(newEnsembleCompareCmd())
 	cmd.AddCommand(newEnsembleResumeCmd())
 	cmd.AddCommand(newEnsembleRerunModeCmd())
 	cmd.AddCommand(newEnsembleCleanCheckpointsCmd())

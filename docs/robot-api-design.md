@@ -65,6 +65,29 @@ ntm --robot-jfp-search="debugging"      # Deprecated
 ntm --robot-cass-search="auth error"    # Deprecated
 ```
 
+### 1.3.1 Flywheel Tool Bridges (Inventory + Wrappers)
+
+Use the tool inventory to discover what is available on the current machine:
+
+```bash
+ntm --robot-tools
+```
+
+Tool bridges are **optional**. When a tool is missing, robot commands return `DEPENDENCY_MISSING` with an actionable hint. Use `--robot-tools` and `--robot-capabilities` to confirm which wrappers are supported in your build.
+
+**Implemented today**
+- **JFP** (JeffreysPrompts): `--robot-jfp-status`, `--robot-jfp-list`, `--robot-jfp-search`, `--robot-jfp-show`, `--robot-jfp-suggest`, `--robot-jfp-installed`, `--robot-jfp-categories`, `--robot-jfp-tags`, `--robot-jfp-bundles`
+- **DCG** (Destructive Command Guard): `--robot-dcg-status`
+
+**Planned / rolling out** (names follow `--robot-<tool>-<action>`; confirm via `--robot-capabilities`)
+- **SLB** (two-person approvals): `--robot-slb-*`
+- **RU** (repo updater): `--robot-ru-*`
+- **MS** (Meta Skill): `--robot-ms-*`
+- **UBS** (Ultimate Bug Scanner): `--robot-ubs-*`
+- **ACFS** (Flywheel setup/bootstrapping): `--robot-acfs-*`
+- **GIIL** (image fetch): `--robot-giil-*`
+- **XF** (archive search): `--robot-xf-*`
+
 ### 1.4 Resource Lookups
 
 Simple ID/path lookups MAY use inline values:
