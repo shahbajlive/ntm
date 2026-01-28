@@ -172,6 +172,40 @@ func TestSynthesizer_StreamSynthesize_EmitsChunks(t *testing.T) {
 	}
 }
 
+func TestSynthesizer_StreamSynthesize_Canceled(t *testing.T) {
+	cfg := SynthesisConfig{Strategy: StrategyManual}
+	synth, err := NewSynthesizer(cfg)
+	if err != nil {
+		t.Fatalf("NewSynthesizer error: %v", err)
+	}
+
+	input := &SynthesisInput{
+		OriginalQuestion: "What is the architecture?",
+		Outputs: []ModeOutput{
+			{
+				ModeID:     "mode-a",
+				Thesis:     "The architecture is microservices-based",
+				Confidence: 0.8,
+			},
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	chunks, errs := synth.StreamSynthesize(ctx, input)
+	for range chunks {
+		t.Fatalf("expected no chunks on canceled context")
+	}
+
+	if err, ok := <-errs; !ok || err == nil {
+		t.Fatalf("expected cancellation error")
+	}
+	if !strings.Contains(errsToString(errs, err), context.Canceled.Error()) {
+		t.Fatalf("expected context canceled error, got %v", err)
+	}
+}
+
 func TestSynthesizer_Synthesize_NilInput(t *testing.T) {
 	cfg := SynthesisConfig{Strategy: StrategyManual}
 	synth, _ := NewSynthesizer(cfg)
