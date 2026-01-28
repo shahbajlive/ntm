@@ -155,6 +155,13 @@ func resolveStaggerInterval(mode string, opts SpawnOptions, tracker *ratelimit.R
 	return interval
 }
 
+func codexCooldownRemaining(tracker *ratelimit.RateLimitTracker, alreadyWaited bool) (time.Duration, bool) {
+	if tracker == nil || alreadyWaited {
+		return 0, alreadyWaited
+	}
+	return tracker.CooldownRemaining("openai"), true
+}
+
 func shouldStartInternalMonitor() bool {
 	// When spawnSessionLogic is invoked from package tests, os.Executable() points at a
 	// `*.test` binary. Spawning "internal-monitor" via that binary re-runs the entire
@@ -170,8 +177,8 @@ func shouldStartInternalMonitor() bool {
 
 // SpawnOptions configures session creation and agent spawning
 type SpawnOptions struct {
-	Session     string
-	Agents      []FlatAgent
+	Session       string
+	Agents        []FlatAgent
 	CCCount       int
 	CodCount      int
 	GmiCount      int
@@ -179,10 +186,10 @@ type SpawnOptions struct {
 	WindsurfCount int
 	AiderCount    int
 	UserPane      bool
-	AutoRestart bool
-	RecipeName  string
-	PersonaMap  map[string]*persona.Persona
-	PluginMap   map[string]plugins.AgentPlugin
+	AutoRestart   bool
+	RecipeName    string
+	PersonaMap    map[string]*persona.Persona
+	PluginMap     map[string]plugins.AgentPlugin
 
 	// Profile mapping: list of persona names to map to agents in order
 	ProfileList []*persona.Persona
@@ -984,9 +991,19 @@ func spawnSessionLogic(opts SpawnOptions) error {
 	var setupWg sync.WaitGroup
 	var maxStaggerDelay time.Duration
 
-	// Initialize rate limit tracker for smart stagger mode (bd-2wih)
+	// Initialize rate limit tracker for smart stagger mode or Codex cooldown gating (bd-3qoly)
 	var rateLimitTracker *ratelimit.RateLimitTracker
-	if opts.StaggerMode == "smart" {
+	hasCodex := opts.CodCount > 0
+	if len(opts.Agents) > 0 {
+		hasCodex = false
+		for _, a := range opts.Agents {
+			if a.Type == AgentTypeCodex {
+				hasCodex = true
+				break
+			}
+		}
+	}
+	if opts.StaggerMode == "smart" || hasCodex {
 		rateLimitTracker = ratelimit.NewRateLimitTracker(dir)
 		if err := rateLimitTracker.LoadFromDir(dir); err != nil {
 			if !IsJSONOutput() {
@@ -1005,6 +1022,7 @@ func spawnSessionLogic(opts SpawnOptions) error {
 		spawnState = NewSpawnState(spawnCtx.BatchID, int(staggerInterval.Seconds()), len(opts.Agents))
 	}
 	isStaggered := effectiveStaggerMode != "none" && effectiveStaggerMode != "" && staggerInterval > 0
+	openAICooldownWaited := false
 
 	// Resolve CASS context if enabled
 	var cassContext string
@@ -1217,6 +1235,17 @@ func spawnSessionLogic(opts SpawnOptions) error {
 			}
 		}
 
+		if agent.Type == AgentTypeCodex {
+			var cooldown time.Duration
+			cooldown, openAICooldownWaited = codexCooldownRemaining(rateLimitTracker, openAICooldownWaited)
+			if cooldown > 0 {
+				if !IsJSONOutput() {
+					output.PrintWarningf("Codex cooldown active; waiting %s before launching", ratelimit.FormatDelay(cooldown))
+				}
+				time.Sleep(cooldown)
+			}
+		}
+
 		cmd, err := tmux.BuildPaneCommand(workingDir, safeAgentCmd)
 		if err != nil {
 			return outputError(fmt.Errorf("building %s agent command: %w", agent.Type, err))
@@ -1224,6 +1253,12 @@ func spawnSessionLogic(opts SpawnOptions) error {
 
 		if err := tmux.SendKeys(pane.ID, cmd, true); err != nil {
 			return outputError(fmt.Errorf("launching %s agent: %w", agent.Type, err))
+		}
+		if rateLimitTracker != nil && agent.Type == AgentTypeCodex {
+			rateLimitTracker.RecordSuccess("openai")
+			if err := rateLimitTracker.SaveToDir(dir); err != nil && !IsJSONOutput() {
+				output.PrintWarningf("Failed to persist rate limit history: %v", err)
+			}
 		}
 
 		// Parallelize post-launch setup and prompt delivery

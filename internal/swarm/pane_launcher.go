@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/Dicklesworthstone/ntm/internal/ratelimit"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
@@ -32,27 +33,32 @@ type PaneLauncher struct {
 
 	// Logger for structured logging.
 	Logger *slog.Logger
+
+	// RateLimitTracker enables adaptive throttling for Codex.
+	RateLimitTracker *ratelimit.RateLimitTracker
 }
 
 // NewPaneLauncher creates a new PaneLauncher with default settings.
 func NewPaneLauncher() *PaneLauncher {
 	return &PaneLauncher{
-		TmuxClient:    nil,
-		CmdBuilder:    nil,
-		CDDelay:       100 * time.Millisecond,
-		ValidatePaths: true,
-		Logger:        slog.Default(),
+		TmuxClient:       nil,
+		CmdBuilder:       nil,
+		CDDelay:          100 * time.Millisecond,
+		ValidatePaths:    true,
+		Logger:           slog.Default(),
+		RateLimitTracker: nil,
 	}
 }
 
 // NewPaneLauncherWithClient creates a PaneLauncher with a custom tmux client.
 func NewPaneLauncherWithClient(client *tmux.Client) *PaneLauncher {
 	return &PaneLauncher{
-		TmuxClient:    client,
-		CmdBuilder:    nil,
-		CDDelay:       100 * time.Millisecond,
-		ValidatePaths: true,
-		Logger:        slog.Default(),
+		TmuxClient:       client,
+		CmdBuilder:       nil,
+		CDDelay:          100 * time.Millisecond,
+		ValidatePaths:    true,
+		Logger:           slog.Default(),
+		RateLimitTracker: nil,
 	}
 }
 
@@ -77,6 +83,12 @@ func (pl *PaneLauncher) WithValidatePaths(validate bool) *PaneLauncher {
 // WithLogger sets a custom logger.
 func (pl *PaneLauncher) WithLogger(logger *slog.Logger) *PaneLauncher {
 	pl.Logger = logger
+	return pl
+}
+
+// WithRateLimitTracker enables adaptive throttling based on rate limit history.
+func (pl *PaneLauncher) WithRateLimitTracker(tracker *ratelimit.RateLimitTracker) *PaneLauncher {
+	pl.RateLimitTracker = tracker
 	return pl
 }
 

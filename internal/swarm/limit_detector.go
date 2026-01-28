@@ -289,7 +289,18 @@ func (d *LimitDetector) handleLimitEvent(event *LimitEvent) {
 	// Record in tracker if available
 	if d.Tracker != nil {
 		provider := ratelimit.NormalizeProvider(event.AgentType)
-		d.Tracker.RecordRateLimit(provider, "swarm")
+		waitSeconds := ratelimit.ParseWaitSeconds(event.RawOutput)
+		cooldown := d.Tracker.RecordRateLimitWithCooldown(provider, "swarm", waitSeconds)
+		if err := d.Tracker.SaveToDir(""); err != nil {
+			d.logger().Warn("[LimitDetector] tracker_persist_failed",
+				"provider", provider,
+				"error", err)
+		} else {
+			d.logger().Info("[LimitDetector] tracker_updated",
+				"provider", provider,
+				"cooldown", cooldown.String(),
+				"wait_seconds", waitSeconds)
+		}
 	}
 
 	// Send event to channel (non-blocking)
