@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/Dicklesworthstone/ntm/internal/ratelimit"
 )
 
 func TestNewLimitDetector(t *testing.T) {
@@ -370,5 +372,28 @@ func TestLimitDetectorLoggerHelper(t *testing.T) {
 	logger := detector.logger()
 	if logger == nil {
 		t.Error("expected non-nil logger from logger()")
+	}
+}
+
+func TestLimitDetectorHandleLimitEventUpdatesTracker(t *testing.T) {
+	tracker := ratelimit.NewRateLimitTracker(t.TempDir())
+	detector := NewLimitDetectorWithTracker(tracker)
+
+	event := &LimitEvent{
+		SessionPane: "test:1.1",
+		AgentType:   "cod",
+		Pattern:     "rate limit",
+		RawOutput:   "retry-after: 2",
+		DetectedAt:  time.Now(),
+	}
+
+	detector.handleLimitEvent(event)
+
+	remaining := tracker.CooldownRemaining("openai")
+	if remaining <= 0 {
+		t.Fatalf("expected cooldown to be set, got %v", remaining)
+	}
+	if remaining < time.Second || remaining > 3*time.Second {
+		t.Fatalf("expected cooldown near 2s, got %v", remaining)
 	}
 }
