@@ -217,6 +217,51 @@ func TestCheckpointStore_LoadAllCheckpoints(t *testing.T) {
 	t.Logf("TEST: %s - assertion: all checkpoints loaded", t.Name())
 }
 
+func TestCheckpointStore_LoadAllCheckpoints_SkipsSynthesis(t *testing.T) {
+	t.Logf("TEST: %s - starting", t.Name())
+
+	tmpDir := t.TempDir()
+	store, err := NewCheckpointStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewCheckpointStore failed: %v", err)
+	}
+
+	runID := "test-run-skip-synthesis"
+
+	// Save a mode checkpoint
+	modeCP := ModeCheckpoint{
+		ModeID: "deductive",
+		Status: string(AssignmentDone),
+	}
+	if err := store.SaveCheckpoint(runID, modeCP); err != nil {
+		t.Fatalf("SaveCheckpoint failed: %v", err)
+	}
+
+	// Save a synthesis checkpoint (should be skipped by LoadAllCheckpoints)
+	synthCP := SynthesisCheckpoint{
+		RunID:     runID,
+		LastIndex: 5,
+	}
+	if err := store.SaveSynthesisCheckpoint(runID, synthCP); err != nil {
+		t.Fatalf("SaveSynthesisCheckpoint failed: %v", err)
+	}
+
+	// LoadAllCheckpoints should only return the mode checkpoint, not the synthesis
+	checkpoints, err := store.LoadAllCheckpoints(runID)
+	if err != nil {
+		t.Fatalf("LoadAllCheckpoints failed: %v", err)
+	}
+
+	if len(checkpoints) != 1 {
+		t.Errorf("got %d checkpoints, want 1 (synthesis.json should be skipped)", len(checkpoints))
+	}
+	if len(checkpoints) > 0 && checkpoints[0].ModeID != "deductive" {
+		t.Errorf("expected deductive mode, got %q", checkpoints[0].ModeID)
+	}
+
+	t.Logf("TEST: %s - assertion: synthesis checkpoint correctly skipped", t.Name())
+}
+
 func TestCheckpointStore_ListRuns(t *testing.T) {
 	t.Logf("TEST: %s - starting", t.Name())
 

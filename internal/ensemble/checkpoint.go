@@ -314,7 +314,8 @@ func (s *CheckpointStore) LoadAllCheckpoints(runID string) ([]ModeCheckpoint, er
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
-		if entry.Name() == checkpointMetaFile {
+		// Skip metadata and synthesis checkpoint files
+		if entry.Name() == checkpointMetaFile || entry.Name() == checkpointSynthesisFile {
 			continue
 		}
 
