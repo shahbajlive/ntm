@@ -524,6 +524,104 @@ func buildCommandRegistry() []RobotCommandInfo {
 			Parameters:  []RobotParameter{},
 			Examples:    []string{"ntm --robot-graph"},
 		},
+		{
+			Name:        "forecast",
+			Flag:        "--robot-forecast",
+			Category:    "bv",
+			Description: "Get ETA predictions from bv.",
+			Parameters: []RobotParameter{
+				{Name: "target", Flag: "--robot-forecast", Type: "string", Required: true, Description: "Issue ID or 'all'"},
+			},
+			Examples: []string{"ntm --robot-forecast=bd-123", "ntm --robot-forecast=all"},
+		},
+		{
+			Name:        "suggest",
+			Flag:        "--robot-suggest",
+			Category:    "bv",
+			Description: "Get hygiene suggestions from bv.",
+			Parameters:  []RobotParameter{},
+			Examples:    []string{"ntm --robot-suggest"},
+		},
+		{
+			Name:        "impact",
+			Flag:        "--robot-impact",
+			Category:    "bv",
+			Description: "Get file impact analysis from bv.",
+			Parameters: []RobotParameter{
+				{Name: "file", Flag: "--robot-impact", Type: "string", Required: true, Description: "File path to analyze"},
+			},
+			Examples: []string{"ntm --robot-impact=internal/cli/root.go"},
+		},
+		{
+			Name:        "search",
+			Flag:        "--robot-search",
+			Category:    "bv",
+			Description: "Run semantic search against beads via bv.",
+			Parameters: []RobotParameter{
+				{Name: "query", Flag: "--robot-search", Type: "string", Required: true, Description: "Search query"},
+				{Name: "limit", Flag: "--limit", Type: "int", Required: false, Default: "20", Description: "Max results"},
+			},
+			Examples: []string{"ntm --robot-search='auth error' --limit=10"},
+		},
+		{
+			Name:        "label-attention",
+			Flag:        "--robot-label-attention",
+			Category:    "bv",
+			Description: "Get attention-ranked labels from bv.",
+			Parameters: []RobotParameter{
+				{Name: "limit", Flag: "--limit", Type: "int", Required: false, Default: "10", Description: "Max labels to return"},
+			},
+			Examples: []string{"ntm --robot-label-attention --limit=20"},
+		},
+		{
+			Name:        "label-flow",
+			Flag:        "--robot-label-flow",
+			Category:    "bv",
+			Description: "Get cross-label dependency flow from bv.",
+			Parameters:  []RobotParameter{},
+			Examples:    []string{"ntm --robot-label-flow"},
+		},
+		{
+			Name:        "label-health",
+			Flag:        "--robot-label-health",
+			Category:    "bv",
+			Description: "Get per-label health metrics from bv.",
+			Parameters:  []RobotParameter{},
+			Examples:    []string{"ntm --robot-label-health"},
+		},
+		{
+			Name:        "file-beads",
+			Flag:        "--robot-file-beads",
+			Category:    "bv",
+			Description: "Get bead mappings for a file from bv.",
+			Parameters: []RobotParameter{
+				{Name: "file", Flag: "--robot-file-beads", Type: "string", Required: true, Description: "File path to analyze"},
+				{Name: "limit", Flag: "--limit", Type: "int", Required: false, Default: "10", Description: "Max bead mappings"},
+			},
+			Examples: []string{"ntm --robot-file-beads=internal/cli/root.go --limit=10"},
+		},
+		{
+			Name:        "file-hotspots",
+			Flag:        "--robot-file-hotspots",
+			Category:    "bv",
+			Description: "Get file hotspot analysis from bv.",
+			Parameters: []RobotParameter{
+				{Name: "limit", Flag: "--limit", Type: "int", Required: false, Default: "10", Description: "Max hotspots"},
+			},
+			Examples: []string{"ntm --robot-file-hotspots --limit=10"},
+		},
+		{
+			Name:        "file-relations",
+			Flag:        "--robot-file-relations",
+			Category:    "bv",
+			Description: "Get file co-change relations from bv.",
+			Parameters: []RobotParameter{
+				{Name: "file", Flag: "--robot-file-relations", Type: "string", Required: true, Description: "File path to analyze"},
+				{Name: "limit", Flag: "--limit", Type: "int", Required: false, Default: "10", Description: "Max relations"},
+				{Name: "threshold", Flag: "--threshold", Type: "float", Required: false, Default: "0.0", Description: "Minimum relation weight"},
+			},
+			Examples: []string{"ntm --robot-file-relations=internal/cli/root.go --limit=10"},
+		},
 
 		// === CASS INTEGRATION ===
 		{

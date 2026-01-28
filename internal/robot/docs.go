@@ -5,11 +5,11 @@ package robot
 // DocsOutput represents the output for --robot-docs
 type DocsOutput struct {
 	RobotResponse
-	Version       string        `json:"version"`
-	SchemaVersion string        `json:"schema_version"`
-	Topic         string        `json:"topic"`
-	Topics        []DocsTopic   `json:"topics,omitempty"`
-	Content       *DocsContent  `json:"content,omitempty"`
+	Version       string       `json:"version"`
+	SchemaVersion string       `json:"schema_version"`
+	Topic         string       `json:"topic"`
+	Topics        []DocsTopic  `json:"topics,omitempty"`
+	Content       *DocsContent `json:"content,omitempty"`
 }
 
 // DocsTopic represents an available documentation topic
@@ -20,10 +20,10 @@ type DocsTopic struct {
 
 // DocsContent represents the content for a specific topic
 type DocsContent struct {
-	Title       string        `json:"title"`
-	Description string        `json:"description"`
-	Sections    []DocsSection `json:"sections,omitempty"`
-	Examples    []DocsExample `json:"examples,omitempty"`
+	Title       string         `json:"title"`
+	Description string         `json:"description"`
+	Sections    []DocsSection  `json:"sections,omitempty"`
+	Examples    []DocsExample  `json:"examples,omitempty"`
 	ExitCodes   []DocsExitCode `json:"exit_codes,omitempty"`
 }
 
@@ -212,7 +212,17 @@ func getCommandsContent() *DocsContent {
 				Heading: "BV Integration",
 				Body: `--robot-plan: Get execution plan with parallelizable tracks
 --robot-triage: Get prioritized work recommendations
---robot-graph: Get dependency graph insights`,
+--robot-graph: Get dependency graph insights
+--robot-forecast: Get ETA predictions
+--robot-suggest: Get hygiene suggestions
+--robot-impact: File impact analysis
+--robot-search: Semantic search
+--robot-label-attention: Label attention ranking
+--robot-label-flow: Cross-label dependency flow
+--robot-label-health: Per-label health metrics
+--robot-file-beads: File-to-bead mapping
+--robot-file-hotspots: File hotspot analysis
+--robot-file-relations: File co-change relations`,
 			},
 			{
 				Heading: "Utilities",

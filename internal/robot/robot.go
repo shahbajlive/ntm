@@ -1050,6 +1050,7 @@ type StatusOutput struct {
 	GeneratedAt    time.Time              `json:"generated_at"`
 	System         SystemInfo             `json:"system"`
 	Sessions       []SessionInfo          `json:"sessions"`
+	Pagination     *PaginationInfo        `json:"pagination,omitempty"`
 	Summary        StatusSummary          `json:"summary"`
 	Beads          *bv.BeadsSummary       `json:"beads,omitempty"`
 	GraphMetrics   *GraphMetrics          `json:"graph_metrics,omitempty"`
@@ -1342,6 +1343,11 @@ For machine-readable schema:    ntm --robot-capabilities
 // GetStatus collects machine-readable status.
 // This function returns the data struct directly, enabling CLI/REST parity.
 func GetStatus() (*StatusOutput, error) {
+	return GetStatusWithOptions(PaginationOptions{})
+}
+
+// GetStatusWithOptions collects status and applies pagination to sessions.
+func GetStatusWithOptions(opts PaginationOptions) (*StatusOutput, error) {
 	wd := mustGetwd()
 	cfg, err := config.LoadMerged(wd, config.DefaultPath())
 	if err != nil {
@@ -1485,6 +1491,11 @@ func GetStatus() (*StatusOutput, error) {
 	appendFileChanges(output)
 	appendConflicts(output)
 
+	if paged, page := ApplyPagination(output.Sessions, opts); page != nil {
+		output.Sessions = paged
+		output.Pagination = page
+	}
+
 	return output, nil
 }
 
@@ -1492,6 +1503,15 @@ func GetStatus() (*StatusOutput, error) {
 // This is a thin wrapper around GetStatus() for CLI output.
 func PrintStatus() error {
 	output, err := GetStatus()
+	if err != nil {
+		return err
+	}
+	return encodeJSON(output)
+}
+
+// PrintStatusWithOptions outputs status with pagination options.
+func PrintStatusWithOptions(opts PaginationOptions) error {
+	output, err := GetStatusWithOptions(opts)
 	if err != nil {
 		return err
 	}
@@ -2856,6 +2876,7 @@ type SnapshotOutput struct {
 	RobotResponse
 	Timestamp      string             `json:"ts"`
 	Sessions       []SnapshotSession  `json:"sessions"`
+	Pagination     *PaginationInfo    `json:"pagination,omitempty"`
 	BeadsSummary   *bv.BeadsSummary   `json:"beads_summary,omitempty"`
 	AgentMail      *SnapshotAgentMail `json:"agent_mail,omitempty"`
 	MailUnread     int                `json:"mail_unread,omitempty"`
@@ -2931,6 +2952,11 @@ var BeadLimit = 5
 // GetSnapshot retrieves complete system state for AI orchestration.
 // This function returns the data struct directly, enabling CLI/REST parity.
 func GetSnapshot(cfg *config.Config) (*SnapshotOutput, error) {
+	return GetSnapshotWithOptions(cfg, PaginationOptions{})
+}
+
+// GetSnapshotWithOptions retrieves complete system state with pagination applied to sessions.
+func GetSnapshotWithOptions(cfg *config.Config, opts PaginationOptions) (*SnapshotOutput, error) {
 	if cfg == nil {
 		cfg = config.Default()
 	}
@@ -3121,12 +3147,26 @@ func GetSnapshot(cfg *config.Config) (*SnapshotOutput, error) {
 		}
 	}
 
+	if paged, page := ApplyPagination(output.Sessions, opts); page != nil {
+		output.Sessions = paged
+		output.Pagination = page
+	}
+
 	return output, nil
 }
 
 // PrintSnapshot outputs complete system state for AI orchestration
 func PrintSnapshot(cfg *config.Config) error {
 	output, err := GetSnapshot(cfg)
+	if err != nil {
+		return err
+	}
+	return encodeJSON(output)
+}
+
+// PrintSnapshotWithOptions outputs snapshot with pagination options.
+func PrintSnapshotWithOptions(cfg *config.Config, opts PaginationOptions) error {
+	output, err := GetSnapshotWithOptions(cfg, opts)
 	if err != nil {
 		return err
 	}

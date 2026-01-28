@@ -28,6 +28,13 @@ type BVGraphOptions struct {
 	Format string
 }
 
+// BVSearchOptions configures BV search behavior.
+type BVSearchOptions struct {
+	Query string
+	Limit int
+	Mode  string
+}
+
 // NewBVAdapter creates a new BV adapter
 func NewBVAdapter() *BVAdapter {
 	return &BVAdapter{
@@ -72,7 +79,25 @@ func (a *BVAdapter) Capabilities(ctx context.Context) ([]Capability, error) {
 
 	// bv 0.30+ has robot-triage
 	if version.AtLeast(Version{Major: 0, Minor: 30, Patch: 0}) {
-		caps = append(caps, "robot_triage", "robot_plan", "robot_insights")
+		caps = append(caps, "robot_triage", "robot_plan", "robot_insights", "robot_next")
+	}
+
+	// bv 0.31+ includes additional analysis modes
+	if version.AtLeast(Version{Major: 0, Minor: 31, Patch: 0}) {
+		caps = append(caps,
+			"robot_alerts",
+			"robot_graph",
+			"robot_forecast",
+			"robot_suggest",
+			"robot_impact",
+			"robot_search",
+			"robot_label_attention",
+			"robot_label_flow",
+			"robot_label_health",
+			"robot_file_beads",
+			"robot_file_hotspots",
+			"robot_file_relations",
+		)
 	}
 
 	return caps, nil
@@ -190,7 +215,21 @@ func (a *BVAdapter) GetImpact(ctx context.Context, dir string, filePath string) 
 }
 
 func (a *BVAdapter) GetSearch(ctx context.Context, dir string, query string) (json.RawMessage, error) {
-	return a.runRobotCommand(ctx, dir, "--robot-search", query)
+	return a.GetSearchWithOptions(ctx, dir, BVSearchOptions{Query: query})
+}
+
+func (a *BVAdapter) GetSearchWithOptions(ctx context.Context, dir string, opts BVSearchOptions) (json.RawMessage, error) {
+	args := []string{"--robot-search"}
+	if opts.Query != "" {
+		args = append(args, "--search", opts.Query)
+	}
+	if opts.Limit > 0 {
+		args = append(args, fmt.Sprintf("--search-limit=%d", opts.Limit))
+	}
+	if opts.Mode != "" {
+		args = append(args, "--search-mode", opts.Mode)
+	}
+	return a.runRobotCommand(ctx, dir, args...)
 }
 
 // Label mode methods for label-based analysis

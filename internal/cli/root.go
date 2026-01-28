@@ -286,8 +286,10 @@ Shell Integration:
 		if robotContext != "" {
 			// Use --lines flag for scrollback (default 20, or as specified)
 			scrollbackLines := robotLines
-			if scrollbackLines <= 0 {
+			if !cmd.Flags().Changed("lines") {
 				scrollbackLines = 1000 // Default to capturing more for context estimation
+			} else if scrollbackLines <= 0 {
+				scrollbackLines = 1000 // Safety fallback
 			}
 			if err := robot.PrintContext(robotContext, scrollbackLines); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -621,11 +623,15 @@ Shell Integration:
 			if robotSendType != "" {
 				agentType = robotSendType
 			}
+			lines := robotLines
+			if !cmd.Flags().Changed("lines") {
+				lines = 1000 // Default to 1000 lines for error scanning
+			}
 			opts := robot.ErrorsOptions{
 				Session:   robotErrors,
 				Since:     robotErrorsSince,
 				Panes:     paneFilter,
-				Lines:     robotLines,
+				Lines:     lines,
 				AgentType: agentType,
 			}
 			if err := robot.PrintErrors(opts); err != nil {
@@ -660,10 +666,14 @@ Shell Integration:
 				fmt.Fprintf(os.Stderr, "Error: invalid --panes: %v\n", err)
 				os.Exit(3)
 			}
+			lines := robotLines
+			if !cmd.Flags().Changed("lines") {
+				lines = 50 // Default to 50 lines for health check
+			}
 			opts := robot.AgentHealthOptions{
 				Session:       robotAgentHealth,
 				Panes:         panes,
-				LinesCaptured: robotLines,
+				LinesCaptured: lines,
 				IncludeCaut:   !robotAgentHealthNoCaut,
 				Verbose:       robotAgentHealthVerbose,
 			}
@@ -729,6 +739,10 @@ Shell Integration:
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
+			lines := robotLines
+			if !cmd.Flags().Changed("lines") {
+				lines = 1000 // Default to 1000 lines for monitoring
+			}
 			config := robot.MonitorConfig{
 				Session:        robotMonitor,
 				Panes:          panes,
@@ -739,7 +753,7 @@ Shell Integration:
 				AlertThreshold: alertThresh,
 				IncludeCaut:    robotMonitorIncludeCaut,
 				OutputFile:     robotMonitorOutput,
-				LinesCaptured:  robotLines,
+				LinesCaptured:  lines,
 			}
 			if err := robot.PrintMonitor(config); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
