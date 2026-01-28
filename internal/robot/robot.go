@@ -980,6 +980,150 @@ func PrintJFPBundles() error {
 	return encodeJSON(output)
 }
 
+// ===========================================================================
+// MS (Meta Skill) Robot Wrappers
+// ===========================================================================
+
+// MSSearchOutput represents the output for --robot-ms-search
+type MSSearchOutput struct {
+	RobotResponse
+	Query  string          `json:"query"`
+	Count  int             `json:"count"`
+	Skills json.RawMessage `json:"skills"`
+	Source string          `json:"source,omitempty"`
+}
+
+// MSShowOutput represents the output for --robot-ms-show
+type MSShowOutput struct {
+	RobotResponse
+	ID     string          `json:"id"`
+	Skill  json.RawMessage `json:"skill,omitempty"`
+	Source string          `json:"source,omitempty"`
+}
+
+// GetMSSearch returns skill matches for a query.
+// This function returns the data struct directly, enabling CLI/REST parity.
+func GetMSSearch(query string) (*MSSearchOutput, error) {
+	adapter := tools.NewMSAdapter()
+
+	output := &MSSearchOutput{
+		RobotResponse: NewRobotResponse(true),
+		Query:         query,
+		Source:        "ms",
+	}
+
+	// Check if ms is installed
+	_, installed := adapter.Detect()
+	if !installed {
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("ms not installed"),
+			ErrCodeDependencyMissing,
+			"Install Meta Skill (ms) and ensure it is on PATH",
+		)
+		return output, nil
+	}
+
+	if strings.TrimSpace(query) == "" {
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("query is required"),
+			ErrCodeInvalidFlag,
+			"Provide a query, e.g., --robot-ms-search='commit workflow'",
+		)
+		return output, nil
+	}
+
+	ctx := context.Background()
+	data, err := adapter.Search(ctx, query)
+	if err != nil {
+		output.RobotResponse = NewErrorResponse(
+			err,
+			"MS_SEARCH_FAILED",
+			"Try a different query or check ms health",
+		)
+		return output, nil
+	}
+
+	output.Skills = data
+
+	// Try to count items
+	var items []interface{}
+	if json.Unmarshal(data, &items) == nil {
+		output.Count = len(items)
+	}
+
+	return output, nil
+}
+
+// PrintMSSearch outputs skill matches as JSON.
+// This is a thin wrapper around GetMSSearch() for CLI output.
+func PrintMSSearch(query string) error {
+	output, err := GetMSSearch(query)
+	if err != nil {
+		return err
+	}
+	return encodeJSON(output)
+}
+
+// GetMSShow returns a specific skill by ID.
+// This function returns the data struct directly, enabling CLI/REST parity.
+func GetMSShow(id string) (*MSShowOutput, error) {
+	adapter := tools.NewMSAdapter()
+
+	output := &MSShowOutput{
+		RobotResponse: NewRobotResponse(true),
+		ID:            id,
+		Source:        "ms",
+	}
+
+	// Check if ms is installed
+	_, installed := adapter.Detect()
+	if !installed {
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("ms not installed"),
+			ErrCodeDependencyMissing,
+			"Install Meta Skill (ms) and ensure it is on PATH",
+		)
+		return output, nil
+	}
+
+	if strings.TrimSpace(id) == "" {
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("skill ID is required"),
+			ErrCodeInvalidFlag,
+			"Provide a skill ID, e.g., --robot-ms-show='commit-and-release'",
+		)
+		return output, nil
+	}
+
+	ctx := context.Background()
+	data, err := adapter.Show(ctx, id)
+	if err != nil {
+		code := "MS_SHOW_FAILED"
+		if strings.Contains(err.Error(), "not found") {
+			code = "NOT_FOUND"
+		}
+		output.RobotResponse = NewErrorResponse(
+			err,
+			code,
+			"Use --robot-ms-search to find available skills",
+		)
+		return output, nil
+	}
+
+	output.Skill = data
+	return output, nil
+}
+
+// PrintMSShow outputs a specific skill as JSON.
+// This is a thin wrapper around GetMSShow() for CLI output.
+func PrintMSShow(id string) error {
+	output, err := GetMSShow(id)
+	if err != nil {
+		return err
+	}
+	return encodeJSON(output)
+}
+
 // Build info - these will be set by the caller from cli package
 var (
 	Version = "dev"
