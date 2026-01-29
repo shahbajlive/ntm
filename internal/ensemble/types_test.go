@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	tokenpkg "github.com/Dicklesworthstone/ntm/internal/tokens"
+	tokenpkg "github.com/shahbajlive/ntm/internal/tokens"
 )
 
 func TestModeCategory_IsValid(t *testing.T) {

@@ -6,8 +6,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/Dicklesworthstone/ntm/internal/tui/layout"
-	"github.com/Dicklesworthstone/ntm/internal/tui/styles"
+	"github.com/shahbajlive/ntm/internal/tui/layout"
+	"github.com/shahbajlive/ntm/internal/tui/styles"
 )
 
 // maxContentWidth is the maximum width for tutorial content to maintain readability

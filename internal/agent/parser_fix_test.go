@@ -14,7 +14,7 @@ func TestParser_StuckInWorkingBug(t *testing.T) {
 	output := `Claude Opus 4.5
 Running tests...
 testing package internal/agent...
-ok  	github.com/Dicklesworthstone/ntm/internal/agent	0.123s
+ok  	github.com/shahbajlive/ntm/internal/agent	0.123s
 Tests completed.
 > `
 

@@ -3,7 +3,7 @@ package robot
 import (
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/agent"
+	"github.com/shahbajlive/ntm/internal/agent"
 )
 
 func TestDefaultIsWorkingOptions(t *testing.T) {

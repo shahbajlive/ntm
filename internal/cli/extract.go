@@ -8,10 +8,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/clipboard"
-	"github.com/Dicklesworthstone/ntm/internal/codeblock"
-	"github.com/Dicklesworthstone/ntm/internal/output"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/clipboard"
+	"github.com/shahbajlive/ntm/internal/codeblock"
+	"github.com/shahbajlive/ntm/internal/output"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // ExtractResponse is the JSON output format for extract command.

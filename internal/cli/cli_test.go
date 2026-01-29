@@ -13,10 +13,10 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/Dicklesworthstone/ntm/internal/config"
-	"github.com/Dicklesworthstone/ntm/internal/robot"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
-	"github.com/Dicklesworthstone/ntm/tests/testutil"
+	"github.com/shahbajlive/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/robot"
+	"github.com/shahbajlive/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/tests/testutil"
 )
 
 // resetFlags resets global flags to default values between tests
@@ -1333,7 +1333,7 @@ func TestUpgradeErrorFormat(t *testing.T) {
 		"1.4.1",
 		triedNames,
 		assets,
-		"https://github.com/Dicklesworthstone/ntm/releases/tag/v1.4.1",
+		"https://github.com/shahbajlive/ntm/releases/tag/v1.4.1",
 	)
 
 	errStr := err.Error()
@@ -1390,7 +1390,7 @@ func TestUpgradeErrorExactMatch(t *testing.T) {
 		"1.4.1",
 		triedNames,
 		assets,
-		"https://github.com/Dicklesworthstone/ntm/releases/tag/v1.4.1",
+		"https://github.com/shahbajlive/ntm/releases/tag/v1.4.1",
 	)
 
 	errStr := err.Error()

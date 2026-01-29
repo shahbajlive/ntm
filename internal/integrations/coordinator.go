@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/alerts"
-	"github.com/Dicklesworthstone/ntm/internal/config"
-	"github.com/Dicklesworthstone/ntm/internal/integrations/caut"
-	"github.com/Dicklesworthstone/ntm/internal/tools"
+	"github.com/shahbajlive/ntm/internal/alerts"
+	"github.com/shahbajlive/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/integrations/caut"
+	"github.com/shahbajlive/ntm/internal/tools"
 )
 
 var coordinatorLogger = slog.Default().With("component", "integrations.coordinator")

@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/state"
-	"github.com/Dicklesworthstone/ntm/internal/tools"
+	"github.com/shahbajlive/ntm/internal/state"
+	"github.com/shahbajlive/ntm/internal/tools"
 )
 
 // TokenBudgets defines context limits per agent type

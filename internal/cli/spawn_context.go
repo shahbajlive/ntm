@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // SpawnContext holds information about the spawn batch for agent coordination.

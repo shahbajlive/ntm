@@ -40,10 +40,10 @@ builds:
         goarch: arm64
     ldflags:
       - -s -w
-      - -X github.com/Dicklesworthstone/ntm/internal/cli.Version={{.Version}}
-      - -X github.com/Dicklesworthstone/ntm/internal/cli.Commit={{.Commit}}
-      - -X github.com/Dicklesworthstone/ntm/internal/cli.Date={{.Date}}
-      - -X github.com/Dicklesworthstone/ntm/internal/cli.BuiltBy=goreleaser
+      - -X github.com/shahbajlive/ntm/internal/cli.Version={{.Version}}
+      - -X github.com/shahbajlive/ntm/internal/cli.Commit={{.Commit}}
+      - -X github.com/shahbajlive/ntm/internal/cli.Date={{.Date}}
+      - -X github.com/shahbajlive/ntm/internal/cli.BuiltBy=goreleaser
     flags:
       - -trimpath
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -141,13 +141,13 @@ release:
 
     ```bash
     # One-liner install (Linux/macOS)
-    curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/install.sh | bash
+    curl -fsSL https://raw.githubusercontent.com/shahbajlive/ntm/main/install.sh | bash
 
     # Homebrew (macOS/Linux)
     brew install dicklesworthstone/tap/ntm
 
     # Go install
-    go install github.com/Dicklesworthstone/ntm/cmd/ntm@{{ .Tag }}
+    go install github.com/shahbajlive/ntm/cmd/ntm@{{ .Tag }}
     ```
 
     ### Shell Integration
@@ -162,7 +162,7 @@ release:
   footer: |
     ---
 
-    **Full Changelog**: https://github.com/Dicklesworthstone/ntm/compare/{{ .PreviousTag }}...{{ .Tag }}
+    **Full Changelog**: https://github.com/shahbajlive/ntm/compare/{{ .PreviousTag }}...{{ .Tag }}
 
     **Container Image**: `ghcr.io/dicklesworthstone/ntm:{{ .Tag }}`
 
@@ -175,7 +175,7 @@ homebrew_casks:
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Casks
-    homepage: "https://github.com/Dicklesworthstone/ntm"
+    homepage: "https://github.com/shahbajlive/ntm"
     description: "Named Tmux Manager - Orchestrate AI coding agents in tmux sessions"
     binaries:
       - ntm
@@ -198,7 +198,7 @@ nfpms:
   - id: packages
     package_name: ntm
     vendor: Dicklesworthstone
-    homepage: https://github.com/Dicklesworthstone/ntm
+    homepage: https://github.com/shahbajlive/ntm
     maintainer: Jeff Emanuel <jeff@dicklesworthstone.com>
     description: |
       Named Tmux Manager - Orchestrate AI coding agents in tmux sessions.
@@ -234,7 +234,7 @@ scoops:
       owner: Dicklesworthstone
       name: scoop-bucket
       token: "{{ .Env.SCOOP_GITHUB_TOKEN }}"
-    homepage: "https://github.com/Dicklesworthstone/ntm"
+    homepage: "https://github.com/shahbajlive/ntm"
     description: "Named Tmux Manager - Orchestrate AI coding agents in tmux sessions"
     license: MIT
     skip_upload: auto

@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/history"
+	"github.com/shahbajlive/ntm/internal/history"
 )
 
 // Integration-lite test: exercising history list JSON output after a recorded send.

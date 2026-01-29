@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Dicklesworthstone/ntm/internal/bv"
+	"github.com/shahbajlive/ntm/internal/bv"
 )
 
 // DedupIndex maintains an index of existing findings for deduplication.

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/tests/testutil"
+	"github.com/shahbajlive/ntm/tests/testutil"
 )
 
 func writeProjectsBaseConfig(t *testing.T, projectsBase string) string {

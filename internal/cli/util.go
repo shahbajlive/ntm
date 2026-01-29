@@ -12,11 +12,11 @@ import (
 
 	"github.com/mattn/go-isatty"
 
-	"github.com/Dicklesworthstone/ntm/internal/cass"
-	"github.com/Dicklesworthstone/ntm/internal/config"
-	"github.com/Dicklesworthstone/ntm/internal/git"
-	"github.com/Dicklesworthstone/ntm/internal/palette"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/cass"
+	"github.com/shahbajlive/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/git"
+	"github.com/shahbajlive/ntm/internal/palette"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // parseEditorCommand splits the editor string into command and arguments.

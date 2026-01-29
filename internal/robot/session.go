@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Dicklesworthstone/ntm/internal/session"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/session"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // SaveOptions configures the robot-save operation.

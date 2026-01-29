@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/ensemble"
+	"github.com/shahbajlive/ntm/internal/ensemble"
 )
 
 func TestSynthesisProgressViewWaiting(t *testing.T) {

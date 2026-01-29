@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // SessionOrchestrator handles creation and management of tmux sessions

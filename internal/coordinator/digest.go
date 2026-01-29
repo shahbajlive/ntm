@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/agentmail"
-	"github.com/Dicklesworthstone/ntm/internal/robot"
+	"github.com/shahbajlive/ntm/internal/agentmail"
+	"github.com/shahbajlive/ntm/internal/robot"
 )
 
 // DigestSummary contains a summary of session activity.

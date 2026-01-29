@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/config"
-	"github.com/Dicklesworthstone/ntm/internal/integrations/rano"
-	"github.com/Dicklesworthstone/ntm/internal/tools"
+	"github.com/shahbajlive/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/integrations/rano"
+	"github.com/shahbajlive/ntm/internal/tools"
 )
 
 var monitorLogger = slog.Default().With("component", "integrations.pt.monitor")

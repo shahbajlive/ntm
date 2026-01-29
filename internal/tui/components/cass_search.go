@@ -10,7 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/Dicklesworthstone/ntm/internal/cass"
+	"github.com/shahbajlive/ntm/internal/cass"
 )
 
 // CassSearchModel manages the CASS search UI

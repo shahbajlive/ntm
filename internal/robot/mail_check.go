@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/agentmail"
+	"github.com/shahbajlive/ntm/internal/agentmail"
 )
 
 // MailCheckOutput represents the response from --robot-mail-check

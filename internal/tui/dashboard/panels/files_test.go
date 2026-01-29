@@ -8,7 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/Dicklesworthstone/ntm/internal/tracker"
+	"github.com/shahbajlive/ntm/internal/tracker"
 )
 
 func TestNewFilesPanel(t *testing.T) {

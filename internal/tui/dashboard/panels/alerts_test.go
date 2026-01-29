@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/alerts"
+	"github.com/shahbajlive/ntm/internal/alerts"
 )
 
 func TestNewAlertsPanel(t *testing.T) {

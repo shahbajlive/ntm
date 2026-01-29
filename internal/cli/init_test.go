@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/config"
 )
 
 // TestInitCmd_NoArgs verifies ntm init with no arguments uses current working directory

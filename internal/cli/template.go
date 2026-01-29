@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/templates"
+	"github.com/shahbajlive/ntm/internal/templates"
 )
 
 func newTemplateCmd() *cobra.Command {

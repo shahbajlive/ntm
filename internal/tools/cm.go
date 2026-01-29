@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/cm"
+	"github.com/shahbajlive/ntm/internal/cm"
 )
 
 // CMAdapter provides integration with the CASS Memory (cm) tool

@@ -11,8 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/scanner"
-	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
+	"github.com/shahbajlive/ntm/internal/scanner"
+	"github.com/shahbajlive/ntm/internal/tui/theme"
 )
 
 func newBugsCmd() *cobra.Command {

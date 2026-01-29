@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // PTYFetcher implements Fetcher by sending commands to tmux panes

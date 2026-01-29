@@ -10,17 +10,17 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/checkpoint"
-	"github.com/Dicklesworthstone/ntm/internal/config"
-	"github.com/Dicklesworthstone/ntm/internal/events"
-	"github.com/Dicklesworthstone/ntm/internal/gemini"
-	"github.com/Dicklesworthstone/ntm/internal/hooks"
-	"github.com/Dicklesworthstone/ntm/internal/integrations/dcg"
-	"github.com/Dicklesworthstone/ntm/internal/output"
-	"github.com/Dicklesworthstone/ntm/internal/persona"
-	"github.com/Dicklesworthstone/ntm/internal/plugins"
-	"github.com/Dicklesworthstone/ntm/internal/ratelimit"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/checkpoint"
+	"github.com/shahbajlive/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/events"
+	"github.com/shahbajlive/ntm/internal/gemini"
+	"github.com/shahbajlive/ntm/internal/hooks"
+	"github.com/shahbajlive/ntm/internal/integrations/dcg"
+	"github.com/shahbajlive/ntm/internal/output"
+	"github.com/shahbajlive/ntm/internal/persona"
+	"github.com/shahbajlive/ntm/internal/plugins"
+	"github.com/shahbajlive/ntm/internal/ratelimit"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // AddOptions configures agent addition

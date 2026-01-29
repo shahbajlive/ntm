@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/Dicklesworthstone/ntm/internal/cli"
+	"github.com/shahbajlive/ntm/internal/cli"
 )
 
 func main() {

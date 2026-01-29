@@ -13,7 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/bv"
+	"github.com/shahbajlive/ntm/internal/bv"
 )
 
 func newWorkCmd() *cobra.Command {

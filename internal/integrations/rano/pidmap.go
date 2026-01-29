@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 var pidmapLogger = slog.Default().With("component", "integrations.rano.pidmap")

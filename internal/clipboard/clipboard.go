@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // Clipboard exposes a unified copy/paste interface across platforms.

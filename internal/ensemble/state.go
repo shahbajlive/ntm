@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/state"
+	"github.com/shahbajlive/ntm/internal/state"
 )
 
 // StateStore provides SQLite-backed persistence for ensemble sessions.

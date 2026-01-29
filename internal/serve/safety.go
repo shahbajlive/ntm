@@ -17,7 +17,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"gopkg.in/yaml.v3"
 
-	"github.com/Dicklesworthstone/ntm/internal/policy"
+	"github.com/shahbajlive/ntm/internal/policy"
 )
 
 // registerSafetyRoutes registers all safety and policy related routes.

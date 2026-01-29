@@ -15,26 +15,27 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/agentmail"
-	"github.com/Dicklesworthstone/ntm/internal/bv"
-	"github.com/Dicklesworthstone/ntm/internal/checkpoint"
-	"github.com/Dicklesworthstone/ntm/internal/cm"
-	"github.com/Dicklesworthstone/ntm/internal/config"
-	"github.com/Dicklesworthstone/ntm/internal/events"
-	"github.com/Dicklesworthstone/ntm/internal/gemini"
-	"github.com/Dicklesworthstone/ntm/internal/handoff"
-	"github.com/Dicklesworthstone/ntm/internal/hooks"
-	"github.com/Dicklesworthstone/ntm/internal/integrations/dcg"
-	"github.com/Dicklesworthstone/ntm/internal/output"
-	"github.com/Dicklesworthstone/ntm/internal/persona"
-	"github.com/Dicklesworthstone/ntm/internal/plugins"
-	"github.com/Dicklesworthstone/ntm/internal/ratelimit"
-	"github.com/Dicklesworthstone/ntm/internal/recipe"
-	"github.com/Dicklesworthstone/ntm/internal/resilience"
-	"github.com/Dicklesworthstone/ntm/internal/state"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
-	"github.com/Dicklesworthstone/ntm/internal/workflow"
-	"github.com/Dicklesworthstone/ntm/internal/worktrees"
+	"github.com/shahbajlive/ntm/internal/agentmail"
+	"github.com/shahbajlive/ntm/internal/bv"
+	"github.com/shahbajlive/ntm/internal/checkpoint"
+	"github.com/shahbajlive/ntm/internal/cm"
+	"github.com/shahbajlive/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/events"
+	"github.com/shahbajlive/ntm/internal/gemini"
+	"github.com/shahbajlive/ntm/internal/handoff"
+	"github.com/shahbajlive/ntm/internal/hooks"
+	"github.com/shahbajlive/ntm/internal/integrations/dcg"
+	"github.com/shahbajlive/ntm/internal/output"
+	"github.com/shahbajlive/ntm/internal/persona"
+	"github.com/shahbajlive/ntm/internal/plugins"
+	"github.com/shahbajlive/ntm/internal/ratelimit"
+	"github.com/shahbajlive/ntm/internal/recipe"
+	"github.com/shahbajlive/ntm/internal/resilience"
+	"github.com/shahbajlive/ntm/internal/skill"
+	"github.com/shahbajlive/ntm/internal/state"
+	"github.com/shahbajlive/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/workflow"
+	"github.com/shahbajlive/ntm/internal/worktrees"
 )
 
 // optionalDurationValue implements pflag.Value for a duration flag with optional value.
@@ -230,6 +231,9 @@ type SpawnOptions struct {
 
 	// Git worktree isolation configuration
 	UseWorktrees bool // Enable git worktree isolation for agents
+
+	// Skill configuration
+	SkillName string // Skill to compose with agents
 }
 
 // RecoveryContext holds all the information needed to help an agent recover
@@ -375,6 +379,9 @@ func newSpawnCmd() *cobra.Command {
 
 	// Git worktree isolation flag
 	var useWorktrees bool
+
+	// Skill flag
+	var skillName string
 
 	// Pre-load plugins to avoid double loading in RunE
 	// TODO: This runs eagerly during init() which slows down startup for all commands.
@@ -676,6 +683,7 @@ Examples:
 				AssignTimeout:      assignTimeout,
 				AssignAgentType:    assignAgentType,
 				UseWorktrees:       useWorktrees,
+				SkillName:          skillName,
 			}
 
 			return spawnSessionLogic(opts)
@@ -727,9 +735,9 @@ Examples:
 	// Git worktree isolation flag
 	cmd.Flags().BoolVar(&useWorktrees, "worktrees", false, "Enable git worktree isolation for agents (each agent gets isolated working directory)")
 
-	// Profile flags for mapping personas to agents
 	cmd.Flags().StringVar(&profilesFlag, "profiles", "", "Comma-separated list of profile/persona names to map to agents in order")
 	cmd.Flags().StringVar(&profileSetFlag, "profile-set", "", "Predefined profile set name (e.g., backend-team, review-team)")
+	cmd.Flags().StringVar(&skillName, "skill", "", "Skill to compose with agents (instruction set and pre-spawn scripts)")
 
 	// Register plugin flags dynamically
 	// Note: We scan for plugins here to register flags.
@@ -861,6 +869,40 @@ func spawnSessionLogic(opts SpawnOptions) error {
 	totalPanes := totalAgents
 	if opts.UserPane {
 		totalPanes++
+	}
+
+	// Skill integration: load skill and run pre-spawn scripts
+	var sk *skill.Skill
+	if opts.SkillName != "" {
+		var err error
+		sk, err = skill.LoadSkill(opts.SkillName)
+		if err != nil {
+			return outputError(fmt.Errorf("loading skill %q: %w", opts.SkillName, err))
+		}
+
+		if !IsJSONOutput() {
+			fmt.Printf("✓ Using skill '%s': %s\n", sk.Name, sk.Description)
+		}
+
+		// Run pre-spawn scripts once for each agent type present in spawn
+		seenTypes := make(map[AgentType]bool)
+		for _, agent := range opts.Agents {
+			if !seenTypes[agent.Type] {
+				if err := sk.RunPreSpawnScripts(string(agent.Type)); err != nil {
+					// Scripts log their own errors/warnings, we continue
+				}
+				seenTypes[agent.Type] = true
+			}
+		}
+
+		// Prepend skill instructions to the prompt
+		if sk.Instruction != "" {
+			if opts.Prompt == "" {
+				opts.Prompt = sk.Instruction
+			} else {
+				opts.Prompt = sk.Instruction + "\n\n" + opts.Prompt
+			}
+		}
 	}
 
 	// Create or use existing session

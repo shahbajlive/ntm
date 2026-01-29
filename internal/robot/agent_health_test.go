@@ -3,7 +3,7 @@ package robot
 import (
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/caut"
+	"github.com/shahbajlive/ntm/internal/caut"
 )
 
 func TestCalculateHealthScore(t *testing.T) {

@@ -10,9 +10,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/Dicklesworthstone/ntm/internal/state"
-	"github.com/Dicklesworthstone/ntm/internal/tui/components"
-	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
+	"github.com/shahbajlive/ntm/internal/state"
+	"github.com/shahbajlive/ntm/internal/tui/components"
+	"github.com/shahbajlive/ntm/internal/tui/theme"
 )
 
 // timelineConfig returns the configuration for the timeline panel

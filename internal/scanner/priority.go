@@ -7,7 +7,7 @@ import (
 	"os"
 	"sort"
 
-	"github.com/Dicklesworthstone/ntm/internal/bv"
+	"github.com/shahbajlive/ntm/internal/bv"
 )
 
 // skipBVIntegration returns true if we should skip bv calls (e.g., during tests).

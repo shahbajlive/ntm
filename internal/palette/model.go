@@ -12,14 +12,14 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/reflow/wordwrap"
 
-	"github.com/Dicklesworthstone/ntm/internal/config"
-	"github.com/Dicklesworthstone/ntm/internal/history"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
-	"github.com/Dicklesworthstone/ntm/internal/tui/components"
-	"github.com/Dicklesworthstone/ntm/internal/tui/icons"
-	"github.com/Dicklesworthstone/ntm/internal/tui/layout"
-	"github.com/Dicklesworthstone/ntm/internal/tui/styles"
-	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
+	"github.com/shahbajlive/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/history"
+	"github.com/shahbajlive/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tui/components"
+	"github.com/shahbajlive/ntm/internal/tui/icons"
+	"github.com/shahbajlive/ntm/internal/tui/layout"
+	"github.com/shahbajlive/ntm/internal/tui/styles"
+	"github.com/shahbajlive/ntm/internal/tui/theme"
 )
 
 // AnimationTickMsg is used to trigger animation updates

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Dicklesworthstone/ntm/internal/agentmail"
+	"github.com/shahbajlive/ntm/internal/agentmail"
 )
 
 // NotifyScanResults sends scan results to relevant agents via Agent Mail.

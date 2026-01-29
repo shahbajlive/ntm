@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/tokens"
+	"github.com/shahbajlive/ntm/internal/tokens"
 )
 
 func TestNewPreambleEngine(t *testing.T) {

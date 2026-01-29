@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Dicklesworthstone/ntm/internal/kernel"
+	"github.com/shahbajlive/ntm/internal/kernel"
 )
 
 // OpenAPISpec represents an OpenAPI 3.1 specification.

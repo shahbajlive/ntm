@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
-	"github.com/Dicklesworthstone/ntm/internal/agent"
+	"github.com/shahbajlive/ntm/internal/agent"
 )
 
 //go:embed builtins/*.toml

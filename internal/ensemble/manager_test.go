@@ -6,7 +6,7 @@ package ensemble
 import (
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 func TestResolveEnsembleConfig_PresetOverrides(t *testing.T) {

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/pipeline"
+	"github.com/shahbajlive/ntm/internal/pipeline"
 	"github.com/go-chi/chi/v5"
 )
 

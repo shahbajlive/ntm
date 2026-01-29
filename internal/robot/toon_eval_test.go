@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/tokens"
+	"github.com/shahbajlive/ntm/internal/tokens"
 )
 
 // TestToonVsJSONTokenEfficiency evaluates TOON vs JSON token counts on representative payloads.

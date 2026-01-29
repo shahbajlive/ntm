@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/codeblock"
+	"github.com/shahbajlive/ntm/internal/codeblock"
 )
 
 func TestParseFileSpec(t *testing.T) {

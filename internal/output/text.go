@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"golang.org/x/term"
 
-	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
+	"github.com/shahbajlive/ntm/internal/tui/theme"
 )
 
 // Text outputs plain text to the formatter's writer

@@ -10,8 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/persona"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/persona"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // agentIDPattern matches agent IDs like "cc_1", "cod_2", "gmi_3"

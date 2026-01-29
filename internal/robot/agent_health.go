@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/caut"
-	"github.com/Dicklesworthstone/ntm/internal/integrations/pt"
-	"github.com/Dicklesworthstone/ntm/internal/tools"
+	"github.com/shahbajlive/ntm/internal/caut"
+	"github.com/shahbajlive/ntm/internal/integrations/pt"
+	"github.com/shahbajlive/ntm/internal/tools"
 )
 
 // =============================================================================

@@ -1,10 +1,10 @@
 # NTM - Named Tmux Manager
-# https://github.com/Dicklesworthstone/ntm
+# https://github.com/shahbajlive/ntm
 
 BINARY_NAME := ntm
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
-LDFLAGS := -ldflags "-s -w -X github.com/Dicklesworthstone/ntm/internal/cli.Version=$(VERSION)"
+LDFLAGS := -ldflags "-s -w -X github.com/shahbajlive/ntm/internal/cli.Version=$(VERSION)"
 
 GO := go
 GOFLAGS := -trimpath

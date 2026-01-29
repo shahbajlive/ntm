@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/assignment"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/assignment"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // DetectionMethod describes how completion was detected

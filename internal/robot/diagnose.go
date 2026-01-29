@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // =============================================================================

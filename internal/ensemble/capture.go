@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/codeblock"
-	"github.com/Dicklesworthstone/ntm/internal/status"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
-	tokenpkg "github.com/Dicklesworthstone/ntm/internal/tokens"
+	"github.com/shahbajlive/ntm/internal/codeblock"
+	"github.com/shahbajlive/ntm/internal/status"
+	"github.com/shahbajlive/ntm/internal/tmux"
+	tokenpkg "github.com/shahbajlive/ntm/internal/tokens"
 )
 
 const defaultCaptureLines = 1000

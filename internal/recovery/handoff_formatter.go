@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/handoff"
+	"github.com/shahbajlive/ntm/internal/handoff"
 )
 
 // MaxHandoffTokens is the token budget for handoff context in agent prompt.

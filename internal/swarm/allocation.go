@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/config"
 )
 
 // AllocationCalculator computes agent allocations for projects based on

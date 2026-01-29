@@ -11,9 +11,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/scanner"
-	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
-	"github.com/Dicklesworthstone/ntm/internal/watcher"
+	"github.com/shahbajlive/ntm/internal/scanner"
+	"github.com/shahbajlive/ntm/internal/tui/theme"
+	"github.com/shahbajlive/ntm/internal/watcher"
 )
 
 func newScanCmd() *cobra.Command {

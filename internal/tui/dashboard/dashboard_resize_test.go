@@ -5,7 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/Dicklesworthstone/ntm/internal/tui/layout"
+	"github.com/shahbajlive/ntm/internal/tui/layout"
 )
 
 func TestWindowSizeMsg_UpdatesDimensionsAndPanels(t *testing.T) {

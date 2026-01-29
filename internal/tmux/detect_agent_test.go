@@ -2,7 +2,7 @@ package tmux
 
 import (
 	"testing"
-	"github.com/Dicklesworthstone/ntm/internal/agent"
+	"github.com/shahbajlive/ntm/internal/agent"
 )
 
 func TestDetectAgentFromCommand_FalsePositives(t *testing.T) {

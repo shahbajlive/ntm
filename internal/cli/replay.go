@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/history"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/history"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 func newReplayCmd() *cobra.Command {

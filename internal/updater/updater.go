@@ -11,7 +11,7 @@ import (
 
 const (
 	// GitHubAPIURL is the endpoint for checking releases
-	GitHubAPIURL = "https://api.github.com/repos/Dicklesworthstone/ntm/releases/latest"
+	GitHubAPIURL = "https://api.github.com/repos/shahbajlive/ntm/releases/latest"
 	// CheckTimeout is the maximum time to wait for update check
 	CheckTimeout = 2 * time.Second
 )

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/persona"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/persona"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 func TestParseAgentID(t *testing.T) {

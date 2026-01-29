@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/swarm"
+	"github.com/shahbajlive/ntm/internal/swarm"
 )
 
 func TestWritePlanToFile(t *testing.T) {

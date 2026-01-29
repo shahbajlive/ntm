@@ -1,8 +1,8 @@
 package startup
 
 import (
-	"github.com/Dicklesworthstone/ntm/internal/config"
-	"github.com/Dicklesworthstone/ntm/internal/profiler"
+	"github.com/shahbajlive/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/profiler"
 )
 
 // configLoader manages lazy config loading

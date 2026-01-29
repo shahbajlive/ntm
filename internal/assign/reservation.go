@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/Dicklesworthstone/ntm/internal/agentmail"
+	"github.com/shahbajlive/ntm/internal/agentmail"
 )
 
 // FileReservationManager handles file path reservations for bead assignments.

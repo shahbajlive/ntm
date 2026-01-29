@@ -4,8 +4,8 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/clipboard"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/clipboard"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 func TestPaneMatchesSelector(t *testing.T) {

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
-	"github.com/Dicklesworthstone/ntm/tests/testutil"
+	"github.com/shahbajlive/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/tests/testutil"
 )
 
 // TestFullAgentWorkflow tests the complete lifecycle of spawning, using, and killing an agent session.

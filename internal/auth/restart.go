@@ -7,9 +7,9 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/config"
-	"github.com/Dicklesworthstone/ntm/internal/rotation"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/rotation"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // Orchestrator manages the restart process

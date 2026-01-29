@@ -3,7 +3,7 @@ package panels
 import (
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/tools"
+	"github.com/shahbajlive/ntm/internal/tools"
 )
 
 func TestNewQuotaPanel(t *testing.T) {

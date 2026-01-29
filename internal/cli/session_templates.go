@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/templates"
-	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
+	"github.com/shahbajlive/ntm/internal/templates"
+	"github.com/shahbajlive/ntm/internal/tui/theme"
 )
 
 // SessionTemplatesListResult is the JSON output for session-templates list command.

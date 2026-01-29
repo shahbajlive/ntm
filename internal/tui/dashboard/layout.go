@@ -10,15 +10,15 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/reflow/wordwrap"
 
-	"github.com/Dicklesworthstone/ntm/internal/bv"
-	"github.com/Dicklesworthstone/ntm/internal/integrations/pt"
-	status "github.com/Dicklesworthstone/ntm/internal/status"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
-	"github.com/Dicklesworthstone/ntm/internal/tokens"
-	"github.com/Dicklesworthstone/ntm/internal/tracker"
-	"github.com/Dicklesworthstone/ntm/internal/tui/layout"
-	"github.com/Dicklesworthstone/ntm/internal/tui/styles"
-	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
+	"github.com/shahbajlive/ntm/internal/bv"
+	"github.com/shahbajlive/ntm/internal/integrations/pt"
+	status "github.com/shahbajlive/ntm/internal/status"
+	"github.com/shahbajlive/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tokens"
+	"github.com/shahbajlive/ntm/internal/tracker"
+	"github.com/shahbajlive/ntm/internal/tui/layout"
+	"github.com/shahbajlive/ntm/internal/tui/styles"
+	"github.com/shahbajlive/ntm/internal/tui/theme"
 )
 
 // Layout mode thresholds - defines breakpoints for responsive layouts

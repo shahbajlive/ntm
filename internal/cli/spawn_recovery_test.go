@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/config"
 )
 
 // TestRecoveryContext_EstimateTokens tests the token estimation function

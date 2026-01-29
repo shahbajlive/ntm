@@ -8,7 +8,7 @@ import (
 
 	"github.com/mattn/go-runewidth"
 
-	"github.com/Dicklesworthstone/ntm/internal/tui/styles"
+	"github.com/shahbajlive/ntm/internal/tui/styles"
 )
 
 // ParticleType defines different particle effects

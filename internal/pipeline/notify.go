@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/agentmail"
+	"github.com/shahbajlive/ntm/internal/agentmail"
 )
 
 // NotificationEvent represents a pipeline event to notify about.

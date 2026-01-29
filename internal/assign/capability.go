@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // TaskType represents categories of work for capability matching.

@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/tests/testutil"
+	"github.com/shahbajlive/ntm/tests/testutil"
 )
 
 func TestMain(m *testing.M) {

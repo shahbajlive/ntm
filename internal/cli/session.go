@@ -15,17 +15,17 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/Dicklesworthstone/ntm/internal/assignment"
-	"github.com/Dicklesworthstone/ntm/internal/cli/suggestions"
-	"github.com/Dicklesworthstone/ntm/internal/handoff"
-	"github.com/Dicklesworthstone/ntm/internal/kernel"
-	"github.com/Dicklesworthstone/ntm/internal/output"
-	"github.com/Dicklesworthstone/ntm/internal/status"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
-	"github.com/Dicklesworthstone/ntm/internal/tokens"
-	"github.com/Dicklesworthstone/ntm/internal/tui/icons"
-	"github.com/Dicklesworthstone/ntm/internal/tui/layout"
-	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
+	"github.com/shahbajlive/ntm/internal/assignment"
+	"github.com/shahbajlive/ntm/internal/cli/suggestions"
+	"github.com/shahbajlive/ntm/internal/handoff"
+	"github.com/shahbajlive/ntm/internal/kernel"
+	"github.com/shahbajlive/ntm/internal/output"
+	"github.com/shahbajlive/ntm/internal/status"
+	"github.com/shahbajlive/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tokens"
+	"github.com/shahbajlive/ntm/internal/tui/icons"
+	"github.com/shahbajlive/ntm/internal/tui/layout"
+	"github.com/shahbajlive/ntm/internal/tui/theme"
 )
 
 // statusOptions holds configuration for the status command

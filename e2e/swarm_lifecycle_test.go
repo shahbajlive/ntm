@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // SwarmPlanResponse represents the JSON output from ntm swarm --dry-run --json

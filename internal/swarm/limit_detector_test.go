@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/ratelimit"
+	"github.com/shahbajlive/ntm/internal/ratelimit"
 )
 
 func TestNewLimitDetector(t *testing.T) {

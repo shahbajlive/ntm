@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/events"
+	"github.com/shahbajlive/ntm/internal/events"
 )
 
 func TestReadEvents(t *testing.T) {

@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/integrations/caut"
-	"github.com/Dicklesworthstone/ntm/internal/tools"
+	"github.com/shahbajlive/ntm/internal/integrations/caut"
+	"github.com/shahbajlive/ntm/internal/tools"
 )
 
 // QuotaStatusOutput represents the response from --robot-quota-status

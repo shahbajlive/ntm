@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // TmuxClient defines the interface for tmux operations needed by probe.

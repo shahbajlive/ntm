@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/policy"
+	"github.com/shahbajlive/ntm/internal/policy"
 )
 
 func TestPolicyPrecedence(t *testing.T) {

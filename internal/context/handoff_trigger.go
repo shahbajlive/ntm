@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/handoff"
+	"github.com/shahbajlive/ntm/internal/handoff"
 )
 
 // HandoffTriggerConfig configures the proactive handoff trigger.

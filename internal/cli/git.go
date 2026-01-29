@@ -11,7 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/agentmail"
+	"github.com/shahbajlive/ntm/internal/agentmail"
 )
 
 func newGitCmd() *cobra.Command {

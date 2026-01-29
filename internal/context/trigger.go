@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/alerts"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/alerts"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // CompactionTriggerConfig configures the proactive compaction trigger.

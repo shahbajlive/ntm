@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/assign"
-	"github.com/Dicklesworthstone/ntm/internal/output"
+	"github.com/shahbajlive/ntm/internal/assign"
+	"github.com/shahbajlive/ntm/internal/output"
 )
 
 // ============================================================================

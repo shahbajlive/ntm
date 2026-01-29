@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	ntmcontext "github.com/Dicklesworthstone/ntm/internal/context"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	ntmcontext "github.com/shahbajlive/ntm/internal/context"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // AccountRotatorI provides account rotation for limit recovery (optional).

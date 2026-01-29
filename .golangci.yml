@@ -89,7 +89,7 @@ linters-settings:
     simplify: true
 
   goimports:
-    local-prefixes: github.com/Dicklesworthstone/ntm
+    local-prefixes: github.com/shahbajlive/ntm
 
   gosec:
     excludes:

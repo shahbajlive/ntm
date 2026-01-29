@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/recipe"
-	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
+	"github.com/shahbajlive/ntm/internal/recipe"
+	"github.com/shahbajlive/ntm/internal/tui/theme"
 )
 
 // RecipesListResult is the JSON output for recipes list command.

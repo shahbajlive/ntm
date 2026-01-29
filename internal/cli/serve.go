@@ -10,9 +10,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/events"
-	"github.com/Dicklesworthstone/ntm/internal/serve"
-	"github.com/Dicklesworthstone/ntm/internal/state"
+	"github.com/shahbajlive/ntm/internal/events"
+	"github.com/shahbajlive/ntm/internal/serve"
+	"github.com/shahbajlive/ntm/internal/state"
 )
 
 func newServeCmd() *cobra.Command {

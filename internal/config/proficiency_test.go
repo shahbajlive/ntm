@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/cli/tiers"
+	"github.com/shahbajlive/ntm/internal/cli/tiers"
 )
 
 func TestDefaultProficiencyConfig(t *testing.T) {

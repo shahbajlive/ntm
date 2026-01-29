@@ -10,8 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/agents"
-	"github.com/Dicklesworthstone/ntm/internal/output"
+	"github.com/shahbajlive/ntm/internal/agents"
+	"github.com/shahbajlive/ntm/internal/output"
 )
 
 func newAgentsCmd() *cobra.Command {

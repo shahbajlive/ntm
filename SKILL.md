@@ -22,7 +22,7 @@ NTM solves all of this with one session containing many agents, persistent acros
 
 ```bash
 # Install
-curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/shahbajlive/ntm/main/install.sh | bash
 
 # Add shell integration
 echo 'eval "$(ntm shell zsh)"' >> ~/.zshrc && source ~/.zshrc
@@ -535,13 +535,13 @@ After `eval "$(ntm shell zsh)"`:
 
 ```bash
 # One-liner (recommended)
-curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/shahbajlive/ntm/main/install.sh | bash
 
 # Homebrew
 brew install dicklesworthstone/tap/ntm
 
 # Go install
-go install github.com/Dicklesworthstone/ntm/cmd/ntm@latest
+go install github.com/shahbajlive/ntm/cmd/ntm@latest
 
 # Docker
 docker pull ghcr.io/dicklesworthstone/ntm:latest

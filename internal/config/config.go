@@ -11,8 +11,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/Dicklesworthstone/ntm/internal/notify"
-	"github.com/Dicklesworthstone/ntm/internal/util"
+	"github.com/shahbajlive/ntm/internal/notify"
+	"github.com/shahbajlive/ntm/internal/util"
 )
 
 // validSynthesisStrategies defines the canonical synthesis strategy names.
@@ -1888,7 +1888,7 @@ func renderTOMLStringArray(values []string) string {
 func Print(cfg *Config, w io.Writer) error {
 	// Write a nicely formatted config file
 	fmt.Fprintln(w, "# NTM (Named Tmux Manager) Configuration")
-	fmt.Fprintln(w, "# https://github.com/Dicklesworthstone/ntm")
+	fmt.Fprintln(w, "# https://github.com/shahbajlive/ntm")
 	fmt.Fprintln(w)
 
 	fmt.Fprintf(w, "# Base directory for projects\n")

@@ -7,7 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/list"
 
-	"github.com/Dicklesworthstone/ntm/internal/cass"
+	"github.com/shahbajlive/ntm/internal/cass"
 )
 
 type stubCassExecutor struct {

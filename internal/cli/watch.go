@@ -13,9 +13,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
-	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
-	"github.com/Dicklesworthstone/ntm/internal/watcher"
+	"github.com/shahbajlive/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tui/theme"
+	"github.com/shahbajlive/ntm/internal/watcher"
 )
 
 func newWatchCmd() *cobra.Command {

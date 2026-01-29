@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/cli/tiers"
+	"github.com/shahbajlive/ntm/internal/cli/tiers"
 )
 
 // ProficiencyConfig stores user proficiency tier and usage statistics.

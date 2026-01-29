@@ -11,7 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/handoff"
+	"github.com/shahbajlive/ntm/internal/handoff"
 )
 
 func TestNewHandoffCmd(t *testing.T) {

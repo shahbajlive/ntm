@@ -3,7 +3,7 @@ package startup
 import (
 	"sync"
 
-	"github.com/Dicklesworthstone/ntm/internal/profiler"
+	"github.com/shahbajlive/ntm/internal/profiler"
 )
 
 // Lazy provides thread-safe lazy initialization for any type T

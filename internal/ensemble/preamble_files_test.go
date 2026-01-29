@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/tokens"
+	"github.com/shahbajlive/ntm/internal/tokens"
 	"gopkg.in/yaml.v3"
 )
 

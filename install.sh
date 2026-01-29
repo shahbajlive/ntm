@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
 # NTM Install Script
-# https://github.com/Dicklesworthstone/ntm
+# https://github.com/shahbajlive/ntm
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/shahbajlive/ntm/main/install.sh | bash
 #
 # Options:
 #   --version=TAG   Install specific version (default: latest)
@@ -71,7 +71,7 @@ for arg in "$@"; do
             cat << 'EOF'
 NTM Install Script
 
-Usage: curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/install.sh | bash
+Usage: curl -fsSL https://raw.githubusercontent.com/shahbajlive/ntm/main/install.sh | bash
 
 Options:
   --version=TAG   Install specific version (default: latest)
@@ -82,13 +82,13 @@ Options:
 
 Examples:
   # Install latest version
-  curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/install.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/shahbajlive/ntm/main/install.sh | bash
 
   # Install specific version
-  curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/install.sh | bash -s -- --version=v1.0.0
+  curl -fsSL https://raw.githubusercontent.com/shahbajlive/ntm/main/install.sh | bash -s -- --version=v1.0.0
 
   # Install to custom directory
-  curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/install.sh | bash -s -- --dir=/opt/bin
+  curl -fsSL https://raw.githubusercontent.com/shahbajlive/ntm/main/install.sh | bash -s -- --dir=/opt/bin
 EOF
             exit 0
             ;;

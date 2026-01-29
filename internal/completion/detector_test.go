@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/assignment"
+	"github.com/shahbajlive/ntm/internal/assignment"
 )
 
 func TestDefaultConfig(t *testing.T) {

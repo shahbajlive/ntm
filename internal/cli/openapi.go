@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/kernel"
-	"github.com/Dicklesworthstone/ntm/internal/serve"
+	"github.com/shahbajlive/ntm/internal/kernel"
+	"github.com/shahbajlive/ntm/internal/serve"
 )
 
 func init() {

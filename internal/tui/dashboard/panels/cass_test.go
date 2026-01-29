@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/cass"
+	"github.com/shahbajlive/ntm/internal/cass"
 )
 
 func TestNewCASSPanel(t *testing.T) {

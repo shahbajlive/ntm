@@ -152,8 +152,8 @@ func (e *upgradeError) Error() string {
 	// Self-service links
 	sb.WriteString(hintStyle.Render("Resources:"))
 	sb.WriteString("\n")
-	sb.WriteString(fmt.Sprintf("  • Releases: %s\n", dimStyle.Render("https://github.com/Dicklesworthstone/ntm/releases")))
-	sb.WriteString(fmt.Sprintf("  • Report issue: %s\n", dimStyle.Render("https://github.com/Dicklesworthstone/ntm/issues/new")))
+	sb.WriteString(fmt.Sprintf("  • Releases: %s\n", dimStyle.Render("https://github.com/shahbajlive/ntm/releases")))
+	sb.WriteString(fmt.Sprintf("  • Report issue: %s\n", dimStyle.Render("https://github.com/shahbajlive/ntm/issues/new")))
 
 	return sb.String()
 }
@@ -496,7 +496,7 @@ func runUpgrade(checkOnly, force, yes, strict, verbose bool) error {
 		fmt.Printf("  %s %s\n", errorStyle.Render("Error:"), err)
 		fmt.Println()
 		fmt.Println(dimStyle.Render("  If this is a development build, releases may not exist yet."))
-		fmt.Println(dimStyle.Render("  Check: https://github.com/Dicklesworthstone/ntm/releases"))
+		fmt.Println(dimStyle.Render("  Check: https://github.com/shahbajlive/ntm/releases"))
 		return nil
 	}
 	fmt.Println(successStyle.Render("✓"))
@@ -704,7 +704,7 @@ func runUpgrade(checkOnly, force, yes, strict, verbose bool) error {
 				fmt.Println(successStyle.Render("  ✓ Previous version restored"))
 				fmt.Println()
 				fmt.Println(dimStyle.Render("  Please report this issue:"))
-				fmt.Println(dimStyle.Render("  https://github.com/Dicklesworthstone/ntm/issues"))
+				fmt.Println(dimStyle.Render("  https://github.com/shahbajlive/ntm/issues"))
 				return fmt.Errorf("upgrade rolled back due to verification failure")
 			}
 			// User chose not to restore - warn them

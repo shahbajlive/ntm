@@ -3,7 +3,7 @@ package tutorial
 import (
 	"strings"
 
-	"github.com/Dicklesworthstone/ntm/internal/tui/styles"
+	"github.com/shahbajlive/ntm/internal/tui/styles"
 )
 
 // Large NTM logo with extra flair

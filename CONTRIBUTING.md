@@ -119,7 +119,7 @@ This means `upgrade.go` couldn't find a matching asset. The error now shows:
 Common causes:
 
 1. **Naming convention mismatch**:
-   - Check actual names at https://github.com/Dicklesworthstone/ntm/releases/latest
+   - Check actual names at https://github.com/shahbajlive/ntm/releases/latest
    - Compare against `TestUpgradeAssetNamingContract` expectations
 
 2. **GoReleaser config changed**:

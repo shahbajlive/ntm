@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	tokenpkg "github.com/Dicklesworthstone/ntm/internal/tokens"
+	tokenpkg "github.com/shahbajlive/ntm/internal/tokens"
 )
 
 // BudgetTracker tracks token usage across an ensemble session and enforces budget caps.

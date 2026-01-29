@@ -8,7 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/Dicklesworthstone/ntm/internal/history"
+	"github.com/shahbajlive/ntm/internal/history"
 )
 
 func TestNewHistoryPanel(t *testing.T) {

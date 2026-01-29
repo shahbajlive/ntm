@@ -7,9 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	ctxmon "github.com/Dicklesworthstone/ntm/internal/context"
-	"github.com/Dicklesworthstone/ntm/internal/output"
-	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
+	ctxmon "github.com/shahbajlive/ntm/internal/context"
+	"github.com/shahbajlive/ntm/internal/output"
+	"github.com/shahbajlive/ntm/internal/tui/theme"
 )
 
 func newRotateContextCmd() *cobra.Command {

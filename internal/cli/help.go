@@ -9,10 +9,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"golang.org/x/term"
 
-	"github.com/Dicklesworthstone/ntm/internal/tui/components"
-	"github.com/Dicklesworthstone/ntm/internal/tui/icons"
-	"github.com/Dicklesworthstone/ntm/internal/tui/styles"
-	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
+	"github.com/shahbajlive/ntm/internal/tui/components"
+	"github.com/shahbajlive/ntm/internal/tui/icons"
+	"github.com/shahbajlive/ntm/internal/tui/styles"
+	"github.com/shahbajlive/ntm/internal/tui/theme"
 )
 
 // PrintStunningHelp prints a beautifully styled help output

@@ -3,7 +3,7 @@ package assign
 import (
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 func TestParseStrategy(t *testing.T) {

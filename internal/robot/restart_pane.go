@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // RestartPaneOutput is the structured output for --robot-restart-pane

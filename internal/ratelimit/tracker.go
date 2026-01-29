@@ -11,7 +11,7 @@ import (
     "sync"
     "time"
 
-    "github.com/Dicklesworthstone/ntm/internal/status"
+    "github.com/shahbajlive/ntm/internal/status"
 )
 
 // Default delays per provider (initial values before learning).

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/ensemble"
+	"github.com/shahbajlive/ntm/internal/ensemble"
 )
 
 func TestBuildEnsembleAssignmentsCounts(t *testing.T) {

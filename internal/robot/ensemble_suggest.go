@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/Dicklesworthstone/ntm/internal/ensemble"
+	"github.com/shahbajlive/ntm/internal/ensemble"
 )
 
 // EnsembleSuggestOutput is the structured response for --robot-ensemble-suggest.

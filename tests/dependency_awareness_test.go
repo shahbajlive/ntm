@@ -6,8 +6,8 @@ package tests
 import (
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/assignment"
-	"github.com/Dicklesworthstone/ntm/internal/bv"
+	"github.com/shahbajlive/ntm/internal/assignment"
+	"github.com/shahbajlive/ntm/internal/bv"
 )
 
 // ============================================================================

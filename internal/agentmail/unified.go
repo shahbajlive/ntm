@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/bd"
+	"github.com/shahbajlive/ntm/internal/bd"
 )
 
 type UnifiedMessage struct {

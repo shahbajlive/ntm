@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/tui/layout"
+	"github.com/shahbajlive/ntm/internal/tui/layout"
 )
 
 func TestFormatTokenDisplay(t *testing.T) {

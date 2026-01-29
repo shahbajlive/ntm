@@ -2,7 +2,7 @@
 package scanner
 
 import (
-	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/config"
 )
 
 // ScanOptionsFromConfig creates ScanOptions from a ScannerConfig

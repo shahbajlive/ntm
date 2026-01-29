@@ -23,10 +23,10 @@ ARG DATE=unknown
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -trimpath \
     -ldflags="-s -w \
-        -X github.com/Dicklesworthstone/ntm/internal/cli.Version=${VERSION} \
-        -X github.com/Dicklesworthstone/ntm/internal/cli.Commit=${COMMIT} \
-        -X github.com/Dicklesworthstone/ntm/internal/cli.Date=${DATE} \
-        -X github.com/Dicklesworthstone/ntm/internal/cli.BuiltBy=docker" \
+        -X github.com/shahbajlive/ntm/internal/cli.Version=${VERSION} \
+        -X github.com/shahbajlive/ntm/internal/cli.Commit=${COMMIT} \
+        -X github.com/shahbajlive/ntm/internal/cli.Date=${DATE} \
+        -X github.com/shahbajlive/ntm/internal/cli.BuiltBy=docker" \
     -o /ntm ./cmd/ntm
 
 # Runtime stage

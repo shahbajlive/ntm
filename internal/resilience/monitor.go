@@ -8,11 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/config"
-	"github.com/Dicklesworthstone/ntm/internal/health"
-	"github.com/Dicklesworthstone/ntm/internal/notify"
-	"github.com/Dicklesworthstone/ntm/internal/ratelimit"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/health"
+	"github.com/shahbajlive/ntm/internal/notify"
+	"github.com/shahbajlive/ntm/internal/ratelimit"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // Overridable hooks for tests.

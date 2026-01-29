@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/context"
+	"github.com/shahbajlive/ntm/internal/context"
 )
 
 func TestNewContextPanel(t *testing.T) {

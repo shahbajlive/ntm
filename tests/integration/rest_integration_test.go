@@ -27,10 +27,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/events"
-	"github.com/Dicklesworthstone/ntm/internal/serve"
-	"github.com/Dicklesworthstone/ntm/internal/state"
-	"github.com/Dicklesworthstone/ntm/tests/testutil"
+	"github.com/shahbajlive/ntm/internal/events"
+	"github.com/shahbajlive/ntm/internal/serve"
+	"github.com/shahbajlive/ntm/internal/state"
+	"github.com/shahbajlive/ntm/tests/testutil"
 )
 
 // =============================================================================

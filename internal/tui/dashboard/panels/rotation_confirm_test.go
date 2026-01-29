@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/context"
+	"github.com/shahbajlive/ntm/internal/context"
 )
 
 func TestNewRotationConfirmPanel(t *testing.T) {

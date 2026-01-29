@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/tokens"
+	"github.com/shahbajlive/ntm/internal/tokens"
 )
 
 // ModelPricing defines the cost per 1K tokens for input and output.

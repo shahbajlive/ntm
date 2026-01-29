@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/events"
-	tokenpkg "github.com/Dicklesworthstone/ntm/internal/tokens"
+	"github.com/shahbajlive/ntm/internal/events"
+	tokenpkg "github.com/shahbajlive/ntm/internal/tokens"
 )
 
 // TokensOptions configures token usage analysis

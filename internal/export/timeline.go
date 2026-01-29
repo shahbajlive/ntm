@@ -13,7 +13,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/state"
+	"github.com/shahbajlive/ntm/internal/state"
 )
 
 // ExportFormat represents the output format for timeline export.

@@ -3,7 +3,7 @@
 package robot
 
 import (
-	"github.com/Dicklesworthstone/ntm/internal/caut"
+	"github.com/shahbajlive/ntm/internal/caut"
 )
 
 // HealthRecommendation represents the recommended action based on health analysis.

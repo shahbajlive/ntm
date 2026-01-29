@@ -6,7 +6,7 @@ package checkpoint
 import (
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // Checkpoint represents a saved session state.

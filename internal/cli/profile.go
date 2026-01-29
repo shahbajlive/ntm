@@ -3,7 +3,7 @@ package cli
 import (
 	"os"
 
-	"github.com/Dicklesworthstone/ntm/internal/profiler"
+	"github.com/shahbajlive/ntm/internal/profiler"
 )
 
 // profileStartup controls startup profiling

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/agent"
+	"github.com/shahbajlive/ntm/internal/agent"
 )
 
 //go:embed migrations/*.sql

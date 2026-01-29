@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Dicklesworthstone/ntm/internal/codeblock"
+	"github.com/shahbajlive/ntm/internal/codeblock"
 )
 
 // FileSpec represents a parsed file specification with optional line range

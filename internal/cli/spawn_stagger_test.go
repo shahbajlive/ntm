@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/ratelimit"
+	"github.com/shahbajlive/ntm/internal/ratelimit"
 )
 
 func TestOptionalDurationValue_Set(t *testing.T) {

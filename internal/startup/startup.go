@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/profiler"
+	"github.com/shahbajlive/ntm/internal/profiler"
 )
 
 // Phase represents a startup phase

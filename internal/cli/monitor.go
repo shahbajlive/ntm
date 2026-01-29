@@ -13,13 +13,13 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/archive"
-	"github.com/Dicklesworthstone/ntm/internal/config"
-	"github.com/Dicklesworthstone/ntm/internal/plugins"
-	"github.com/Dicklesworthstone/ntm/internal/resilience"
-	"github.com/Dicklesworthstone/ntm/internal/summary"
-	"github.com/Dicklesworthstone/ntm/internal/supervisor"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/archive"
+	"github.com/shahbajlive/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/plugins"
+	"github.com/shahbajlive/ntm/internal/resilience"
+	"github.com/shahbajlive/ntm/internal/summary"
+	"github.com/shahbajlive/ntm/internal/supervisor"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 func newMonitorCmd() *cobra.Command {

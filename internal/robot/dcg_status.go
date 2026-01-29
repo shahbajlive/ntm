@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/integrations/dcg"
-	"github.com/Dicklesworthstone/ntm/internal/tools"
+	"github.com/shahbajlive/ntm/internal/integrations/dcg"
+	"github.com/shahbajlive/ntm/internal/tools"
 )
 
 // DCGStatusOutput represents the response from --robot-dcg-status

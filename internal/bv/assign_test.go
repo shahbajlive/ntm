@@ -3,8 +3,8 @@ package bv
 import (
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/assign"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/assign"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // TestTriageToAssignIntegration tests the conversion from triage data to assignments.

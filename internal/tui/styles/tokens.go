@@ -5,7 +5,7 @@ package styles
 import (
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
+	"github.com/shahbajlive/ntm/internal/tui/theme"
 )
 
 // Spacing defines consistent spacing values (in terminal character units).

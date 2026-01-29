@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/bv"
+	"github.com/shahbajlive/ntm/internal/bv"
 )
 
 // BeadPriority represents the priority level for beads issues.

@@ -3,7 +3,7 @@ package cli
 import (
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/robot"
+	"github.com/shahbajlive/ntm/internal/robot"
 )
 
 func TestIsValidCondition(t *testing.T) {

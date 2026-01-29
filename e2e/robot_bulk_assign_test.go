@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // BulkAssignOutput represents the JSON response from --robot-bulk-assign.

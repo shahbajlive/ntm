@@ -8,10 +8,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	ntmctx "github.com/Dicklesworthstone/ntm/internal/context"
-	"github.com/Dicklesworthstone/ntm/internal/output"
-	"github.com/Dicklesworthstone/ntm/internal/state"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	ntmctx "github.com/shahbajlive/ntm/internal/context"
+	"github.com/shahbajlive/ntm/internal/output"
+	"github.com/shahbajlive/ntm/internal/state"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 func newContextCmd() *cobra.Command {

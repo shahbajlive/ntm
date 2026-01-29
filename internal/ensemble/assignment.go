@@ -10,8 +10,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/Dicklesworthstone/ntm/internal/agent"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/agent"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // CategoryAffinities maps reasoning categories to preferred agent types (ordered).

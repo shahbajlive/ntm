@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/assignment"
-	"github.com/Dicklesworthstone/ntm/internal/completion"
+	"github.com/shahbajlive/ntm/internal/assignment"
+	"github.com/shahbajlive/ntm/internal/completion"
 )
 
 // MockCompletionDetector simulates completion detection for testing

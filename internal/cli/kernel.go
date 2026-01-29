@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/kernel"
+	"github.com/shahbajlive/ntm/internal/kernel"
 )
 
 func init() {

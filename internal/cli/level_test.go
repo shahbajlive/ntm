@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/cli/tiers"
-	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/cli/tiers"
+	"github.com/shahbajlive/ntm/internal/config"
 )
 
 func setupTestProficiency(t *testing.T) (cleanup func()) {

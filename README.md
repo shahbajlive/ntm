@@ -9,8 +9,8 @@
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-blue.svg)
 ![Go Version](https://img.shields.io/badge/go-1.25+-00ADD8.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
-![CI](https://img.shields.io/github/actions/workflow/status/Dicklesworthstone/ntm/ci.yml?label=CI)
-![Release](https://img.shields.io/github/v/release/Dicklesworthstone/ntm?include_prereleases)
+![CI](https://img.shields.io/github/actions/workflow/status/shahbajlive/ntm/ci.yml?label=CI)
+![Release](https://img.shields.io/github/v/release/shahbajlive/ntm?include_prereleases)
 
 </div>
 
@@ -21,7 +21,7 @@ Spawn, manage, and coordinate Claude Code, OpenAI Codex, and Google Gemini CLI a
 <div align="center">
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/install.sh?$(date +%s)" | bash -s -- --easy-mode
+curl -fsSL "https://raw.githubusercontent.com/shahbajlive/ntm/main/install.sh?$(date +%s)" | bash -s -- --easy-mode
 ```
 
 </div>
@@ -46,7 +46,7 @@ ntm --robot-send=myproject --message "Summarize this repo and propose next steps
 ## Quick Start
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/install.sh?$(date +%s)" | bash -s -- --easy-mode
+curl -fsSL "https://raw.githubusercontent.com/shahbajlive/ntm/main/install.sh?$(date +%s)" | bash -s -- --easy-mode
 ```
 
 Add shell integration:
@@ -289,13 +289,13 @@ scoop install dicklesworthstone/ntm
 ### Alternative: One-Line Install
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/install.sh?$(date +%s)" | bash -s -- --easy-mode
+curl -fsSL "https://raw.githubusercontent.com/shahbajlive/ntm/main/install.sh?$(date +%s)" | bash -s -- --easy-mode
 ```
 
 ### Go Install
 
 ```bash
-go install github.com/Dicklesworthstone/ntm/cmd/ntm@latest
+go install github.com/shahbajlive/ntm/cmd/ntm@latest
 ```
 
 ### Docker
@@ -316,7 +316,7 @@ docker pull ghcr.io/dicklesworthstone/ntm:v1.0.0
 ### From Source
 
 ```bash
-git clone https://github.com/Dicklesworthstone/ntm.git
+git clone https://github.com/shahbajlive/ntm.git
 cd ntm
 go build -o ntm ./cmd/ntm
 sudo mv ntm /usr/local/bin/
@@ -993,7 +993,7 @@ $EDITOR ~/.config/ntm/config.toml
 
 ```toml
 # NTM (Named Tmux Manager) Configuration
-# https://github.com/Dicklesworthstone/ntm
+# https://github.com/shahbajlive/ntm
 
 # Base directory for projects
 projects_base = "~/Developer"
@@ -1887,7 +1887,7 @@ export NTM_THEME=plain   # Explicit no-color theme (escape hatch)
 1) Install + shell integration (zsh example):
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/install.sh?$(date +%s)" | bash -s -- --easy-mode
+curl -fsSL "https://raw.githubusercontent.com/shahbajlive/ntm/main/install.sh?$(date +%s)" | bash -s -- --easy-mode
 echo 'eval "$(ntm shell zsh)"' >> ~/.zshrc && source ~/.zshrc
 ```
 
@@ -4629,7 +4629,7 @@ Total RAM ≈ 10 + (panes × 2) + (claude × 300) + (codex × 200) + (gemini × 
 ### Building from Source
 
 ```bash
-git clone https://github.com/Dicklesworthstone/ntm.git
+git clone https://github.com/shahbajlive/ntm.git
 cd ntm
 go build -o ntm ./cmd/ntm
 ```

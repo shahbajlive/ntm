@@ -5,7 +5,7 @@ package watcher
 import (
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/agentmail"
+	"github.com/shahbajlive/ntm/internal/agentmail"
 )
 
 // FileReservationConfigValues holds the values needed to configure a FileReservationWatcher.

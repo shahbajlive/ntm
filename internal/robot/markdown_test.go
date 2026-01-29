@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/alerts"
+	"github.com/shahbajlive/ntm/internal/alerts"
 )
 
 func TestRenderAgentTable(t *testing.T) {

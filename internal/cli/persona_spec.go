@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Dicklesworthstone/ntm/internal/persona"
+	"github.com/shahbajlive/ntm/internal/persona"
 )
 
 // PersonaSpec represents a parsed persona specification with optional count

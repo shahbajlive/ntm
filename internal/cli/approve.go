@@ -10,8 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/approval"
-	"github.com/Dicklesworthstone/ntm/internal/state"
+	"github.com/shahbajlive/ntm/internal/approval"
+	"github.com/shahbajlive/ntm/internal/state"
 )
 
 func newApproveCmd() *cobra.Command {

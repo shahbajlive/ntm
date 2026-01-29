@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/checkpoint"
+	"github.com/shahbajlive/ntm/internal/checkpoint"
 )
 
 func TestNewCheckpointCmd(t *testing.T) {

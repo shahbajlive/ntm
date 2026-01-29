@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Dicklesworthstone/ntm/internal/agent"
+	"github.com/shahbajlive/ntm/internal/agent"
 )
 
 func main() {
@@ -14,7 +14,7 @@ func main() {
 	output := `Claude Opus 4.5
 Running tests...
 testing package internal/agent...
-ok  	github.com/Dicklesworthstone/ntm/internal/agent	0.123s
+ok  	github.com/shahbajlive/ntm/internal/agent	0.123s
 Tests completed.
 > `
 

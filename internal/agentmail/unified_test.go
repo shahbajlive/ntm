@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/bd"
+	"github.com/shahbajlive/ntm/internal/bd"
 )
 
 type fakeAMClient struct {
