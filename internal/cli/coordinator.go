@@ -480,6 +480,18 @@ Examples:
 	}
 
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview assignments without executing")
+	cmd.Flags().StringVar(&assignStrategy, "strategy", "balanced", "Assignment strategy: balanced, speed, quality, dependency, round-robin")
+	cmd.Flags().IntVar(&assignLimit, "limit", 0, "Maximum number of assignments (0 = unlimited)")
+	cmd.Flags().StringVar(&assignAgentType, "agent", "", "Filter by agent type: claude, codex, gemini")
+	cmd.Flags().BoolVar(&assignCCOnly, "cc-only", false, "Only assign to Claude agents (alias for --agent=claude)")
+	cmd.Flags().BoolVar(&assignCodOnly, "cod-only", false, "Only assign to Codex agents (alias for --agent=codex)")
+	cmd.Flags().BoolVar(&assignGmiOnly, "gmi-only", false, "Only assign to Gemini agents (alias for --agent=gemini)")
+	cmd.Flags().StringVar(&assignTemplate, "template", "", "Prompt template: impl, review, custom")
+	cmd.Flags().StringVar(&assignTemplateFile, "template-file", "", "Custom prompt template file path")
+	cmd.Flags().BoolVar(&assignVerbose, "verbose", false, "Show detailed scoring/decision logs")
+	cmd.Flags().BoolVar(&assignQuiet, "quiet", false, "Suppress non-essential output")
+	cmd.Flags().DurationVar(&assignTimeout, "timeout", 30*time.Second, "Timeout for external calls (bv, br, Agent Mail)")
+	cmd.Flags().BoolVar(&assignReserveFiles, "reserve-files", true, "Reserve files via Agent Mail when assigning")
 
 	return cmd
 }
