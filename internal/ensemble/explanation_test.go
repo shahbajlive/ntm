@@ -425,3 +425,33 @@ func TestInferResolutionMethod(t *testing.T) {
 
 	t.Logf("TEST: %s - assertion: resolution methods inferred correctly", t.Name())
 }
+
+// =============================================================================
+// sanitizeID
+// =============================================================================
+
+func TestSanitizeID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"simple", "hello", "hello"},
+		{"uppercase", "HELLO", "hello"},
+		{"spaces replaced", "hello world", "hello-world"},
+		{"long truncated", "this is a very long string that goes beyond twenty", "this-is-a-very-long-"},
+		{"empty", "", ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := sanitizeID(tc.input)
+			if got != tc.want {
+				t.Errorf("sanitizeID(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}

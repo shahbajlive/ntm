@@ -431,3 +431,150 @@ func TestRedactSecrets(t *testing.T) {
 		})
 	}
 }
+
+// =============================================================================
+// sha256sum
+// =============================================================================
+
+func TestSha256sum(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty", func(t *testing.T) {
+		t.Parallel()
+		got := sha256sum(nil)
+		// SHA256 of empty input is e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+		if got != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" {
+			t.Errorf("sha256sum(nil) = %q", got)
+		}
+	})
+
+	t.Run("hello", func(t *testing.T) {
+		t.Parallel()
+		got := sha256sum([]byte("hello"))
+		// SHA256 of "hello" is 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
+		if got != "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824" {
+			t.Errorf("sha256sum(hello) = %q", got)
+		}
+	})
+
+	t.Run("deterministic", func(t *testing.T) {
+		t.Parallel()
+		a := sha256sum([]byte("test"))
+		b := sha256sum([]byte("test"))
+		if a != b {
+			t.Errorf("sha256sum not deterministic: %q != %q", a, b)
+		}
+	})
+}
+
+// =============================================================================
+// rewriteCheckpointPaths
+// =============================================================================
+
+func TestRewriteCheckpointPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("rewrites working dir", func(t *testing.T) {
+		t.Parallel()
+		cp := &Checkpoint{
+			ID:         "test-id",
+			Name:       "test",
+			WorkingDir: "/data/projects/myapp",
+		}
+		result := rewriteCheckpointPaths(cp)
+		if result.WorkingDir != "${WORKING_DIR}" {
+			t.Errorf("WorkingDir = %q, want ${WORKING_DIR}", result.WorkingDir)
+		}
+		if result.ID != "test-id" {
+			t.Errorf("ID should be preserved: %q", result.ID)
+		}
+	})
+
+	t.Run("does not mutate original", func(t *testing.T) {
+		t.Parallel()
+		cp := &Checkpoint{
+			WorkingDir: "/original/path",
+		}
+		_ = rewriteCheckpointPaths(cp)
+		if cp.WorkingDir != "/original/path" {
+			t.Errorf("original mutated: WorkingDir = %q", cp.WorkingDir)
+		}
+	})
+
+	t.Run("empty working dir unchanged", func(t *testing.T) {
+		t.Parallel()
+		cp := &Checkpoint{
+			WorkingDir: "",
+		}
+		result := rewriteCheckpointPaths(cp)
+		if result.WorkingDir != "" {
+			t.Errorf("WorkingDir = %q, want empty", result.WorkingDir)
+		}
+	})
+}
+
+// =============================================================================
+// isPathWithinDir
+// =============================================================================
+
+func TestIsPathWithinDir(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		baseDir string
+		target  string
+		want    bool
+	}{
+		{"within dir", "/base", "subdir/file.txt", true},
+		{"same dir", "/base", "file.txt", true},
+		{"traversal attack", "/base", "../../../etc/passwd", false},
+		{"double dot in middle", "/base", "sub/../other/file.txt", true},
+		{"absolute escape", "/base", "../../outside", false},
+		{"current dir", "/base", ".", true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := isPathWithinDir(tc.baseDir, tc.target)
+			if got != tc.want {
+				t.Errorf("isPathWithinDir(%q, %q) = %v, want %v", tc.baseDir, tc.target, got, tc.want)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// Checkpoint.HasGitPatch and Summary
+// =============================================================================
+
+func TestCheckpointHasGitPatch(t *testing.T) {
+	t.Parallel()
+
+	t.Run("has patch", func(t *testing.T) {
+		t.Parallel()
+		cp := &Checkpoint{Git: GitState{PatchFile: "patch.diff"}}
+		if !cp.HasGitPatch() {
+			t.Error("expected HasGitPatch() = true")
+		}
+	})
+
+	t.Run("no patch", func(t *testing.T) {
+		t.Parallel()
+		cp := &Checkpoint{Git: GitState{}}
+		if cp.HasGitPatch() {
+			t.Error("expected HasGitPatch() = false")
+		}
+	})
+}
+
+func TestCheckpointSummary(t *testing.T) {
+	t.Parallel()
+
+	cp := &Checkpoint{Name: "my-checkpoint", ID: "abc123"}
+	got := cp.Summary()
+	if got != "my-checkpoint (abc123)" {
+		t.Errorf("Summary() = %q, want %q", got, "my-checkpoint (abc123)")
+	}
+}

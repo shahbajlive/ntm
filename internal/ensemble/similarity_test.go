@@ -623,6 +623,120 @@ func TestGenerateRedundancyRecommendations(t *testing.T) {
 	})
 }
 
+// =============================================================================
+// jaccardSimilarity (token-based)
+// =============================================================================
+
+func TestJaccardSimilarity(t *testing.T) {
+	t.Parallel()
+
+	set := func(elems ...string) map[string]struct{} {
+		m := make(map[string]struct{}, len(elems))
+		for _, e := range elems {
+			m[e] = struct{}{}
+		}
+		return m
+	}
+
+	t.Run("both empty", func(t *testing.T) {
+		t.Parallel()
+		got := jaccardSimilarity(nil, nil)
+		if got != 1.0 {
+			t.Errorf("both empty = %f, want 1.0 (identical empty sets)", got)
+		}
+	})
+
+	t.Run("one empty", func(t *testing.T) {
+		t.Parallel()
+		got := jaccardSimilarity(set("a"), nil)
+		if got != 0.0 {
+			t.Errorf("one empty = %f, want 0.0", got)
+		}
+	})
+
+	t.Run("identical", func(t *testing.T) {
+		t.Parallel()
+		got := jaccardSimilarity(set("a", "b"), set("a", "b"))
+		if got != 1.0 {
+			t.Errorf("identical = %f, want 1.0", got)
+		}
+	})
+
+	t.Run("disjoint", func(t *testing.T) {
+		t.Parallel()
+		got := jaccardSimilarity(set("a"), set("b"))
+		if got != 0.0 {
+			t.Errorf("disjoint = %f, want 0.0", got)
+		}
+	})
+
+	t.Run("partial overlap", func(t *testing.T) {
+		t.Parallel()
+		got := jaccardSimilarity(set("a", "b"), set("b", "c"))
+		want := 1.0 / 3.0
+		if got < want-0.001 || got > want+0.001 {
+			t.Errorf("partial = %f, want %f", got, want)
+		}
+	})
+}
+
+// =============================================================================
+// tokenize (ensemble)
+// =============================================================================
+
+func TestTokenizeEnsemble(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		text string
+		want int
+	}{
+		{"empty", "", 0},
+		{"single word", "hello", 1},
+		{"multiple words", "hello world foo", 3},
+		{"with whitespace", "  hello   world  ", 2},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := tokenize(tc.text)
+			if len(got) != tc.want {
+				t.Errorf("tokenize(%q) returned %d tokens, want %d", tc.text, len(got), tc.want)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// normalizeText
+// =============================================================================
+
+func TestNormalizeText(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"empty", "", ""},
+		{"lowercase", "HELLO WORLD", "hello world"},
+		{"trims whitespace", "  hello  ", "hello"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := normalizeText(tc.input)
+			if got != tc.want {
+				t.Errorf("normalizeText(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
 // Helper function
 func simContains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||

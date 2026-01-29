@@ -432,3 +432,33 @@ func TestDedupeConvenienceFunctions(t *testing.T) {
 
 	t.Log("TEST: TestDedupeConvenienceFunctions - assertion: convenience functions work")
 }
+
+// =============================================================================
+// truncateDedupText
+// =============================================================================
+
+func TestTruncateDedupText(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		input  string
+		maxLen int
+		want   string
+	}{
+		{"short text", "hello", 10, "hello"},
+		{"exact limit", "hello", 5, "hello"},
+		{"truncated", "hello world!", 8, "hello..."},
+		{"very short max", "hello", 4, "h..."},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := truncateDedupText(tc.input, tc.maxLen)
+			if got != tc.want {
+				t.Errorf("truncateDedupText(%q, %d) = %q, want %q", tc.input, tc.maxLen, got, tc.want)
+			}
+		})
+	}
+}
