@@ -123,3 +123,105 @@ func TestPaginationHintOffsets(t *testing.T) {
 		t.Fatalf("expected pages_remaining=2, got %+v", pagesRemaining)
 	}
 }
+
+func TestPaginationHintOffsets_Nil(t *testing.T) {
+	nextOffset, pagesRemaining := paginationHintOffsets(nil)
+	if nextOffset != nil {
+		t.Errorf("expected nil nextOffset for nil page, got %v", *nextOffset)
+	}
+	if pagesRemaining != nil {
+		t.Errorf("expected nil pagesRemaining for nil page, got %v", *pagesRemaining)
+	}
+}
+
+func TestPaginationHintOffsets_ZeroLimit(t *testing.T) {
+	page := &PaginationInfo{
+		Limit:  0,
+		Offset: 0,
+		Count:  5,
+		Total:  5,
+	}
+	nextOffset, pagesRemaining := paginationHintOffsets(page)
+	if nextOffset != nil {
+		t.Errorf("expected nil nextOffset for zero limit, got %v", *nextOffset)
+	}
+	if pagesRemaining != nil {
+		t.Errorf("expected nil pagesRemaining for zero limit, got %v", *pagesRemaining)
+	}
+}
+
+func TestPaginationHintOffsets_NegativeLimit(t *testing.T) {
+	page := &PaginationInfo{
+		Limit:  -1,
+		Offset: 0,
+		Count:  3,
+		Total:  3,
+	}
+	nextOffset, pagesRemaining := paginationHintOffsets(page)
+	if nextOffset != nil || pagesRemaining != nil {
+		t.Error("expected nil results for negative limit")
+	}
+}
+
+func TestPaginationHintOffsets_LastPage(t *testing.T) {
+	page := &PaginationInfo{
+		Limit:  3,
+		Offset: 6,
+		Count:  2,
+		Total:  8,
+	}
+	nextOffset, pagesRemaining := paginationHintOffsets(page)
+	if nextOffset == nil || *nextOffset != 8 {
+		t.Errorf("expected next_offset=8, got %+v", nextOffset)
+	}
+	if pagesRemaining == nil || *pagesRemaining != 0 {
+		t.Errorf("expected pages_remaining=0, got %+v", pagesRemaining)
+	}
+}
+
+func TestPaginationHintOffsets_SinglePage(t *testing.T) {
+	page := &PaginationInfo{
+		Limit:  10,
+		Offset: 0,
+		Count:  3,
+		Total:  3,
+	}
+	nextOffset, pagesRemaining := paginationHintOffsets(page)
+	if nextOffset == nil || *nextOffset != 3 {
+		t.Errorf("expected next_offset=3, got %+v", nextOffset)
+	}
+	if pagesRemaining == nil || *pagesRemaining != 0 {
+		t.Errorf("expected pages_remaining=0, got %+v", pagesRemaining)
+	}
+}
+
+func TestApplyPagination_EmptySlice(t *testing.T) {
+	var items []string
+	got, page := ApplyPagination(items, PaginationOptions{Limit: 5})
+	if page == nil {
+		t.Fatal("expected pagination info, got nil")
+	}
+	if len(got) != 0 {
+		t.Errorf("expected empty slice, got %v", got)
+	}
+	if page.Total != 0 || page.Count != 0 {
+		t.Errorf("expected total=0, count=0; got total=%d, count=%d", page.Total, page.Count)
+	}
+	if page.HasMore || page.NextCursor != nil {
+		t.Error("expected has_more=false and next_cursor=nil for empty slice")
+	}
+}
+
+func TestApplyPagination_LimitExceedsTotal(t *testing.T) {
+	items := []string{"a", "b"}
+	got, page := ApplyPagination(items, PaginationOptions{Limit: 100})
+	if page == nil {
+		t.Fatal("expected pagination info, got nil")
+	}
+	if len(got) != 2 {
+		t.Errorf("expected 2 items, got %d", len(got))
+	}
+	if page.HasMore {
+		t.Error("expected has_more=false when limit exceeds total")
+	}
+}

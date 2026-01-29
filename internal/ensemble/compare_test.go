@@ -618,3 +618,25 @@ func compareFindSubstring(s, sub string) bool {
 	}
 	return false
 }
+
+func TestAbsInt(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input int
+		want  int
+	}{
+		{0, 0},
+		{1, 1},
+		{-1, 1},
+		{42, 42},
+		{-42, 42},
+		{-2147483648, 2147483648}, // min int32 (on 64-bit)
+	}
+
+	for _, tc := range tests {
+		if got := absInt(tc.input); got != tc.want {
+			t.Errorf("absInt(%d) = %d, want %d", tc.input, got, tc.want)
+		}
+	}
+}
