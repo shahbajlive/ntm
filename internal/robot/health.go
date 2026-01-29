@@ -2135,8 +2135,8 @@ type AgentOAuthHealth struct {
 	OAuthStatus       OAuthStatus     `json:"oauth_status"`
 	OAuthError        string          `json:"oauth_error,omitempty"`
 	RateLimitStatus   RateLimitStatus `json:"rate_limit_status"`
-	RateLimitCount    int             `json:"rate_limit_count"`    // limits in window
-	CooldownRemaining int             `json:"cooldown_remaining"`  // seconds
+	RateLimitCount    int             `json:"rate_limit_count"`   // limits in window
+	CooldownRemaining int             `json:"cooldown_remaining"` // seconds
 	LastActivitySec   int             `json:"last_activity_sec"`
 	ErrorCount        int             `json:"error_count"` // errors in last 5 minutes
 }
