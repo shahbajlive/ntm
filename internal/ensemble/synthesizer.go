@@ -76,6 +76,12 @@ func (s *Synthesizer) StreamSynthesize(ctx context.Context, input *SynthesisInpu
 		defer close(chunks)
 		defer close(errs)
 
+		// Check for pre-canceled context before doing any work.
+		if ctx.Err() != nil {
+			errs <- ctx.Err()
+			return
+		}
+
 		if s == nil {
 			errs <- fmt.Errorf("synthesizer is nil")
 			return
