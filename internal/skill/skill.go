@@ -2,6 +2,7 @@ package skill
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -49,6 +50,14 @@ type Skill struct {
 	Instruction string `yaml:"-"`
 }
 
+type msSkillMeta struct {
+	Path        string
+	Name        string
+	Description string
+	Version     string
+	Author      string
+}
+
 // LoadSkill loads a skill from a directory
 func LoadSkill(name string) (*Skill, error) {
 	home, err := os.UserHomeDir()
@@ -71,6 +80,27 @@ func LoadSkill(name string) (*Skill, error) {
 	}
 
 	if skillDir == "" {
+		// Try resolving via 'ms' CLI
+		if meta, err := resolveSkillWithMs(name); err == nil {
+			sk, err := LoadFromPath(meta.Path)
+			if err != nil {
+				return nil, err
+			}
+			// Patch metadata potentially lost in archive
+			if sk.Name == "" {
+				sk.Name = meta.Name
+			}
+			if sk.Description == "" {
+				sk.Description = meta.Description
+			}
+			if sk.Version == "" {
+				sk.Version = meta.Version
+			}
+			if sk.Author == "" {
+				sk.Author = meta.Author
+			}
+			return sk, nil
+		}
 		return nil, fmt.Errorf("skill %q not found or missing SKILL.md", name)
 	}
 
@@ -178,4 +208,45 @@ func ListSkills() ([]*Skill, error) {
 	}
 
 	return skills, nil
+}
+
+// resolveSkillWithMs asks the 'ms' CLI for the skill path and metadata
+func resolveSkillWithMs(name string) (*msSkillMeta, error) {
+	cmd := exec.Command("ms", "show", name, "--output-format=json")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to run ms show: %w", err)
+	}
+
+	var result struct {
+		Status string `json:"status"`
+		Skill  struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			Version     string `json:"version"`
+			Author      string `json:"author"`
+			SourcePath  string `json:"source_path"`
+		} `json:"skill"`
+	}
+
+	if err := json.Unmarshal(output, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse ms output: %w", err)
+	}
+
+	if result.Status != "ok" || result.Skill.SourcePath == "" {
+		return nil, fmt.Errorf("skill not found in ms index")
+	}
+
+	// Verify the path exists
+	if _, err := os.Stat(filepath.Join(result.Skill.SourcePath, "SKILL.md")); err != nil {
+		return nil, fmt.Errorf("skill path from ms invalid: %w", err)
+	}
+
+	return &msSkillMeta{
+		Path:        result.Skill.SourcePath,
+		Name:        result.Skill.Name,
+		Description: result.Skill.Description,
+		Version:     result.Skill.Version,
+		Author:      result.Skill.Author,
+	}, nil
 }
