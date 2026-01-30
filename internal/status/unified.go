@@ -57,18 +57,33 @@ func (d *UnifiedDetector) Analyze(paneID, paneName, agentType string, output str
 // determineState calculates state based on output and activity
 func (d *UnifiedDetector) determineState(output, agentType string, lastActivity time.Time) (AgentState, ErrorType) {
 	// Detection priority:
-	// 1. Check for errors first (most important)
-	// 2. Check for idle (at prompt)
+	// 1. Check for idle prompt when velocity is low (agent waiting for input)
+	// 2. Check for errors (but only if not clearly at a prompt)
 	// 3. Check activity recency (working vs unknown)
 	// 4. Heuristic check for likely-idle state
+	//
+	// Key insight: if an agent is showing an idle prompt and not actively outputting,
+	// it should be classified as WAITING regardless of historical error messages
+	// in the scrollback. Error patterns from earlier in the session are not relevant
+	// when the agent has clearly recovered and is now waiting for input.
 
-	// Check for errors
+	threshold := time.Duration(d.config.ActivityThreshold) * time.Second
+	isLowVelocity := time.Since(lastActivity) >= threshold
+
+	// Check if at prompt (idle) - prioritize this when velocity is low
+	isAtPrompt := DetectIdleFromOutput(output, agentType)
+	if isAtPrompt && isLowVelocity {
+		// Agent is at prompt and not actively outputting - clearly idle
+		return StateIdle, ErrorNone
+	}
+
+	// Check for errors (only relevant if not clearly at a prompt waiting for input)
 	if errType := DetectErrorInOutput(output); errType != ErrorNone {
 		return StateError, errType
 	}
 
-	// Check if at prompt (idle)
-	if DetectIdleFromOutput(output, agentType) {
+	// Check if at prompt (for cases with recent activity - might still be processing)
+	if isAtPrompt {
 		return StateIdle, ErrorNone
 	}
 	// Heuristic: for user panes with empty output, treat as idle
@@ -78,9 +93,8 @@ func (d *UnifiedDetector) determineState(output, agentType string, lastActivity 
 		}
 	}
 
-	// Check recent activity
-	threshold := time.Duration(d.config.ActivityThreshold) * time.Second
-	if time.Since(lastActivity) < threshold {
+	// Check recent activity (reuse isLowVelocity computed earlier)
+	if !isLowVelocity {
 		return StateWorking, ErrorNone
 	}
 
