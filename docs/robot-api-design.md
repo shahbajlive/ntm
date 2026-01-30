@@ -65,6 +65,29 @@ ntm --robot-jfp-search="debugging"      # Deprecated
 ntm --robot-cass-search="auth error"    # Deprecated
 ```
 
+### 1.3.1 Flywheel Tool Bridges (Inventory + Wrappers)
+
+Use the tool inventory to discover what is available on the current machine:
+
+```bash
+ntm --robot-tools
+```
+
+Tool bridges are **optional**. When a tool is missing, robot commands return `DEPENDENCY_MISSING` with an actionable hint. Use `--robot-tools` and `--robot-capabilities` to confirm which wrappers are supported in your build.
+
+**Implemented today**
+- **JFP** (JeffreysPrompts): `--robot-jfp-status`, `--robot-jfp-list`, `--robot-jfp-search`, `--robot-jfp-show`, `--robot-jfp-suggest`, `--robot-jfp-installed`, `--robot-jfp-categories`, `--robot-jfp-tags`, `--robot-jfp-bundles`
+- **MS** (Meta Skill): `--robot-ms-search`, `--robot-ms-show`
+- **DCG** (Destructive Command Guard): `--robot-dcg-status`
+
+**Planned / rolling out** (names follow `--robot-<tool>-<action>`; confirm via `--robot-capabilities`)
+- **SLB** (two-person approvals): `--robot-slb-*`
+- **RU** (repo updater): `--robot-ru-*`
+- **UBS** (Ultimate Bug Scanner): `--robot-ubs-*`
+- **ACFS** (Flywheel setup/bootstrapping): `--robot-acfs-*`
+- **GIIL** (image fetch): `--robot-giil-*`
+- **XF** (archive search): `--robot-xf-*`
+
 ### 1.4 Resource Lookups
 
 Simple ID/path lookups MAY use inline values:
@@ -101,6 +124,8 @@ These flags are shared across many commands and MUST NOT be tool-prefixed:
 | `--verbose` | Detailed output | status, health commands |
 | `--dry-run` | Preview without executing | send, spawn, restart |
 | `--output=PATH` | Output file path | save, monitor |
+
+Note: `--robot-limit` and `--robot-offset` are accepted as explicit aliases for robot list outputs (status, snapshot, history). Unprefixed flags remain canonical.
 
 **Example (Correct):**
 ```bash
@@ -250,6 +275,9 @@ Commands that return lists MUST support pagination:
 - `count` - Number of items in current response
 - `has_more` - Boolean indicating more results available
 - `_agent_hints.next_offset` - Next offset value for convenience
+
+**Status/Snapshot/History Note:** These commands expose pagination under a `pagination` object:
+`{limit, offset, count, total, has_more, next_cursor}`.
 
 ---
 

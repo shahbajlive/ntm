@@ -401,23 +401,23 @@ type JFPStatusOutput struct {
 // JFPListOutput represents the output for --robot-jfp-list
 type JFPListOutput struct {
 	RobotResponse
-	Count     int             `json:"count"`
-	Prompts   json.RawMessage `json:"prompts"`
+	Count   int             `json:"count"`
+	Prompts json.RawMessage `json:"prompts"`
 }
 
 // JFPSearchOutput represents the output for --robot-jfp-search
 type JFPSearchOutput struct {
 	RobotResponse
-	Query     string          `json:"query"`
-	Count     int             `json:"count"`
-	Results   json.RawMessage `json:"results"`
+	Query   string          `json:"query"`
+	Count   int             `json:"count"`
+	Results json.RawMessage `json:"results"`
 }
 
 // JFPShowOutput represents the output for --robot-jfp-show
 type JFPShowOutput struct {
 	RobotResponse
-	ID        string          `json:"id"`
-	Prompt    json.RawMessage `json:"prompt,omitempty"`
+	ID     string          `json:"id"`
+	Prompt json.RawMessage `json:"prompt,omitempty"`
 }
 
 // JFPSuggestOutput represents the output for --robot-jfp-suggest
@@ -430,8 +430,8 @@ type JFPSuggestOutput struct {
 // JFPInstalledOutput represents the output for --robot-jfp-installed
 type JFPInstalledOutput struct {
 	RobotResponse
-	Count     int             `json:"count"`
-	Skills    json.RawMessage `json:"skills"`
+	Count  int             `json:"count"`
+	Skills json.RawMessage `json:"skills"`
 }
 
 // JFPCategoriesOutput represents the output for --robot-jfp-categories
@@ -444,15 +444,15 @@ type JFPCategoriesOutput struct {
 // JFPTagsOutput represents the output for --robot-jfp-tags
 type JFPTagsOutput struct {
 	RobotResponse
-	Count     int             `json:"count"`
-	Tags      json.RawMessage `json:"tags"`
+	Count int             `json:"count"`
+	Tags  json.RawMessage `json:"tags"`
 }
 
 // JFPBundlesOutput represents the output for --robot-jfp-bundles
 type JFPBundlesOutput struct {
 	RobotResponse
-	Count     int             `json:"count"`
-	Bundles   json.RawMessage `json:"bundles"`
+	Count   int             `json:"count"`
+	Bundles json.RawMessage `json:"bundles"`
 }
 
 // GetJFPStatus returns JFP health and status.
@@ -462,8 +462,8 @@ func GetJFPStatus() (*JFPStatusOutput, error) {
 
 	output := &JFPStatusOutput{
 		RobotResponse: NewRobotResponse(true),
-		JFPAvailable: false,
-		Healthy:      false,
+		JFPAvailable:  false,
+		Healthy:       false,
 	}
 
 	// Check if jfp is installed
@@ -596,7 +596,7 @@ func GetJFPSearch(query string) (*JFPSearchOutput, error) {
 
 	output := &JFPSearchOutput{
 		RobotResponse: NewRobotResponse(true),
-		Query:     query,
+		Query:         query,
 	}
 
 	// Check if jfp is installed
@@ -659,7 +659,7 @@ func GetJFPShow(id string) (*JFPShowOutput, error) {
 
 	output := &JFPShowOutput{
 		RobotResponse: NewRobotResponse(true),
-		ID:        id,
+		ID:            id,
 	}
 
 	// Check if jfp is installed
@@ -719,7 +719,7 @@ func GetJFPSuggest(task string) (*JFPSuggestOutput, error) {
 
 	output := &JFPSuggestOutput{
 		RobotResponse: NewRobotResponse(true),
-		Task:      task,
+		Task:          task,
 	}
 
 	// Check if jfp is installed
@@ -980,6 +980,150 @@ func PrintJFPBundles() error {
 	return encodeJSON(output)
 }
 
+// ===========================================================================
+// MS (Meta Skill) Robot Wrappers
+// ===========================================================================
+
+// MSSearchOutput represents the output for --robot-ms-search
+type MSSearchOutput struct {
+	RobotResponse
+	Query  string          `json:"query"`
+	Count  int             `json:"count"`
+	Skills json.RawMessage `json:"skills"`
+	Source string          `json:"source,omitempty"`
+}
+
+// MSShowOutput represents the output for --robot-ms-show
+type MSShowOutput struct {
+	RobotResponse
+	ID     string          `json:"id"`
+	Skill  json.RawMessage `json:"skill,omitempty"`
+	Source string          `json:"source,omitempty"`
+}
+
+// GetMSSearch returns skill matches for a query.
+// This function returns the data struct directly, enabling CLI/REST parity.
+func GetMSSearch(query string) (*MSSearchOutput, error) {
+	adapter := tools.NewMSAdapter()
+
+	output := &MSSearchOutput{
+		RobotResponse: NewRobotResponse(true),
+		Query:         query,
+		Source:        "ms",
+	}
+
+	// Check if ms is installed
+	_, installed := adapter.Detect()
+	if !installed {
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("ms not installed"),
+			ErrCodeDependencyMissing,
+			"Install Meta Skill (ms) and ensure it is on PATH",
+		)
+		return output, nil
+	}
+
+	if strings.TrimSpace(query) == "" {
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("query is required"),
+			ErrCodeInvalidFlag,
+			"Provide a query, e.g., --robot-ms-search='commit workflow'",
+		)
+		return output, nil
+	}
+
+	ctx := context.Background()
+	data, err := adapter.Search(ctx, query)
+	if err != nil {
+		output.RobotResponse = NewErrorResponse(
+			err,
+			"MS_SEARCH_FAILED",
+			"Try a different query or check ms health",
+		)
+		return output, nil
+	}
+
+	output.Skills = data
+
+	// Try to count items
+	var items []interface{}
+	if json.Unmarshal(data, &items) == nil {
+		output.Count = len(items)
+	}
+
+	return output, nil
+}
+
+// PrintMSSearch outputs skill matches as JSON.
+// This is a thin wrapper around GetMSSearch() for CLI output.
+func PrintMSSearch(query string) error {
+	output, err := GetMSSearch(query)
+	if err != nil {
+		return err
+	}
+	return encodeJSON(output)
+}
+
+// GetMSShow returns a specific skill by ID.
+// This function returns the data struct directly, enabling CLI/REST parity.
+func GetMSShow(id string) (*MSShowOutput, error) {
+	adapter := tools.NewMSAdapter()
+
+	output := &MSShowOutput{
+		RobotResponse: NewRobotResponse(true),
+		ID:            id,
+		Source:        "ms",
+	}
+
+	// Check if ms is installed
+	_, installed := adapter.Detect()
+	if !installed {
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("ms not installed"),
+			ErrCodeDependencyMissing,
+			"Install Meta Skill (ms) and ensure it is on PATH",
+		)
+		return output, nil
+	}
+
+	if strings.TrimSpace(id) == "" {
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("skill ID is required"),
+			ErrCodeInvalidFlag,
+			"Provide a skill ID, e.g., --robot-ms-show='commit-and-release'",
+		)
+		return output, nil
+	}
+
+	ctx := context.Background()
+	data, err := adapter.Show(ctx, id)
+	if err != nil {
+		code := "MS_SHOW_FAILED"
+		if strings.Contains(err.Error(), "not found") {
+			code = "NOT_FOUND"
+		}
+		output.RobotResponse = NewErrorResponse(
+			err,
+			code,
+			"Use --robot-ms-search to find available skills",
+		)
+		return output, nil
+	}
+
+	output.Skill = data
+	return output, nil
+}
+
+// PrintMSShow outputs a specific skill as JSON.
+// This is a thin wrapper around GetMSShow() for CLI output.
+func PrintMSShow(id string) error {
+	output, err := GetMSShow(id)
+	if err != nil {
+		return err
+	}
+	return encodeJSON(output)
+}
+
 // Build info - these will be set by the caller from cli package
 var (
 	Version = "dev"
@@ -1047,18 +1191,20 @@ type SystemInfo struct {
 // StatusOutput is the structured output for robot-status
 type StatusOutput struct {
 	RobotResponse
-	GeneratedAt    time.Time               `json:"generated_at"`
-	System         SystemInfo              `json:"system"`
-	Sessions       []SessionInfo           `json:"sessions"`
-	Summary        StatusSummary           `json:"summary"`
-	Beads          *bv.BeadsSummary        `json:"beads,omitempty"`
-	GraphMetrics   *GraphMetrics           `json:"graph_metrics,omitempty"`
-	AgentMail      *AgentMailSummary       `json:"agent_mail,omitempty"`
-	Handoff        *HandoffSummary         `json:"handoff,omitempty"`
-	Alerts         []StatusAlert           `json:"alerts,omitempty"`
-	FileChanges    []FileChangeInfo        `json:"file_changes,omitempty"`
-	Conflicts      []tracker.Conflict      `json:"conflicts,omitempty"`
-	SchedulerStats *SchedulerStatsSummary  `json:"scheduler_stats,omitempty"`
+	GeneratedAt    time.Time              `json:"generated_at"`
+	System         SystemInfo             `json:"system"`
+	Sessions       []SessionInfo          `json:"sessions"`
+	Pagination     *PaginationInfo        `json:"pagination,omitempty"`
+	AgentHints     *AgentHints            `json:"_agent_hints,omitempty"`
+	Summary        StatusSummary          `json:"summary"`
+	Beads          *bv.BeadsSummary       `json:"beads,omitempty"`
+	GraphMetrics   *GraphMetrics          `json:"graph_metrics,omitempty"`
+	AgentMail      *AgentMailSummary      `json:"agent_mail,omitempty"`
+	Handoff        *HandoffSummary        `json:"handoff,omitempty"`
+	Alerts         []StatusAlert          `json:"alerts,omitempty"`
+	FileChanges    []FileChangeInfo       `json:"file_changes,omitempty"`
+	Conflicts      []tracker.Conflict     `json:"conflicts,omitempty"`
+	SchedulerStats *SchedulerStatsSummary `json:"scheduler_stats,omitempty"`
 }
 
 // AgentMailSummary provides a lightweight Agent Mail state for --robot-status.
@@ -1247,7 +1393,7 @@ API Design Principles (see docs/robot-api-design.md):
 -----------------------------------------------------
 1. Global commands: bool flags (--robot-status, --robot-plan)
 2. Session-scoped: =SESSION syntax (--robot-send=myproj, --robot-tail=myproj)
-3. Modifiers: unprefixed global flags (--limit, --since, --type)
+3. Modifiers: unprefixed global flags (--limit, --offset, --since, --type)
 4. Output: JSON by default, TOON for token-efficient (--robot-format=toon)
 
 Core Commands:
@@ -1288,6 +1434,8 @@ Tool Bridges:
 -------------
 --robot-cass-search=QUERY    Search past conversations (--limit=20, --since=7d)
 --robot-jfp-search=QUERY     Search prompts library
+--robot-ms-search=QUERY      Search Meta Skill catalog
+--robot-ms-show=ID           Show Meta Skill details
 --robot-tokens               Token usage stats (--days=30, --group-by=agent)
 --robot-history=SESSION      Command history (--last=10)
 
@@ -1308,6 +1456,9 @@ Output Formats:
 Common Modifiers:
 -----------------
 --limit=N       Max results (works with search, list commands)
+--offset=N      Pagination offset for list commands
+--robot-limit=N  Explicit pagination alias for robot list outputs
+--robot-offset=N Explicit pagination alias for robot list outputs
 --since=DURATION  Time filter (1d, 7d, 30d, ISO8601, or duration like 1h)
 --type=TYPE     Agent type filter (claude, codex, gemini)
 --panes=X,Y     Pane filter (comma-separated indices)
@@ -1342,6 +1493,11 @@ For machine-readable schema:    ntm --robot-capabilities
 // GetStatus collects machine-readable status.
 // This function returns the data struct directly, enabling CLI/REST parity.
 func GetStatus() (*StatusOutput, error) {
+	return GetStatusWithOptions(PaginationOptions{})
+}
+
+// GetStatusWithOptions collects status and applies pagination to sessions.
+func GetStatusWithOptions(opts PaginationOptions) (*StatusOutput, error) {
 	wd := mustGetwd()
 	cfg, err := config.LoadMerged(wd, config.DefaultPath())
 	if err != nil {
@@ -1485,6 +1641,17 @@ func GetStatus() (*StatusOutput, error) {
 	appendFileChanges(output)
 	appendConflicts(output)
 
+	if paged, page := ApplyPagination(output.Sessions, opts); page != nil {
+		output.Sessions = paged
+		output.Pagination = page
+		if next, pages := paginationHintOffsets(page); next != nil {
+			output.AgentHints = &AgentHints{
+				NextOffset:     next,
+				PagesRemaining: pages,
+			}
+		}
+	}
+
 	return output, nil
 }
 
@@ -1492,6 +1659,15 @@ func GetStatus() (*StatusOutput, error) {
 // This is a thin wrapper around GetStatus() for CLI output.
 func PrintStatus() error {
 	output, err := GetStatus()
+	if err != nil {
+		return err
+	}
+	return encodeJSON(output)
+}
+
+// PrintStatusWithOptions outputs status with pagination options.
+func PrintStatusWithOptions(opts PaginationOptions) error {
+	output, err := GetStatusWithOptions(opts)
 	if err != nil {
 		return err
 	}
@@ -1587,11 +1763,11 @@ func GetMail(opts MailOptions) (*MailOutput, error) {
 
 	output := &MailOutput{
 		RobotResponse: NewRobotResponse(true),
-		GeneratedAt: time.Now().UTC(),
-		Session:     opts.Session,
-		ProjectKey:  projectKey,
-		Available:   false,
-		ServerURL:   serverURL,
+		GeneratedAt:   time.Now().UTC(),
+		Session:       opts.Session,
+		ProjectKey:    projectKey,
+		Available:     false,
+		ServerURL:     serverURL,
 	}
 
 	if !client.IsAvailable() {
@@ -1670,7 +1846,7 @@ func GetMail(opts MailOptions) (*MailOutput, error) {
 						entry.Model = a.Model
 						entry.UnreadCount = tally.Total
 						entry.UrgentCount = tally.Urgent
-						entry.LastActiveTs = a.LastActiveTS
+						entry.LastActiveTs = a.LastActiveTS.Time
 					}
 					output.Agents = append(output.Agents, entry)
 				}
@@ -1691,7 +1867,7 @@ func GetMail(opts MailOptions) (*MailOutput, error) {
 				Model:        a.Model,
 				UnreadCount:  tally.Total,
 				UrgentCount:  tally.Urgent,
-				LastActiveTs: a.LastActiveTS,
+				LastActiveTs: a.LastActiveTS.Time,
 			})
 		}
 	} else {
@@ -1710,7 +1886,7 @@ func GetMail(opts MailOptions) (*MailOutput, error) {
 				Model:        a.Model,
 				UnreadCount:  tally.Total,
 				UrgentCount:  tally.Urgent,
-				LastActiveTs: a.LastActiveTS,
+				LastActiveTs: a.LastActiveTS.Time,
 			})
 		}
 	}
@@ -1860,7 +2036,7 @@ func groupAgentsByType(agents []agentmail.Agent) map[string][]agentmail.Agent {
 	}
 
 	for typ := range out {
-		sort.SliceStable(out[typ], func(i, j int) bool { return out[typ][i].InceptionTS.Before(out[typ][j].InceptionTS) })
+		sort.SliceStable(out[typ], func(i, j int) bool { return out[typ][i].InceptionTS.Before(out[typ][j].InceptionTS.Time) })
 	}
 	return out
 }
@@ -2856,6 +3032,8 @@ type SnapshotOutput struct {
 	RobotResponse
 	Timestamp      string             `json:"ts"`
 	Sessions       []SnapshotSession  `json:"sessions"`
+	Pagination     *PaginationInfo    `json:"pagination,omitempty"`
+	AgentHints     *AgentHints        `json:"_agent_hints,omitempty"`
 	BeadsSummary   *bv.BeadsSummary   `json:"beads_summary,omitempty"`
 	AgentMail      *SnapshotAgentMail `json:"agent_mail,omitempty"`
 	MailUnread     int                `json:"mail_unread,omitempty"`
@@ -2931,6 +3109,11 @@ var BeadLimit = 5
 // GetSnapshot retrieves complete system state for AI orchestration.
 // This function returns the data struct directly, enabling CLI/REST parity.
 func GetSnapshot(cfg *config.Config) (*SnapshotOutput, error) {
+	return GetSnapshotWithOptions(cfg, PaginationOptions{})
+}
+
+// GetSnapshotWithOptions retrieves complete system state with pagination applied to sessions.
+func GetSnapshotWithOptions(cfg *config.Config, opts PaginationOptions) (*SnapshotOutput, error) {
 	if cfg == nil {
 		cfg = config.Default()
 	}
@@ -3121,12 +3304,32 @@ func GetSnapshot(cfg *config.Config) (*SnapshotOutput, error) {
 		}
 	}
 
+	if paged, page := ApplyPagination(output.Sessions, opts); page != nil {
+		output.Sessions = paged
+		output.Pagination = page
+		if next, pages := paginationHintOffsets(page); next != nil {
+			output.AgentHints = &AgentHints{
+				NextOffset:     next,
+				PagesRemaining: pages,
+			}
+		}
+	}
+
 	return output, nil
 }
 
 // PrintSnapshot outputs complete system state for AI orchestration
 func PrintSnapshot(cfg *config.Config) error {
 	output, err := GetSnapshot(cfg)
+	if err != nil {
+		return err
+	}
+	return encodeJSON(output)
+}
+
+// PrintSnapshotWithOptions outputs snapshot with pagination options.
+func PrintSnapshotWithOptions(cfg *config.Config, opts PaginationOptions) error {
+	output, err := GetSnapshotWithOptions(cfg, opts)
 	if err != nil {
 		return err
 	}
@@ -3871,7 +4074,7 @@ func buildCorrelationGraph() *GraphCorrelation {
 					thread.Subject = msg.Subject
 				}
 				if msg.CreatedTS.After(thread.LastActivity) {
-					thread.LastActivity = msg.CreatedTS
+					thread.LastActivity = msg.CreatedTS.Time
 				}
 				thread.Unread++
 				corr.MailSummary[tid] = thread
@@ -5480,27 +5683,36 @@ type ForecastOutput struct {
 
 // GetForecast returns BV forecast analysis data.
 func GetForecast(target string) (*ForecastOutput, error) {
+	adapter := tools.NewBVAdapter()
+	_, installed := adapter.Detect()
+
 	output := &ForecastOutput{
 		RobotResponse: NewRobotResponse(true),
 		Target:        target,
-		Available:     bv.IsInstalled(),
+		Available:     installed,
 	}
 
-	if !bv.IsInstalled() {
+	if !installed {
 		output.Error = "bv (beads_viewer) is not installed"
 		output.Success = false
 		return output, nil
 	}
 
 	wd := mustGetwd()
-	forecast, err := bv.GetForecast(wd, target)
+	raw, err := adapter.GetForecast(context.Background(), wd, target)
 	if err != nil {
 		output.Error = fmt.Sprintf("failed to get forecast: %v", err)
 		output.Success = false
 		return output, nil
 	}
 
-	output.Forecast = forecast
+	var forecast bv.ForecastResponse
+	if err := json.Unmarshal(raw, &forecast); err != nil {
+		output.Error = fmt.Sprintf("failed to parse forecast: %v", err)
+		output.Success = false
+		return output, nil
+	}
+	output.Forecast = &forecast
 
 	return output, nil
 }
@@ -5524,26 +5736,35 @@ type SuggestOutput struct {
 
 // GetSuggest returns BV hygiene suggestions data.
 func GetSuggest() (*SuggestOutput, error) {
+	adapter := tools.NewBVAdapter()
+	_, installed := adapter.Detect()
+
 	output := &SuggestOutput{
 		RobotResponse: NewRobotResponse(true),
-		Available:     bv.IsInstalled(),
+		Available:     installed,
 	}
 
-	if !bv.IsInstalled() {
+	if !installed {
 		output.Error = "bv (beads_viewer) is not installed"
 		output.Success = false
 		return output, nil
 	}
 
 	wd := mustGetwd()
-	suggestions, err := bv.GetSuggestions(wd)
+	raw, err := adapter.GetSuggestions(context.Background(), wd)
 	if err != nil {
 		output.Error = fmt.Sprintf("failed to get suggestions: %v", err)
 		output.Success = false
 		return output, nil
 	}
 
-	output.Suggestions = suggestions
+	var suggestions bv.SuggestionsResponse
+	if err := json.Unmarshal(raw, &suggestions); err != nil {
+		output.Error = fmt.Sprintf("failed to parse suggestions: %v", err)
+		output.Success = false
+		return output, nil
+	}
+	output.Suggestions = &suggestions
 
 	return output, nil
 }
@@ -5568,27 +5789,36 @@ type ImpactOutput struct {
 
 // GetImpact returns BV impact analysis data.
 func GetImpact(filePath string) (*ImpactOutput, error) {
+	adapter := tools.NewBVAdapter()
+	_, installed := adapter.Detect()
+
 	output := &ImpactOutput{
 		RobotResponse: NewRobotResponse(true),
 		FilePath:      filePath,
-		Available:     bv.IsInstalled(),
+		Available:     installed,
 	}
 
-	if !bv.IsInstalled() {
+	if !installed {
 		output.Error = "bv (beads_viewer) is not installed"
 		output.Success = false
 		return output, nil
 	}
 
 	wd := mustGetwd()
-	impact, err := bv.GetImpact(wd, filePath)
+	raw, err := adapter.GetImpact(context.Background(), wd, filePath)
 	if err != nil {
 		output.Error = fmt.Sprintf("failed to get impact analysis: %v", err)
 		output.Success = false
 		return output, nil
 	}
 
-	output.Impact = impact
+	var impact bv.ImpactResponse
+	if err := json.Unmarshal(raw, &impact); err != nil {
+		output.Error = fmt.Sprintf("failed to parse impact analysis: %v", err)
+		output.Success = false
+		return output, nil
+	}
+	output.Impact = &impact
 
 	return output, nil
 }
@@ -5613,27 +5843,36 @@ type SearchOutput struct {
 
 // GetSearch returns BV semantic vector search results.
 func GetSearch(query string) (*SearchOutput, error) {
+	adapter := tools.NewBVAdapter()
+	_, installed := adapter.Detect()
+
 	output := &SearchOutput{
 		RobotResponse: NewRobotResponse(true),
 		Query:         query,
-		Available:     bv.IsInstalled(),
+		Available:     installed,
 	}
 
-	if !bv.IsInstalled() {
+	if !installed {
 		output.Error = "bv (beads_viewer) is not installed"
 		output.Success = false
 		return output, nil
 	}
 
 	wd := mustGetwd()
-	results, err := bv.GetSearch(wd, query)
+	raw, err := adapter.GetSearch(context.Background(), wd, query)
 	if err != nil {
 		output.Error = fmt.Sprintf("failed to perform search: %v", err)
 		output.Success = false
 		return output, nil
 	}
 
-	output.Results = results
+	var results bv.SearchResponse
+	if err := json.Unmarshal(raw, &results); err != nil {
+		output.Error = fmt.Sprintf("failed to parse search results: %v", err)
+		output.Success = false
+		return output, nil
+	}
+	output.Results = &results
 
 	return output, nil
 }
@@ -5658,27 +5897,36 @@ type LabelAttentionOutput struct {
 
 // GetLabelAttention returns BV label attention ranking data.
 func GetLabelAttention(opts LabelAttentionOptions) (*LabelAttentionOutput, error) {
+	adapter := tools.NewBVAdapter()
+	_, installed := adapter.Detect()
+
 	output := &LabelAttentionOutput{
 		RobotResponse: NewRobotResponse(true),
-		Available:     bv.IsInstalled(),
+		Available:     installed,
 		Limit:         opts.Limit,
 	}
 
-	if !bv.IsInstalled() {
+	if !installed {
 		output.Error = "bv (beads_viewer) is not installed"
 		output.Success = false
 		return output, nil
 	}
 
 	wd := mustGetwd()
-	labels, err := bv.GetLabelAttention(wd, opts.Limit)
+	raw, err := adapter.GetLabelAttention(context.Background(), wd, opts.Limit)
 	if err != nil {
 		output.Error = fmt.Sprintf("failed to get label attention: %v", err)
 		output.Success = false
 		return output, nil
 	}
 
-	output.Labels = labels
+	var labels bv.LabelAttentionResponse
+	if err := json.Unmarshal(raw, &labels); err != nil {
+		output.Error = fmt.Sprintf("failed to parse label attention: %v", err)
+		output.Success = false
+		return output, nil
+	}
+	output.Labels = &labels
 
 	return output, nil
 }
@@ -5702,26 +5950,35 @@ type LabelFlowOutput struct {
 
 // GetLabelFlow returns BV cross-label dependency flow data.
 func GetLabelFlow() (*LabelFlowOutput, error) {
+	adapter := tools.NewBVAdapter()
+	_, installed := adapter.Detect()
+
 	output := &LabelFlowOutput{
 		RobotResponse: NewRobotResponse(true),
-		Available:     bv.IsInstalled(),
+		Available:     installed,
 	}
 
-	if !bv.IsInstalled() {
+	if !installed {
 		output.Error = "bv (beads_viewer) is not installed"
 		output.Success = false
 		return output, nil
 	}
 
 	wd := mustGetwd()
-	flow, err := bv.GetLabelFlow(wd)
+	raw, err := adapter.GetLabelFlow(context.Background(), wd)
 	if err != nil {
 		output.Error = fmt.Sprintf("failed to get label flow: %v", err)
 		output.Success = false
 		return output, nil
 	}
 
-	output.Flow = flow
+	var flow bv.LabelFlowResponse
+	if err := json.Unmarshal(raw, &flow); err != nil {
+		output.Error = fmt.Sprintf("failed to parse label flow: %v", err)
+		output.Success = false
+		return output, nil
+	}
+	output.Flow = &flow
 
 	return output, nil
 }
@@ -5745,26 +6002,35 @@ type LabelHealthOutput struct {
 
 // GetLabelHealth returns BV per-label health data.
 func GetLabelHealth() (*LabelHealthOutput, error) {
+	adapter := tools.NewBVAdapter()
+	_, installed := adapter.Detect()
+
 	output := &LabelHealthOutput{
 		RobotResponse: NewRobotResponse(true),
-		Available:     bv.IsInstalled(),
+		Available:     installed,
 	}
 
-	if !bv.IsInstalled() {
+	if !installed {
 		output.Error = "bv (beads_viewer) is not installed"
 		output.Success = false
 		return output, nil
 	}
 
 	wd := mustGetwd()
-	health, err := bv.GetLabelHealth(wd)
+	raw, err := adapter.GetLabelHealth(context.Background(), wd)
 	if err != nil {
 		output.Error = fmt.Sprintf("failed to get label health: %v", err)
 		output.Success = false
 		return output, nil
 	}
 
-	output.Health = health
+	var health bv.LabelHealthResponse
+	if err := json.Unmarshal(raw, &health); err != nil {
+		output.Error = fmt.Sprintf("failed to parse label health: %v", err)
+		output.Success = false
+		return output, nil
+	}
+	output.Health = &health
 
 	return output, nil
 }
@@ -5790,28 +6056,37 @@ type FileBeadsOutput struct {
 
 // GetFileBeads returns BV file-to-beads mapping data.
 func GetFileBeads(opts FileBeadsOptions) (*FileBeadsOutput, error) {
+	adapter := tools.NewBVAdapter()
+	_, installed := adapter.Detect()
+
 	output := &FileBeadsOutput{
 		RobotResponse: NewRobotResponse(true),
 		FilePath:      opts.FilePath,
-		Available:     bv.IsInstalled(),
+		Available:     installed,
 		Limit:         opts.Limit,
 	}
 
-	if !bv.IsInstalled() {
+	if !installed {
 		output.Error = "bv (beads_viewer) is not installed"
 		output.Success = false
 		return output, nil
 	}
 
 	wd := mustGetwd()
-	beads, err := bv.GetFileBeads(wd, opts.FilePath, opts.Limit)
+	raw, err := adapter.GetFileBeads(context.Background(), wd, opts.FilePath, opts.Limit)
 	if err != nil {
 		output.Error = fmt.Sprintf("failed to get file beads: %v", err)
 		output.Success = false
 		return output, nil
 	}
 
-	output.Beads = beads
+	var beads bv.FileBeadsResponse
+	if err := json.Unmarshal(raw, &beads); err != nil {
+		output.Error = fmt.Sprintf("failed to parse file beads: %v", err)
+		output.Success = false
+		return output, nil
+	}
+	output.Beads = &beads
 
 	return output, nil
 }
@@ -5836,27 +6111,36 @@ type FileHotspotsOutput struct {
 
 // GetFileHotspots returns BV file quality hotspots data.
 func GetFileHotspots(opts FileHotspotsOptions) (*FileHotspotsOutput, error) {
+	adapter := tools.NewBVAdapter()
+	_, installed := adapter.Detect()
+
 	output := &FileHotspotsOutput{
 		RobotResponse: NewRobotResponse(true),
-		Available:     bv.IsInstalled(),
+		Available:     installed,
 		Limit:         opts.Limit,
 	}
 
-	if !bv.IsInstalled() {
+	if !installed {
 		output.Error = "bv (beads_viewer) is not installed"
 		output.Success = false
 		return output, nil
 	}
 
 	wd := mustGetwd()
-	hotspots, err := bv.GetFileHotspots(wd, opts.Limit)
+	raw, err := adapter.GetFileHotspots(context.Background(), wd, opts.Limit)
 	if err != nil {
 		output.Error = fmt.Sprintf("failed to get file hotspots: %v", err)
 		output.Success = false
 		return output, nil
 	}
 
-	output.Hotspots = hotspots
+	var hotspots bv.FileHotspotsResponse
+	if err := json.Unmarshal(raw, &hotspots); err != nil {
+		output.Error = fmt.Sprintf("failed to parse file hotspots: %v", err)
+		output.Success = false
+		return output, nil
+	}
+	output.Hotspots = &hotspots
 
 	return output, nil
 }
@@ -5883,29 +6167,38 @@ type FileRelationsOutput struct {
 
 // GetFileRelations returns BV file co-change relations data.
 func GetFileRelations(opts FileRelationsOptions) (*FileRelationsOutput, error) {
+	adapter := tools.NewBVAdapter()
+	_, installed := adapter.Detect()
+
 	output := &FileRelationsOutput{
 		RobotResponse: NewRobotResponse(true),
 		FilePath:      opts.FilePath,
-		Available:     bv.IsInstalled(),
+		Available:     installed,
 		Limit:         opts.Limit,
 		Threshold:     opts.Threshold,
 	}
 
-	if !bv.IsInstalled() {
+	if !installed {
 		output.Error = "bv (beads_viewer) is not installed"
 		output.Success = false
 		return output, nil
 	}
 
 	wd := mustGetwd()
-	relations, err := bv.GetFileRelations(wd, opts.FilePath, opts.Limit, opts.Threshold)
+	raw, err := adapter.GetFileRelations(context.Background(), wd, opts.FilePath, opts.Limit, opts.Threshold)
 	if err != nil {
 		output.Error = fmt.Sprintf("failed to get file relations: %v", err)
 		output.Success = false
 		return output, nil
 	}
 
-	output.Relations = relations
+	var relations bv.FileRelationsResponse
+	if err := json.Unmarshal(raw, &relations); err != nil {
+		output.Error = fmt.Sprintf("failed to parse file relations: %v", err)
+		output.Success = false
+		return output, nil
+	}
+	output.Relations = &relations
 
 	return output, nil
 }

@@ -284,11 +284,16 @@ func TestMatchesPattern(t *testing.T) {
 		{"dir/file.go", "dir", true},
 		{"dir/sub/file.go", "dir", true},
 		{"other/file.go", "dir", false},
+		{"dir/file.go", "dir/", true},
+		{"dir/sub/file.go", "dir/", true},
+		{"other/file.go", "dir/", false},
 
 		// Glob patterns
 		{"file.go", "*.go", true},
 		{"file.txt", "*.go", false},
 		{"dir/file.go", "*.go", true}, // matches basename
+		{"dir/file.go", "dir/*.go", true},
+		{"dir/sub/file.go", "dir/*.go", false},
 
 		// Directory glob patterns
 		{"internal/robot/file.go", "internal/**", true},
@@ -454,27 +459,28 @@ func TestConflictDetector_FindReservationHolders(t *testing.T) {
 	cd := NewConflictDetector(nil)
 	now := time.Now()
 
+	ftNow := agentmail.FlexTime{Time: now}
 	reservations := []agentmail.FileReservation{
 		{
 			PathPattern: "internal/**",
 			AgentName:   "AgentA",
-			ExpiresTS:   now.Add(1 * time.Hour),
+			ExpiresTS:   agentmail.FlexTime{Time: now.Add(1 * time.Hour)},
 		},
 		{
 			PathPattern: "*.go",
 			AgentName:   "AgentB",
-			ExpiresTS:   now.Add(1 * time.Hour),
+			ExpiresTS:   agentmail.FlexTime{Time: now.Add(1 * time.Hour)},
 		},
 		{
 			PathPattern: "cmd/**",
 			AgentName:   "AgentC",
-			ExpiresTS:   now.Add(-1 * time.Hour), // expired
+			ExpiresTS:   agentmail.FlexTime{Time: now.Add(-1 * time.Hour)}, // expired
 		},
 		{
 			PathPattern: "docs/**",
 			AgentName:   "AgentD",
-			ExpiresTS:   now.Add(1 * time.Hour),
-			ReleasedTS:  &now, // released
+			ExpiresTS:   agentmail.FlexTime{Time: now.Add(1 * time.Hour)},
+			ReleasedTS:  &ftNow, // released
 		},
 	}
 

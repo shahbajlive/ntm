@@ -832,6 +832,34 @@ func formatHandoff(h *handoff.Handoff) string {
 	return strings.TrimSpace(string(data))
 }
 
+// RenderSummary formats an existing summary using the requested format.
+// It regenerates text from structured fields when possible.
+func RenderSummary(summary *SessionSummary, format SummaryFormat) string {
+	if summary == nil {
+		return ""
+	}
+	if format == "" {
+		format = summary.Format
+	}
+	switch format {
+	case FormatDetailed:
+		return strings.TrimSpace(formatDetailed(summary))
+	case FormatHandoff:
+		h := summary.Handoff
+		if h == nil {
+			h = buildHandoffSummary(summary)
+		}
+		return strings.TrimSpace(formatHandoff(h))
+	case FormatBrief:
+		return strings.TrimSpace(formatBrief(summary))
+	default:
+		if summary.Text != "" {
+			return strings.TrimSpace(summary.Text)
+		}
+		return strings.TrimSpace(formatBrief(summary))
+	}
+}
+
 func buildHandoffSummary(summary *SessionSummary) *handoff.Handoff {
 	h := handoff.New(summary.Session)
 
@@ -1027,8 +1055,6 @@ func truncateToTokens(text string, maxTokens int) string {
 func truncateAtRuneBoundary(s string, maxBytes int) string {
 	return util.SafeSlice(s, maxBytes)
 }
-
-
 
 // yamlMarshal is a small wrapper to avoid leaking yaml dependency in callers.
 func yamlMarshal(h *handoff.Handoff) ([]byte, error) {

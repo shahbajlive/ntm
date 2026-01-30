@@ -5,6 +5,7 @@ package robot
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -226,8 +227,7 @@ func getLoadAverage() float64 {
 			return load
 		}
 		// Linux: read from /proc/loadavg
-		cmd := exec.Command("cat", "/proc/loadavg")
-		out, err := cmd.Output()
+		out, err := os.ReadFile("/proc/loadavg")
 		if err != nil {
 			return -1
 		}
@@ -273,7 +273,7 @@ func populateAgentHealth(output *HealthOutput) {
 		}
 
 		for _, pane := range panes {
-			paneKey := fmt.Sprintf("%d.%d", 0, pane.Index)
+			paneKey := fmt.Sprintf("%d", pane.Index)
 			agentHealth := getAgentHealth(sess.Name, pane)
 
 			sessHealth.Agents[paneKey] = agentHealth
@@ -2135,8 +2135,8 @@ type AgentOAuthHealth struct {
 	OAuthStatus       OAuthStatus     `json:"oauth_status"`
 	OAuthError        string          `json:"oauth_error,omitempty"`
 	RateLimitStatus   RateLimitStatus `json:"rate_limit_status"`
-	RateLimitCount    int             `json:"rate_limit_count"`    // limits in window
-	CooldownRemaining int             `json:"cooldown_remaining"`  // seconds
+	RateLimitCount    int             `json:"rate_limit_count"`   // limits in window
+	CooldownRemaining int             `json:"cooldown_remaining"` // seconds
 	LastActivitySec   int             `json:"last_activity_sec"`
 	ErrorCount        int             `json:"error_count"` // errors in last 5 minutes
 }

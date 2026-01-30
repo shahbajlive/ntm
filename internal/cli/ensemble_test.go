@@ -150,6 +150,34 @@ func TestRunBrCreateParsesID(t *testing.T) {
 	}
 }
 
+func TestApplyResumeIndex(t *testing.T) {
+	tests := []struct {
+		name        string
+		resumeIndex int
+		chunkIndex  int
+		wantOK      bool
+		wantIndex   int
+	}{
+		{name: "no resume", resumeIndex: 0, chunkIndex: 1, wantOK: true, wantIndex: 1},
+		{name: "skip earlier", resumeIndex: 2, chunkIndex: 1, wantOK: false, wantIndex: 1},
+		{name: "skip equal", resumeIndex: 2, chunkIndex: 2, wantOK: false, wantIndex: 2},
+		{name: "emit after", resumeIndex: 2, chunkIndex: 3, wantOK: true, wantIndex: 3},
+		{name: "negative resume", resumeIndex: -1, chunkIndex: 4, wantOK: true, wantIndex: 4},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chunk, ok := applyResumeIndex(ensemble.SynthesisChunk{Index: tt.chunkIndex}, tt.resumeIndex)
+			if ok != tt.wantOK {
+				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
+			}
+			if chunk.Index != tt.wantIndex {
+				t.Fatalf("index = %d, want %d", chunk.Index, tt.wantIndex)
+			}
+		})
+	}
+}
+
 func TestFormatBeadDescriptionIncludesProvenance(t *testing.T) {
 	ctx := &exportFindingsContext{
 		Question: "What are the security risks?",
@@ -360,6 +388,61 @@ func TestSelectFindingsByIDs(t *testing.T) {
 			}
 			if len(selected) != tt.wantLen {
 				t.Errorf("selectFindingsByIDs returned %d findings, want %d", len(selected), tt.wantLen)
+			}
+		})
+	}
+}
+
+func TestParseSelectionIndices(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		input   string
+		max     int
+		want    []int
+		wantErr bool
+	}{
+		{"single value", "1", 5, []int{1}, false},
+		{"comma separated", "1,3,5", 5, []int{1, 3, 5}, false},
+		{"range", "2-4", 5, []int{2, 3, 4}, false},
+		{"all keyword", "all", 3, []int{1, 2, 3}, false},
+		{"ALL uppercase", "ALL", 3, []int{1, 2, 3}, false},
+		{"mixed", "1,3-5", 5, []int{1, 3, 4, 5}, false},
+		{"reversed range", "4-2", 5, []int{2, 3, 4}, false},
+		{"with spaces", " 1 , 3 ", 5, []int{1, 3}, false},
+		{"deduplicates", "1,1,2", 5, []int{1, 2}, false},
+		{"empty string", "", 5, nil, true},
+		{"out of range high", "6", 5, nil, true},
+		{"out of range zero", "0", 5, nil, true},
+		{"invalid text", "abc", 5, nil, true},
+		{"invalid range start", "a-3", 5, nil, true},
+		{"invalid range end", "1-b", 5, nil, true},
+		{"range out of bounds", "1-10", 5, nil, true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := parseSelectionIndices(tc.input, tc.max)
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("parseSelectionIndices(%q, %d) = %v, want error", tc.input, tc.max, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseSelectionIndices(%q, %d) error: %v", tc.input, tc.max, err)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("parseSelectionIndices(%q, %d) = %v (len %d), want %v (len %d)",
+					tc.input, tc.max, got, len(got), tc.want, len(tc.want))
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("parseSelectionIndices(%q, %d)[%d] = %d, want %d",
+						tc.input, tc.max, i, got[i], tc.want[i])
+				}
 			}
 		})
 	}

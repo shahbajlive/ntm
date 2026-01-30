@@ -201,9 +201,11 @@ func (ps *PaneStreamer) startPipePaneStreaming() error {
 func (ps *PaneStreamer) runFIFOReader() {
 	defer ps.wg.Done()
 
-	// Open FIFO for reading (blocks until writer opens it)
-	// Use O_RDWR to prevent blocking on open when no writer
-	fifo, err := os.OpenFile(ps.fifoPath, os.O_RDONLY, os.ModeNamedPipe)
+	// Open FIFO with O_RDWR to prevent blocking on open when no writer.
+	// With O_RDONLY, the open() syscall blocks until a writer opens the FIFO.
+	// O_RDWR allows the reader to open immediately, and we use SetReadDeadline
+	// to implement non-blocking reads in the loop below.
+	fifo, err := os.OpenFile(ps.fifoPath, os.O_RDWR, os.ModeNamedPipe)
 	if err != nil {
 		log.Printf("pipe-pane: failed to open fifo %s: %v, switching to fallback", ps.fifoPath, err)
 		ps.useFallback.Store(true)
