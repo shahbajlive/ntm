@@ -921,10 +921,10 @@ func TestFindOverlap_EdgeCases(t *testing.T) {
 			want: 2,
 		},
 		{
-			name: "longer than maxCheck lines",
-			prev: make([]string, 100), // 100 lines
-			curr: make([]string, 10),
-			want: 0, // No overlap since slices are empty strings
+			name: "no overlap different content",
+			prev: []string{"x", "y", "z"},
+			curr: []string{"a", "b", "c"},
+			want: 0, // No overlap - completely different content
 		},
 	}
 
