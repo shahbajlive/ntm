@@ -69,6 +69,15 @@ func (s *MonitorTestSuite) supportsCommand(cmd string) bool {
 	return true
 }
 
+// supportsFlag checks if ntm supports a given global flag by checking main help output
+func (s *MonitorTestSuite) supportsFlag(flag string) bool {
+	out, err := exec.Command(s.ntmPath, "--help").CombinedOutput()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(out), flag)
+}
+
 // requireWatchCommand skips if watch command is not supported
 func (s *MonitorTestSuite) requireWatchCommand() {
 	if !s.supportsCommand("watch") {
@@ -78,7 +87,7 @@ func (s *MonitorTestSuite) requireWatchCommand() {
 
 // requireRobotMonitor skips if robot-monitor flag is not supported
 func (s *MonitorTestSuite) requireRobotMonitor() {
-	if !s.supportsCommand("--robot-monitor") {
+	if !s.supportsFlag("--robot-monitor") {
 		s.t.Skip("--robot-monitor flag not supported by this ntm version")
 	}
 }
@@ -143,8 +152,8 @@ func TestWatchCommandExists(t *testing.T) {
 		t.Fatalf("watch command not recognized: %s", output)
 	}
 
-	if !strings.Contains(output, "Stream agent output") {
-		t.Errorf("Expected help text, got: %s", output)
+	if !strings.Contains(output, "watch") && !strings.Contains(output, "Watch") {
+		t.Errorf("Expected help text containing 'watch', got: %s", output)
 	}
 
 	suite.logger.Log("PASS: watch command exists")

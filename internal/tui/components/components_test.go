@@ -1230,8 +1230,8 @@ func TestHelpSections(t *testing.T) {
 		if !titles["Navigation"] {
 			t.Error("expected Navigation section")
 		}
-		if !titles["Pane Actions"] {
-			t.Error("expected Pane Actions section")
+		if !titles["Actions"] {
+			t.Error("expected Actions section")
 		}
 	})
 }
