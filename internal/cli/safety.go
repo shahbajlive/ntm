@@ -228,7 +228,12 @@ func newSafetyCheckCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "check <command>",
 		Short: "Check if a command would be blocked",
-		Args:  cobra.MinimumNArgs(1),
+		Long: `Check if a shell command would be blocked by the current safety policy.
+
+If the command you are checking contains flags like --hard, use "--" to stop flag parsing:
+  ntm safety check -- git reset --hard
+  ntm --json safety check -- git reset --hard`,
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			command := strings.Join(args, " ")
 			return runSafetyCheck(command)

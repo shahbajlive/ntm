@@ -1,6 +1,7 @@
 package ensemble
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -274,6 +275,33 @@ func TestCalculateRedundancy_ThreeModes(t *testing.T) {
 	}
 	if lowSim != 2 {
 		t.Errorf("expected 2 low similarity pairs, got %d", lowSim)
+	}
+}
+
+func TestRedundancyAnalysis_SuggestReplacements(t *testing.T) {
+	analysis := &RedundancyAnalysis{
+		PairwiseScores: []PairSimilarity{
+			{ModeA: "mode-a", ModeB: "mode-b", Similarity: 0.9},
+		},
+	}
+
+	catalog, err := NewModeCatalog([]ReasoningMode{
+		{ID: "mode-a", Name: "A", Category: CategoryFormal, Tier: TierCore, ShortDesc: "A"},
+		{ID: "mode-b", Name: "B", Category: CategoryFormal, Tier: TierCore, ShortDesc: "B"},
+		{ID: "alt-1", Name: "Alt", Category: CategoryUncertainty, Tier: TierCore, ShortDesc: "Alt"},
+	}, "test")
+	if err != nil {
+		t.Fatalf("NewModeCatalog error: %v", err)
+	}
+
+	suggestions := analysis.SuggestReplacements(catalog)
+	if len(suggestions) == 0 {
+		t.Fatal("expected suggestions")
+	}
+
+	joined := strings.Join(suggestions, "\n")
+	if !strings.Contains(joined, "mode-b") || !strings.Contains(joined, "alt-1") {
+		t.Fatalf("unexpected suggestions: %v", suggestions)
 	}
 }
 

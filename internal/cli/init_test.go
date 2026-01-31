@@ -12,8 +12,6 @@ import (
 
 // TestInitCmd_NoArgs verifies ntm init with no arguments uses current working directory
 func TestInitCmd_NoArgs(t *testing.T) {
-	t.Parallel()
-
 	// Create temp directory
 	tmpDir := t.TempDir()
 

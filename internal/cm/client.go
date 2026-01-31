@@ -219,6 +219,10 @@ func (c *CLIClient) GetContext(ctx context.Context, task string) (*CLIContextRes
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, c.binaryPath, "context", task, "--json")
+	// Run from a stable directory. Some environments (and some tests) temporarily
+	// chdir into directories that may later be removed; if that happens, `cm`
+	// can fail even though it doesn't need the current project directory.
+	cmd.Dir = os.TempDir()
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
