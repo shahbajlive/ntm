@@ -22,6 +22,7 @@ import (
 
 	"github.com/Dicklesworthstone/ntm/internal/events"
 	"github.com/Dicklesworthstone/ntm/internal/state"
+	"github.com/go-chi/chi/v5"
 )
 
 func setupTestServer(t *testing.T) (*Server, *state.Store) {
@@ -1192,6 +1193,133 @@ func TestIsValidTopic(t *testing.T) {
 			t.Errorf("isValidTopic(%q) = true, want false", topic)
 		}
 	}
+}
+
+func TestPipelineEventTypeFromProgressType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		progressType string
+		want         string
+		wantOK       bool
+	}{
+		{progressType: "workflow_start", want: "pipeline.started", wantOK: true},
+		{progressType: "step_complete", want: "pipeline.step_completed", wantOK: true},
+		{progressType: "step_error", want: "pipeline.step_failed", wantOK: true},
+		{progressType: "workflow_complete", want: "pipeline.complete", wantOK: true},
+		{progressType: "workflow_error", want: "pipeline.complete", wantOK: true},
+		{progressType: "step_start", want: "", wantOK: false},
+		{progressType: "", want: "", wantOK: false},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.progressType, func(t *testing.T) {
+			t.Parallel()
+			got, ok := pipelineEventTypeFromProgressType(tc.progressType)
+			if ok != tc.wantOK {
+				t.Fatalf("ok=%v, want %v", ok, tc.wantOK)
+			}
+			if got != tc.want {
+				t.Fatalf("eventType=%q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestApprovals_WebSocketEvents(t *testing.T) {
+	srv := New(Config{})
+	go srv.wsHub.Run()
+	defer srv.wsHub.Stop()
+
+	time.Sleep(10 * time.Millisecond)
+
+	client := &WSClient{
+		id:     "test-client",
+		hub:    srv.wsHub,
+		send:   make(chan []byte, 10),
+		topics: make(map[string]struct{}),
+	}
+	client.Subscribe([]string{"approvals:*"})
+	srv.wsHub.register <- client
+
+	time.Sleep(10 * time.Millisecond)
+
+	approvalsLock.Lock()
+	approvals = make(map[string]*Approval)
+	approvalIDSeq = 0
+	approvalsLock.Unlock()
+
+	reqBody := strings.NewReader(`{"action":"git status","resource":"repo","reason":"test"}`)
+	req := httptest.NewRequest(http.MethodPost, "/approvals/request", reqBody)
+	req = req.WithContext(withRoleContext(req.Context(), &RoleContext{
+		Role:   RoleOperator,
+		UserID: "requestor-1",
+	}))
+	rec := httptest.NewRecorder()
+	srv.handleApprovalRequestV1(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("handleApprovalRequestV1 status=%d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var ev1 struct {
+		Topic     string                 `json:"topic"`
+		EventType string                 `json:"event_type"`
+		Data      map[string]interface{} `json:"data"`
+	}
+	select {
+	case msg := <-client.send:
+		if err := json.Unmarshal(msg, &ev1); err != nil {
+			t.Fatalf("unmarshal ws event: %v", err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("timed out waiting for approval.requested ws event")
+	}
+	if ev1.EventType != "approval.requested" {
+		t.Fatalf("event_type=%q, want %q", ev1.EventType, "approval.requested")
+	}
+	if got, _ := ev1.Data["approval_id"].(string); got != "apr-1" {
+		t.Fatalf("approval_id=%q, want %q", got, "apr-1")
+	}
+
+	req2 := httptest.NewRequest(http.MethodPost, "/approvals/apr-1/approve", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "apr-1")
+	req2 = req2.WithContext(context.WithValue(req2.Context(), chi.RouteCtxKey, rctx))
+	req2 = req2.WithContext(withRoleContext(req2.Context(), &RoleContext{
+		Role:   RoleAdmin,
+		UserID: "approver-1",
+	}))
+	rec2 := httptest.NewRecorder()
+	srv.handleApprovalApproveV1(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("handleApprovalApproveV1 status=%d, want %d", rec2.Code, http.StatusOK)
+	}
+
+	var ev2 struct {
+		Topic     string                 `json:"topic"`
+		EventType string                 `json:"event_type"`
+		Data      map[string]interface{} `json:"data"`
+	}
+	select {
+	case msg := <-client.send:
+		if err := json.Unmarshal(msg, &ev2); err != nil {
+			t.Fatalf("unmarshal ws event: %v", err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("timed out waiting for approval.resolved ws event")
+	}
+	if ev2.EventType != "approval.resolved" {
+		t.Fatalf("event_type=%q, want %q", ev2.EventType, "approval.resolved")
+	}
+	if got, _ := ev2.Data["approval_id"].(string); got != "apr-1" {
+		t.Fatalf("approval_id=%q, want %q", got, "apr-1")
+	}
+	if got, _ := ev2.Data["decision"].(string); got != "approved" {
+		t.Fatalf("decision=%q, want %q", got, "approved")
+	}
+
+	srv.wsHub.unregister <- client
 }
 
 func TestWSHubPublish(t *testing.T) {
