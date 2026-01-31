@@ -4651,13 +4651,14 @@ func (c *WSClient) handleUnsubscribe(msg WSMessage) {
 }
 
 // isValidTopic checks if a topic string is valid.
-// Valid topics: global, global:*, sessions:*, sessions:{name}, panes:*,
-// panes:{session}:{idx}, agent:{type}
+//
+// Note: This is intentionally permissive for topic *values* and primarily
+// validates known topic namespaces, not the full shape of each topic string.
 func isValidTopic(topic string) bool {
 	if topic == "" {
 		return false
 	}
-	if topic == "*" || topic == "global" || topic == "global:*" {
+	if topic == "*" || topic == "global" || topic == "global:*" || topic == "scanner" || topic == "memory" {
 		return true
 	}
 	// sessions:* or sessions:{name}
@@ -4670,6 +4671,15 @@ func isValidTopic(topic string) bool {
 	}
 	// agent:{type}
 	if strings.HasPrefix(topic, "agent:") {
+		return true
+	}
+	// tool systems
+	if strings.HasPrefix(topic, "beads:") ||
+		strings.HasPrefix(topic, "mail:") ||
+		strings.HasPrefix(topic, "reservations:") ||
+		strings.HasPrefix(topic, "pipelines:") ||
+		strings.HasPrefix(topic, "approvals:") ||
+		strings.HasPrefix(topic, "accounts:") {
 		return true
 	}
 	return false
