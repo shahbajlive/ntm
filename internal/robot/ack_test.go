@@ -571,6 +571,33 @@ func TestDetectAcknowledgment_EdgeCases(t *testing.T) {
 			expectedDetect: true,
 		},
 		{
+			name:           "output started - multiple non-prompt lines",
+			initialOutput:  "prompt> \n",
+			currentOutput:  "prompt> \nFile found at /path/to/file\nContains 42 lines of code\n",
+			message:        "",
+			paneTitle:      "cc_1",
+			expectedType:   AckOutputStarted,
+			expectedDetect: true,
+		},
+		{
+			name:           "prompt returned after processing",
+			initialOutput:  "claude> \n",
+			currentOutput:  "claude> \nTask completed here\nAll done now\nclaude> ",
+			message:        "do task",
+			paneTitle:      "cc_1",
+			expectedType:   AckOutputStarted, // Multiple non-prompt lines trigger output_started
+			expectedDetect: true,
+		},
+		{
+			name:           "empty message with content change",
+			initialOutput:  "old content",
+			currentOutput:  "old content\nnew line 1\nnew line 2\n",
+			message:        "",
+			paneTitle:      "cc_1",
+			expectedType:   AckOutputStarted,
+			expectedDetect: true,
+		},
+		{
 			name:           "yes response",
 			initialOutput:  "prompt> ",
 			currentOutput:  "prompt> \nYes, I'll work on that.\n",
