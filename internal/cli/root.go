@@ -1560,28 +1560,28 @@ Shell Integration:
 				os.Exit(1)
 			}
 			return
-			}
+		}
 
-			// Show help with appropriate verbosity when run without subcommand
-			showMinimal := helpMinimal
-			if !helpMinimal && helpFull {
-				showMinimal = false
+		// Show help with appropriate verbosity when run without subcommand
+		showMinimal := helpMinimal
+		if !helpMinimal && helpFull {
+			showMinimal = false
+		}
+		if !helpMinimal && !helpFull && cfg != nil {
+			// Optional config default (bd-352n): help_verbosity = minimal|full
+			if strings.EqualFold(strings.TrimSpace(cfg.HelpVerbosity), "minimal") {
+				showMinimal = true
 			}
-			if !helpMinimal && !helpFull && cfg != nil {
-				// Optional config default (bd-352n): help_verbosity = minimal|full
-				if strings.EqualFold(strings.TrimSpace(cfg.HelpVerbosity), "minimal") {
-					showMinimal = true
-				}
-			}
+		}
 
-			if showMinimal {
-				PrintMinimalHelp(cmd.OutOrStdout())
-			} else {
-				// Default to full help (current stunning help)
-				PrintStunningHelp(cmd.OutOrStdout())
-			}
-		},
-	}
+		if showMinimal {
+			PrintMinimalHelp(cmd.OutOrStdout())
+		} else {
+			// Default to full help (current stunning help)
+			PrintStunningHelp(cmd.OutOrStdout())
+		}
+	},
+}
 
 func Execute() error {
 	if err := rootCmd.Execute(); err != nil {

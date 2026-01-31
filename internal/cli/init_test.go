@@ -542,18 +542,14 @@ func TestInstallGitHooks_Force(t *testing.T) {
 
 	tmpDir := t.TempDir()
 
-	// Initialize a git repo
-	gitDir := filepath.Join(tmpDir, ".git")
-	hooksDir := filepath.Join(gitDir, "hooks")
-	if err := os.MkdirAll(hooksDir, 0755); err != nil {
-		t.Fatalf("create .git/hooks: %v", err)
+	// Initialize a real git repo using git init
+	cmd := exec.Command("git", "init")
+	cmd.Dir = tmpDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init failed: %v, output: %s", err, out)
 	}
 
-	// Create minimal git config
-	if err := os.WriteFile(filepath.Join(gitDir, "config"), []byte("[core]\n\trepositoryformatversion = 0\n"), 0644); err != nil {
-		t.Fatalf("create git config: %v", err)
-	}
-
+	hooksDir := filepath.Join(tmpDir, ".git", "hooks")
 	existingContent := "#!/bin/sh\nexit 0\n"
 
 	// Create existing hook with known content

@@ -679,14 +679,14 @@ func New(session, projectDir string) Model {
 		renderedOutputCache:        make(map[string]string),
 		healthStatus:               "unknown",
 		healthMessage:              "",
-			agentMailInbox:             make(map[string][]agentmail.InboxMessage),
-			agentMailInboxErrors:       make(map[string]error),
-			agentMailAgents:            make(map[string]string),
-			helpVerbosity:              "full",
-			cassSearch: components.NewCassSearch(func(hit cass.SearchHit) tea.Cmd {
-				return func() tea.Msg {
-					return CassSelectMsg{Hit: hit}
-				}
+		agentMailInbox:             make(map[string][]agentmail.InboxMessage),
+		agentMailInboxErrors:       make(map[string]error),
+		agentMailAgents:            make(map[string]string),
+		helpVerbosity:              "full",
+		cassSearch: components.NewCassSearch(func(hit cass.SearchHit) tea.Cmd {
+			return func() tea.Msg {
+				return CassSelectMsg{Hit: hit}
+			}
 		}),
 		beadsPanel:           panels.NewBeadsPanel(),
 		alertsPanel:          panels.NewAlertsPanel(),
@@ -2876,12 +2876,12 @@ func (m *Model) selectByNumber(n int) {
 	}
 }
 
-	func (m *Model) cycleFocus(dir int) {
-		visiblePanes := m.visiblePanelsForHelpVerbosity()
+func (m *Model) cycleFocus(dir int) {
+	visiblePanes := m.visiblePanelsForHelpVerbosity()
 
-		// Find current index in visiblePanes
-		currIdx := -1
-		for i, p := range visiblePanes {
+	// Find current index in visiblePanes
+	currIdx := -1
+	for i, p := range visiblePanes {
 		if p == m.focusedPanel {
 			currIdx = i
 			break
@@ -3113,31 +3113,31 @@ func (m Model) renderMainContentSection() string {
 				Centered:    true,
 			}) + "\n")
 		}
-		} else {
-			if m.err != nil {
-				b.WriteString(components.ErrorState(m.err.Error(), hintForSessionFetchError(m.err), stateWidth) + "\n\n")
-			}
-			// Responsive layout selection, gated by help verbosity.
-			// Minimal mode shows only core panels (activity/status) even on wide terminals.
-			if m.dashboardHelpOptions().Verbosity == components.DashboardHelpVerbosityMinimal {
-				if m.tier >= layout.TierSplit {
-					b.WriteString(m.renderSplitView() + "\n")
-				} else {
-					b.WriteString(m.renderPaneGrid() + "\n")
-				}
+	} else {
+		if m.err != nil {
+			b.WriteString(components.ErrorState(m.err.Error(), hintForSessionFetchError(m.err), stateWidth) + "\n\n")
+		}
+		// Responsive layout selection, gated by help verbosity.
+		// Minimal mode shows only core panels (activity/status) even on wide terminals.
+		if m.dashboardHelpOptions().Verbosity == components.DashboardHelpVerbosityMinimal {
+			if m.tier >= layout.TierSplit {
+				b.WriteString(m.renderSplitView() + "\n")
 			} else {
-				switch {
-				case m.tier >= layout.TierMega:
-					b.WriteString(m.renderMegaLayout() + "\n")
-				case m.tier >= layout.TierUltra:
-					b.WriteString(m.renderUltraLayout() + "\n")
-				case m.tier >= layout.TierSplit:
-					b.WriteString(m.renderSplitView() + "\n")
-				default:
-					b.WriteString(m.renderPaneGrid() + "\n")
-				}
+				b.WriteString(m.renderPaneGrid() + "\n")
+			}
+		} else {
+			switch {
+			case m.tier >= layout.TierMega:
+				b.WriteString(m.renderMegaLayout() + "\n")
+			case m.tier >= layout.TierUltra:
+				b.WriteString(m.renderUltraLayout() + "\n")
+			case m.tier >= layout.TierSplit:
+				b.WriteString(m.renderSplitView() + "\n")
+			default:
+				b.WriteString(m.renderPaneGrid() + "\n")
 			}
 		}
+	}
 
 	return b.String()
 }

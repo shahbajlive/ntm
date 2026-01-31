@@ -1155,8 +1155,8 @@ func TestDefaultHints(t *testing.T) {
 		if !hasRefresh {
 			t.Error("expected refresh hint")
 		}
-		})
-	}
+	})
+}
 
 func TestDashboardHelpVerbosityMapping(t *testing.T) {
 	t.Parallel()
