@@ -158,7 +158,7 @@ func TestGetPromptContentFromArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := getPromptContent(tt.args, "", tt.prefix, tt.suffix)
+			got, _, err := getPromptContent(tt.args, "", tt.prefix, tt.suffix)
 			if tt.wantError {
 				if err == nil {
 					t.Error("Expected error, got nil")
@@ -237,7 +237,7 @@ func TestGetPromptContentFromFile(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := getPromptContent([]string{}, tt.promptFile, tt.prefix, tt.suffix)
+			got, _, err := getPromptContent([]string{}, tt.promptFile, tt.prefix, tt.suffix)
 			if tt.wantError {
 				if err == nil {
 					t.Error("Expected error, got nil")
@@ -562,8 +562,8 @@ func TestParseBatchFile(t *testing.T) {
 				t.Fatalf("got %d prompts, want %d: %v", len(got), len(tt.want), got)
 			}
 			for i := range got {
-				if got[i] != tt.want[i] {
-					t.Errorf("prompt %d: got %q, want %q", i, got[i], tt.want[i])
+				if got[i].Text != tt.want[i] {
+					t.Errorf("prompt %d: got %q, want %q", i, got[i].Text, tt.want[i])
 				}
 			}
 		})

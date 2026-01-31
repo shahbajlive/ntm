@@ -50,6 +50,25 @@ type SendResult struct {
 	Error         string             `json:"error,omitempty"`
 }
 
+type SendDryRunEntry struct {
+	Pane          int    `json:"pane"`
+	Agent         string `json:"agent,omitempty"`
+	Prompt        string `json:"prompt"`
+	PromptPreview string `json:"prompt_preview,omitempty"`
+	Source        string `json:"source,omitempty"`
+}
+
+type SendDryRunResult struct {
+	Success   bool               `json:"success"`
+	DryRun    bool               `json:"dry_run"`
+	Session   string             `json:"session"`
+	Total     int                `json:"total"`
+	WouldSend []SendDryRunEntry  `json:"would_send"`
+	RoutedTo  *SendRoutingResult `json:"routed_to,omitempty"`
+	Message   string             `json:"message,omitempty"`
+	Error     string             `json:"error,omitempty"`
+}
+
 // SendRoutingResult contains routing decision info for smart routing.
 type SendRoutingResult struct {
 	PaneIndex int     `json:"pane_index"`
@@ -176,6 +195,7 @@ func init() {
 type SendOptions struct {
 	Session        string
 	Prompt         string
+	PromptSource   string
 	Targets        SendTargets
 	TargetAll      bool
 	SkipFirst      bool
@@ -184,6 +204,7 @@ type SendOptions struct {
 	PanesSpecified bool  // True if --panes was explicitly set
 	TemplateName   string
 	Tags           []string
+	DryRun         bool
 
 	// Smart routing options
 	SmartRoute    bool   // Use smart routing to select best agent
@@ -348,6 +369,7 @@ func newSendCmd() *cobra.Command {
 	var templateName string
 	var templateVars []string
 	var tags []string
+	var dryRun bool
 	var cassCheck bool
 	var noCassCheck bool
 	var cassSimilarity float64
@@ -429,7 +451,10 @@ func newSendCmd() *cobra.Command {
 
 			// Handle --distribute mode: auto-distribute work from bv triage
 			if distribute {
-				return runDistributeMode(session, distributeStrategy, distributeLimit, distributeAuto)
+				if dryRun && distributeAuto {
+					return fmt.Errorf("cannot use --dry-run with --dist-auto")
+				}
+				return runDistributeMode(session, distributeStrategy, distributeLimit, distributeAuto, dryRun)
 			}
 
 			// Handle --batch mode: send multiple prompts from file
@@ -455,6 +480,7 @@ func newSendCmd() *cobra.Command {
 					CassSimilarity:  cassSimilarity,
 					CassCheckDays:   cassCheckDays,
 					NoHooks:         noHooks,
+					DryRun:          dryRun,
 					BatchFile:       batchFile,
 					BatchDelay:      delay,
 					BatchConfirm:    batchConfirm,
@@ -493,15 +519,17 @@ func newSendCmd() *cobra.Command {
 				CassSimilarity: cassSimilarity,
 				CassCheckDays:  cassCheckDays,
 				NoHooks:        noHooks,
+				DryRun:         dryRun,
 			}
 
 			// Handle template-based prompts
 			if templateName != "" {
 				opts.TemplateName = templateName
+				opts.PromptSource = fmt.Sprintf("template:%s", templateName)
 				return runSendWithTemplate(templateVars, promptFile, contextFiles, opts)
 			}
 
-			promptText, err := getPromptContent(args[1:], promptFile, prefix, suffix)
+			promptText, promptSource, err := getPromptContent(args[1:], promptFile, prefix, suffix)
 			if err != nil {
 				return err
 			}
@@ -524,6 +552,7 @@ func newSendCmd() *cobra.Command {
 			}
 
 			opts.Prompt = promptText
+			opts.PromptSource = promptSource
 			return runSendWithTargets(opts)
 		},
 	}
@@ -564,6 +593,7 @@ func newSendCmd() *cobra.Command {
 	cmd.Flags().Float64Var(&cassSimilarity, "cass-similarity", 0.7, "Similarity threshold for duplicate detection")
 	cmd.Flags().IntVar(&cassCheckDays, "cass-check-days", 7, "Look back N days for duplicates")
 	cmd.Flags().BoolVar(&noHooks, "no-hooks", false, "Disable command hooks")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview what would be sent without sending")
 
 	// Batch mode flags - send multiple prompts from file
 	cmd.Flags().StringVar(&batchFile, "batch", "", "Read prompts from file (one per line or --- separated)")
@@ -585,21 +615,21 @@ func newSendCmd() *cobra.Command {
 // 2. If stdin has data (piped/redirected), read from stdin
 // 3. Otherwise, use positional arguments
 // The prefix and suffix are applied when reading from file or stdin.
-func getPromptContent(args []string, promptFile, prefix, suffix string) (string, error) {
+func getPromptContent(args []string, promptFile, prefix, suffix string) (string, string, error) {
 	var content string
 
 	// Priority 1: Read from file if specified
 	if promptFile != "" {
 		data, err := os.ReadFile(promptFile)
 		if err != nil {
-			return "", fmt.Errorf("reading prompt file: %w", err)
+			return "", "", fmt.Errorf("reading prompt file: %w", err)
 		}
 		content = string(data)
 		if strings.TrimSpace(content) == "" {
-			return "", errors.New("prompt file is empty")
+			return "", "", errors.New("prompt file is empty")
 		}
 		// Apply prefix/suffix for file content
-		return buildPrompt(content, prefix, suffix), nil
+		return buildPrompt(content, prefix, suffix), "file:" + promptFile, nil
 	}
 
 	// Priority 2: Read from stdin if piped/redirected AND we have no args
@@ -607,24 +637,24 @@ func getPromptContent(args []string, promptFile, prefix, suffix string) (string,
 	if len(args) == 0 && stdinHasData() {
 		data, err := io.ReadAll(os.Stdin)
 		if err != nil {
-			return "", fmt.Errorf("reading from stdin: %w", err)
+			return "", "", fmt.Errorf("reading from stdin: %w", err)
 		}
 		content = string(data)
 		// Allow empty stdin if we have a prefix (e.g., just sending a command)
 		if strings.TrimSpace(content) == "" && prefix == "" {
-			return "", errors.New("stdin is empty and no prefix provided")
+			return "", "", errors.New("stdin is empty and no prefix provided")
 		}
 		// Apply prefix/suffix for stdin content
-		return buildPrompt(content, prefix, suffix), nil
+		return buildPrompt(content, prefix, suffix), "stdin", nil
 	}
 
 	// Priority 3: Use positional arguments
 	if len(args) == 0 {
-		return "", errors.New("no prompt provided (use argument, --file, or pipe to stdin)")
+		return "", "", errors.New("no prompt provided (use argument, --file, or pipe to stdin)")
 	}
 	content = strings.Join(args, " ")
 	// For positional args, prefix/suffix are ignored (they're for file/stdin)
-	return content, nil
+	return content, "args", nil
 }
 
 // stdinHasData checks if stdin has data available (is piped/redirected)
@@ -725,12 +755,14 @@ func runSendWithTargets(opts SendOptions) error {
 func runSendInternal(opts SendOptions) error {
 	session := opts.Session
 	prompt := opts.Prompt
+	promptSource := opts.PromptSource
 	templateName := opts.TemplateName
 	targets := opts.Targets
 	targetAll := opts.TargetAll
 	skipFirst := opts.SkipFirst
 	paneIndex := opts.PaneIndex
 	tags := opts.Tags
+	dryRun := opts.DryRun
 
 	// Convert to the old signature for backwards compatibility if needed locally
 	targetCC := targets.HasTargetsForType(AgentTypeClaude)
@@ -749,6 +781,9 @@ func runSendInternal(opts SendOptions) error {
 
 	// Defer history logic
 	defer func() {
+		if dryRun {
+			return
+		}
 		entry := history.NewEntry(session, intsToStrings(histTargets), prompt, history.SourceCLI)
 		entry.Template = templateName
 		entry.DurationMs = int(time.Since(start) / time.Millisecond)
@@ -906,7 +941,7 @@ func runSendInternal(opts SendOptions) error {
 	}
 
 	// Run pre-send hooks
-	if hookExec != nil && hookExec.HasHooksForEvent(hooks.EventPreSend) {
+	if !dryRun && hookExec != nil && hookExec.HasHooksForEvent(hooks.EventPreSend) {
 		if !jsonOutput {
 			fmt.Println("Running pre-send hooks...")
 		}
@@ -927,7 +962,7 @@ func runSendInternal(opts SendOptions) error {
 
 	// Auto-checkpoint before broadcast sends
 	isBroadcast := targetAll || (!targetCC && !targetCod && !targetGmi && paneIndex < 0 && len(tags) == 0)
-	if isBroadcast && cfg != nil && cfg.Checkpoints.Enabled && cfg.Checkpoints.BeforeBroadcast {
+	if !dryRun && isBroadcast && cfg != nil && cfg.Checkpoints.Enabled && cfg.Checkpoints.BeforeBroadcast {
 		if !jsonOutput {
 			fmt.Println("Creating auto-checkpoint before broadcast...")
 		}
@@ -1068,6 +1103,19 @@ func runSendInternal(opts SendOptions) error {
 		return outputError(err)
 	}
 
+	if dryRun {
+		entries := buildSendDryRunEntries(selectedPanes, prompt, promptSource)
+		return printSendDryRunResult(SendDryRunResult{
+			Success:   true,
+			DryRun:    true,
+			Session:   session,
+			Total:     len(entries),
+			WouldSend: entries,
+			RoutedTo:  opts.routingResult,
+			Message:   "use without --dry-run to execute",
+		})
+	}
+
 	delivered := 0
 	failed := 0
 
@@ -1136,7 +1184,7 @@ func runSendInternal(opts SendOptions) error {
 	histTargets = targetPanes
 
 	// Run post-send hooks
-	if hookExec != nil && hookExec.HasHooksForEvent(hooks.EventPostSend) {
+	if hookExec != nil && !dryRun && hookExec.HasHooksForEvent(hooks.EventPostSend) {
 		if !jsonOutput {
 			fmt.Println("Running post-send hooks...")
 		}
@@ -1201,6 +1249,62 @@ func runSendInternal(opts SendOptions) error {
 		}
 	}
 
+	return nil
+}
+
+func paneAgentLabel(p tmux.Pane) string {
+	if p.Type != tmux.AgentUnknown && p.Type != tmux.AgentUser && p.NTMIndex > 0 {
+		return fmt.Sprintf("%s_%d", p.Type, p.NTMIndex)
+	}
+	if p.Type == tmux.AgentUser {
+		return "user"
+	}
+	if p.Title != "" {
+		if parts := strings.SplitN(p.Title, "__", 2); len(parts) == 2 && parts[1] != "" {
+			return parts[1]
+		}
+		return p.Title
+	}
+	return fmt.Sprintf("pane_%d", p.Index)
+}
+
+func buildSendDryRunEntries(panes []tmux.Pane, prompt string, source string) []SendDryRunEntry {
+	entries := make([]SendDryRunEntry, 0, len(panes))
+	for _, p := range panes {
+		entries = append(entries, SendDryRunEntry{
+			Pane:          p.Index,
+			Agent:         paneAgentLabel(p),
+			Prompt:        prompt,
+			PromptPreview: truncateForPreview(prompt, 80),
+			Source:        source,
+		})
+	}
+	return entries
+}
+
+func printSendDryRunResult(result SendDryRunResult) error {
+	if IsJSONOutput() {
+		return json.NewEncoder(os.Stdout).Encode(result)
+	}
+
+	fmt.Printf("Dry Run: ntm send %s\n\n", result.Session)
+
+	if result.RoutedTo != nil {
+		fmt.Printf("Routing: pane %d (%s) via %s\n\n", result.RoutedTo.PaneIndex, result.RoutedTo.AgentType, result.RoutedTo.Strategy)
+	}
+
+	fmt.Printf("Would send %d prompt(s):\n", result.Total)
+	for i, w := range result.WouldSend {
+		source := w.Source
+		if source == "" {
+			source = "unknown"
+		}
+		fmt.Printf("  %d. %s (pane %d): %q (%s)\n", i+1, w.Agent, w.Pane, w.PromptPreview, source)
+	}
+	fmt.Println()
+	if result.Message != "" {
+		fmt.Println(result.Message)
+	}
 	return nil
 }
 
@@ -2092,7 +2196,7 @@ func checkCassDuplicates(session, prompt string, threshold float64, days int) er
 
 // runDistributeMode implements the --distribute flag behavior.
 // It gets prioritized work from bv triage and distributes tasks to idle agents.
-func runDistributeMode(session, strategy string, limit int, autoExecute bool) error {
+func runDistributeMode(session, strategy string, limit int, autoExecute bool, dryRun bool) error {
 	th := theme.Current()
 
 	// Check if bv is installed
@@ -2171,7 +2275,11 @@ func runDistributeMode(session, strategy string, limit int, autoExecute bool) er
 			"recommendations": recs,
 			"count":           len(recs),
 		}
-		if !autoExecute {
+		if dryRun {
+			result["dry_run"] = true
+			result["preview"] = true
+			result["message"] = "use --dist-auto to execute"
+		} else if !autoExecute {
 			result["preview"] = true
 			result["message"] = "use --dist-auto to execute"
 		}
@@ -2179,6 +2287,10 @@ func runDistributeMode(session, strategy string, limit int, autoExecute bool) er
 	}
 
 	// If not auto mode, ask for confirmation
+	if dryRun {
+		fmt.Println("Dry run - no prompts sent.")
+		return nil
+	}
 	if !autoExecute {
 		if !confirm("Distribute these tasks?") {
 			fmt.Println("Aborted.")
@@ -2269,12 +2381,17 @@ type BatchPromptResult struct {
 	Skipped       bool   `json:"skipped,omitempty"`
 }
 
+type BatchPrompt struct {
+	Text   string
+	Source string
+}
+
 // parseBatchFile reads and parses a batch file into individual prompts.
 // Supports two formats:
 // 1. One prompt per line (simple)
 // 2. Multi-line prompts separated by "---" on its own line
 // Lines starting with # are treated as comments and ignored.
-func parseBatchFile(path string) ([]string, error) {
+func parseBatchFile(path string) ([]BatchPrompt, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading batch file: %w", err)
@@ -2285,33 +2402,54 @@ func parseBatchFile(path string) ([]string, error) {
 		return nil, errors.New("batch file is empty")
 	}
 
-	var prompts []string
+	var prompts []BatchPrompt
 
 	// Check if file uses --- separators
+	lines := strings.Split(content, "\n")
 	if strings.Contains(content, "\n---\n") || strings.HasPrefix(content, "---\n") {
-		// Multi-line format with --- separators
-		parts := strings.Split(content, "\n---\n")
-		for _, part := range parts {
-			// Handle leading --- at start of file
-			if strings.HasPrefix(part, "---\n") {
-				part = strings.TrimPrefix(part, "---\n")
+		// Multi-line format with --- separators (track source as first non-comment line of each block).
+		var blockLines []string
+		blockStartLine := 0
+
+		flushBlock := func() {
+			cleaned := removeComments(strings.Join(blockLines, "\n"))
+			if cleaned == "" || blockStartLine == 0 {
+				return
 			}
-			// Remove comments and trim
-			cleaned := removeComments(part)
-			if cleaned != "" {
-				prompts = append(prompts, cleaned)
+			prompts = append(prompts, BatchPrompt{
+				Text:   cleaned,
+				Source: fmt.Sprintf("line:%d", blockStartLine),
+			})
+		}
+
+		for i, line := range lines {
+			lineNo := i + 1
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "---" {
+				flushBlock()
+				blockLines = nil
+				blockStartLine = 0
+				continue
+			}
+			blockLines = append(blockLines, line)
+			if blockStartLine == 0 && trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+				blockStartLine = lineNo
 			}
 		}
+		flushBlock()
 	} else {
 		// Simple one-prompt-per-line format
-		lines := strings.Split(content, "\n")
-		for _, line := range lines {
+		for i, line := range lines {
+			lineNo := i + 1
 			trimmed := strings.TrimSpace(line)
 			// Skip empty lines and comments
 			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 				continue
 			}
-			prompts = append(prompts, trimmed)
+			prompts = append(prompts, BatchPrompt{
+				Text:   trimmed,
+				Source: fmt.Sprintf("line:%d", lineNo),
+			})
 		}
 	}
 
@@ -2448,6 +2586,48 @@ func runSendBatch(opts SendOptions) error {
 		paneByIndex[p.Index] = p
 	}
 
+	if opts.DryRun {
+		entries := make([]SendDryRunEntry, 0, total)
+		currentAgent := 0
+
+		for _, bp := range prompts {
+			var targetPanes []int
+			if opts.BatchBroadcast {
+				for _, p := range agentPanes {
+					targetPanes = append(targetPanes, p.Index)
+				}
+			} else if opts.BatchAgentIndex >= 0 {
+				targetPanes = []int{opts.BatchAgentIndex}
+			} else {
+				targetPanes = []int{agentPanes[currentAgent%len(agentPanes)].Index}
+				currentAgent++
+			}
+
+			for _, paneIdx := range targetPanes {
+				p, ok := paneByIndex[paneIdx]
+				if !ok {
+					continue
+				}
+				entries = append(entries, SendDryRunEntry{
+					Pane:          paneIdx,
+					Agent:         paneAgentLabel(p),
+					Prompt:        bp.Text,
+					PromptPreview: truncateForPreview(bp.Text, 80),
+					Source:        bp.Source,
+				})
+			}
+		}
+
+		return printSendDryRunResult(SendDryRunResult{
+			Success:   true,
+			DryRun:    true,
+			Session:   opts.Session,
+			Total:     len(entries),
+			WouldSend: entries,
+			Message:   "use without --dry-run to execute",
+		})
+	}
+
 	// Set up signal handling for graceful Ctrl+C
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -2485,6 +2665,7 @@ func runSendBatch(opts SendOptions) error {
 
 	// Process each prompt
 	for i, promptText := range prompts {
+		promptText := promptText.Text
 		// Check for interrupt
 		select {
 		case <-ctx.Done():
@@ -2496,7 +2677,7 @@ func runSendBatch(opts SendOptions) error {
 			for j := i; j < total; j++ {
 				results = append(results, BatchPromptResult{
 					Index:         j,
-					PromptPreview: truncateForPreview(prompts[j], 60),
+					PromptPreview: truncateForPreview(prompts[j].Text, 60),
 					Skipped:       true,
 				})
 				skipped++
