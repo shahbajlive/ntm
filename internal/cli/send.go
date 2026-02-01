@@ -821,11 +821,15 @@ func runSendInternal(opts SendOptions) error {
 		return err
 	}
 
-	// Smart routing: select best agent automatically
-	// Skip if --panes was explicitly specified (explicit > automatic)
-	if opts.SmartRoute && paneIndex >= 0 {
+	// Smart routing: select best agent automatically.
+	// Explicit pane selection (--pane/--panes) wins over automatic routing.
+	if opts.SmartRoute && (opts.PanesSpecified || paneIndex >= 0) {
 		if !jsonOutput {
-			fmt.Println("Note: --panes specified, skipping smart routing")
+			if opts.PanesSpecified {
+				fmt.Println("Note: --panes specified, skipping smart routing")
+			} else {
+				fmt.Println("Note: --pane specified, skipping smart routing")
+			}
 		}
 		opts.SmartRoute = false
 	}
@@ -961,7 +965,7 @@ func runSendInternal(opts SendOptions) error {
 	}
 
 	// Auto-checkpoint before broadcast sends
-	isBroadcast := targetAll || (!targetCC && !targetCod && !targetGmi && paneIndex < 0 && len(tags) == 0)
+	isBroadcast := !opts.PanesSpecified && paneIndex < 0 && (targetAll || (!targetCC && !targetCod && !targetGmi && len(tags) == 0))
 	if !dryRun && isBroadcast && cfg != nil && cfg.Checkpoints.Enabled && cfg.Checkpoints.BeforeBroadcast {
 		if !jsonOutput {
 			fmt.Println("Creating auto-checkpoint before broadcast...")
@@ -2664,8 +2668,8 @@ func runSendBatch(opts SendOptions) error {
 	interrupted := false
 
 	// Process each prompt
-	for i, promptText := range prompts {
-		promptText := promptText.Text
+	for i, bp := range prompts {
+		promptText := bp.Text
 		// Check for interrupt
 		select {
 		case <-ctx.Done():
@@ -2790,6 +2794,15 @@ func runSendBatch(opts SendOptions) error {
 				interrupted = true
 				if !jsonOutput {
 					fmt.Printf("\n\nInterrupted during delay after prompt %d/%d\n", i+1, total)
+				}
+				// Skip remaining prompts
+				for j := i + 1; j < total; j++ {
+					results = append(results, BatchPromptResult{
+						Index:         j,
+						PromptPreview: truncateForPreview(prompts[j].Text, 60),
+						Skipped:       true,
+					})
+					skipped++
 				}
 				goto summary
 			case <-time.After(opts.BatchDelay):
