@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,7 +55,8 @@ func TestSendRealSession(t *testing.T) {
 
 	// Create project dir
 	projectDir := filepath.Join(tmpDir, sessionName)
-	if err := os.MkdirAll(projectDir, 0755); err != nil {
+	err = os.MkdirAll(projectDir, 0755)
+	if err != nil {
 		t.Fatalf("failed to create project dir: %v", err)
 	}
 
@@ -130,17 +133,20 @@ func TestGetPromptContentFromArgs(t *testing.T) {
 		prefix    string
 		suffix    string
 		want      string
+		wantSrc   string
 		wantError bool
 	}{
 		{
-			name: "single arg",
-			args: []string{"hello world"},
-			want: "hello world",
+			name:    "single arg",
+			args:    []string{"hello world"},
+			want:    "hello world",
+			wantSrc: "args",
 		},
 		{
-			name: "multiple args joined",
-			args: []string{"hello", "world"},
-			want: "hello world",
+			name:    "multiple args joined",
+			args:    []string{"hello", "world"},
+			want:    "hello world",
+			wantSrc: "args",
 		},
 		{
 			name:      "no args error",
@@ -148,17 +154,18 @@ func TestGetPromptContentFromArgs(t *testing.T) {
 			wantError: true,
 		},
 		{
-			name:   "prefix/suffix ignored for args",
-			args:   []string{"hello"},
-			prefix: "PREFIX",
-			suffix: "SUFFIX",
-			want:   "hello", // prefix/suffix don't apply to args
+			name:    "prefix/suffix ignored for args",
+			args:    []string{"hello"},
+			prefix:  "PREFIX",
+			suffix:  "SUFFIX",
+			want:    "hello", // prefix/suffix don't apply to args
+			wantSrc: "args",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := getPromptContent(tt.args, "", tt.prefix, tt.suffix)
+			got, gotSrc, err := getPromptContent(tt.args, "", tt.prefix, tt.suffix)
 			if tt.wantError {
 				if err == nil {
 					t.Error("Expected error, got nil")
@@ -171,6 +178,9 @@ func TestGetPromptContentFromArgs(t *testing.T) {
 			if got != tt.want {
 				t.Errorf("got %q, want %q", got, tt.want)
 			}
+			if tt.wantSrc != "" && gotSrc != tt.wantSrc {
+				t.Errorf("source: got %q, want %q", gotSrc, tt.wantSrc)
+			}
 		})
 	}
 }
@@ -181,14 +191,16 @@ func TestGetPromptContentFromFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "prompt.txt")
 	content := "This is the prompt content"
-	if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
-		t.Fatalf("Failed to write test file: %v", err)
+	writeErr := os.WriteFile(testFile, []byte(content), 0644)
+	if writeErr != nil {
+		t.Fatalf("Failed to write test file: %v", writeErr)
 	}
 
 	// Create empty file for error test
 	emptyFile := filepath.Join(tmpDir, "empty.txt")
-	if err := os.WriteFile(emptyFile, []byte(""), 0644); err != nil {
-		t.Fatalf("Failed to write empty file: %v", err)
+	writeErr = os.WriteFile(emptyFile, []byte(""), 0644)
+	if writeErr != nil {
+		t.Fatalf("Failed to write empty file: %v", writeErr)
 	}
 
 	tests := []struct {
@@ -237,7 +249,7 @@ func TestGetPromptContentFromFile(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := getPromptContent([]string{}, tt.promptFile, tt.prefix, tt.suffix)
+			got, gotSrc, err := getPromptContent([]string{}, tt.promptFile, tt.prefix, tt.suffix)
 			if tt.wantError {
 				if err == nil {
 					t.Error("Expected error, got nil")
@@ -249,6 +261,10 @@ func TestGetPromptContentFromFile(t *testing.T) {
 			}
 			if got != tt.want {
 				t.Errorf("got %q, want %q", got, tt.want)
+			}
+			wantSrc := "file:" + tt.promptFile
+			if gotSrc != wantSrc {
+				t.Errorf("source: got %q, want %q", gotSrc, wantSrc)
 			}
 		})
 	}
@@ -491,37 +507,44 @@ func TestParseBatchFile(t *testing.T) {
 		name      string
 		content   string
 		want      []string
+		wantSrc   []string
 		wantError bool
 	}{
 		{
 			name:    "simple one per line",
 			content: "prompt one\nprompt two\nprompt three",
 			want:    []string{"prompt one", "prompt two", "prompt three"},
+			wantSrc: []string{"line:1", "line:2", "line:3"},
 		},
 		{
 			name:    "with comments",
 			content: "# This is a comment\nprompt one\n# Another comment\nprompt two",
 			want:    []string{"prompt one", "prompt two"},
+			wantSrc: []string{"line:2", "line:4"},
 		},
 		{
 			name:    "with empty lines",
 			content: "prompt one\n\n\nprompt two\n\n",
 			want:    []string{"prompt one", "prompt two"},
+			wantSrc: []string{"line:1", "line:4"},
 		},
 		{
 			name:    "separator format",
 			content: "First prompt\nwith multiple lines\n---\nSecond prompt",
 			want:    []string{"First prompt\nwith multiple lines", "Second prompt"},
+			wantSrc: []string{"line:1", "line:4"},
 		},
 		{
 			name:    "separator with comments",
 			content: "# Header comment\nFirst prompt\n---\n# Comment in second\nSecond prompt",
 			want:    []string{"First prompt", "Second prompt"},
+			wantSrc: []string{"line:2", "line:5"},
 		},
 		{
 			name:    "leading separator",
 			content: "---\nFirst prompt\n---\nSecond prompt",
 			want:    []string{"First prompt", "Second prompt"},
+			wantSrc: []string{"line:2", "line:4"},
 		},
 		{
 			name:      "empty file",
@@ -544,8 +567,9 @@ func TestParseBatchFile(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create temp file with content
 			testFile := filepath.Join(tmpDir, fmt.Sprintf("batch_%s.txt", tt.name))
-			if err := os.WriteFile(testFile, []byte(tt.content), 0644); err != nil {
-				t.Fatalf("Failed to write test file: %v", err)
+			writeErr := os.WriteFile(testFile, []byte(tt.content), 0644)
+			if writeErr != nil {
+				t.Fatalf("Failed to write test file: %v", writeErr)
 			}
 
 			got, err := parseBatchFile(testFile)
@@ -562,8 +586,11 @@ func TestParseBatchFile(t *testing.T) {
 				t.Fatalf("got %d prompts, want %d: %v", len(got), len(tt.want), got)
 			}
 			for i := range got {
-				if got[i] != tt.want[i] {
-					t.Errorf("prompt %d: got %q, want %q", i, got[i], tt.want[i])
+				if got[i].Text != tt.want[i] {
+					t.Errorf("prompt %d: got %q, want %q", i, got[i].Text, tt.want[i])
+				}
+				if len(tt.wantSrc) > 0 && got[i].Source != tt.wantSrc[i] {
+					t.Errorf("prompt %d source: got %q, want %q", i, got[i].Source, tt.wantSrc[i])
 				}
 			}
 		})
@@ -576,6 +603,217 @@ func TestParseBatchFile(t *testing.T) {
 			t.Error("Expected error for nonexistent file")
 		}
 	})
+}
+
+func TestSendDryRunDoesNotSendToPane(t *testing.T) {
+	testutil.RequireTmuxThrottled(t)
+
+	tmpDir, err := os.MkdirTemp("", "ntm-test-send-dry-run")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Save/Restore global config
+	oldCfg := cfg
+	oldJsonOutput := jsonOutput
+	defer func() {
+		cfg = oldCfg
+		jsonOutput = oldJsonOutput
+	}()
+
+	cfg = config.Default()
+	cfg.ProjectsBase = tmpDir
+	cfg.Checkpoints.Enabled = false
+	jsonOutput = true // avoid polluting test logs
+
+	// Use a simple echoing agent so we can detect sends
+	cfg.Agents.Claude = "cat"
+
+	sessionName := fmt.Sprintf("ntm-test-send-dry-run-%d", time.Now().UnixNano())
+	defer func() {
+		_ = tmux.KillSession(sessionName)
+	}()
+
+	projectDir := filepath.Join(tmpDir, sessionName)
+	err = os.MkdirAll(projectDir, 0755)
+	if err != nil {
+		t.Fatalf("failed to create project dir: %v", err)
+	}
+
+	agents := []FlatAgent{
+		{Type: AgentTypeClaude, Index: 1, Model: "test-model"},
+	}
+	opts := SpawnOptions{
+		Session:  sessionName,
+		Agents:   agents,
+		CCCount:  1,
+		UserPane: true,
+	}
+	err = spawnSessionLogic(opts)
+	if err != nil {
+		t.Fatalf("spawnSessionLogic failed: %v", err)
+	}
+
+	time.Sleep(500 * time.Millisecond)
+
+	prompt := "NTM_TEST_DRY_RUN_SHOULD_NOT_SEND"
+	err = runSendWithTargets(SendOptions{
+		Session:      sessionName,
+		Prompt:       prompt,
+		PromptSource: "args",
+		Targets:      SendTargets{}, // default targeting = agent panes
+		PaneIndex:    -1,
+		DryRun:       true,
+	})
+	if err != nil {
+		t.Fatalf("runSendWithTargets failed: %v", err)
+	}
+
+	time.Sleep(300 * time.Millisecond)
+
+	panes, err := tmux.GetPanes(sessionName)
+	if err != nil {
+		t.Fatalf("failed to get panes: %v", err)
+	}
+
+	var agentPane *tmux.Pane
+	for i := range panes {
+		if panes[i].Type == tmux.AgentClaude {
+			agentPane = &panes[i]
+			break
+		}
+	}
+	if agentPane == nil {
+		t.Fatal("Agent pane not found")
+	}
+
+	output, err := tmux.CapturePaneOutput(agentPane.ID, 30)
+	if err != nil {
+		t.Fatalf("CapturePaneOutput failed: %v", err)
+	}
+	if strings.Contains(output, prompt) {
+		t.Errorf("Dry-run should not send prompt %q, but it appeared in pane output. Got:\n%s", prompt, output)
+	}
+}
+
+func TestSendSmartRouteIsDisabledWhenPanesSpecified(t *testing.T) {
+	testutil.RequireTmuxThrottled(t)
+
+	tmpDir, err := os.MkdirTemp("", "ntm-test-send-smart-route-panes")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Save/Restore global config
+	oldCfg := cfg
+	oldJsonOutput := jsonOutput
+	defer func() {
+		cfg = oldCfg
+		jsonOutput = oldJsonOutput
+	}()
+
+	cfg = config.Default()
+	cfg.ProjectsBase = tmpDir
+	cfg.Checkpoints.Enabled = false
+	jsonOutput = true // avoid polluting test logs
+	cfg.Agents.Claude = "cat"
+
+	sessionName := fmt.Sprintf("ntm-test-send-smart-route-panes-%d", time.Now().UnixNano())
+	defer func() {
+		_ = tmux.KillSession(sessionName)
+	}()
+
+	projectDir := filepath.Join(tmpDir, sessionName)
+	err = os.MkdirAll(projectDir, 0755)
+	if err != nil {
+		t.Fatalf("failed to create project dir: %v", err)
+	}
+
+	agents := []FlatAgent{
+		{Type: AgentTypeClaude, Index: 1, Model: "test-model"},
+	}
+	opts := SpawnOptions{
+		Session:  sessionName,
+		Agents:   agents,
+		CCCount:  1,
+		UserPane: true,
+	}
+	err = spawnSessionLogic(opts)
+	if err != nil {
+		t.Fatalf("spawnSessionLogic failed: %v", err)
+	}
+
+	time.Sleep(500 * time.Millisecond)
+
+	panes, err := tmux.GetPanes(sessionName)
+	if err != nil {
+		t.Fatalf("failed to get panes: %v", err)
+	}
+
+	var userPaneID string
+	var userPaneIndex int
+	for _, p := range panes {
+		if p.Type == tmux.AgentUser {
+			userPaneID = p.ID
+			userPaneIndex = p.Index
+		}
+	}
+	if userPaneID == "" {
+		t.Fatal("User pane not found")
+	}
+
+	// If smart routing were applied, it would ignore the user pane and select an agent pane.
+	// With --panes specified, we expect routing to be skipped and the command to be sent to the explicitly selected pane.
+	prompt := "echo $PWD"
+
+	// Capture only the send command's JSON output (stdout) and assert that it targeted the explicitly specified pane.
+	// This avoids relying on the user shell actually executing the command.
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create stdout pipe: %v", err)
+	}
+	os.Stdout = w
+	defer func() {
+		os.Stdout = oldStdout
+	}()
+
+	sendErr := runSendWithTargets(SendOptions{
+		Session:        sessionName,
+		Prompt:         prompt,
+		PromptSource:   "args",
+		Targets:        SendTargets{},
+		PanesSpecified: true,
+		Panes:          []int{userPaneIndex},
+		SmartRoute:     true,
+		PaneIndex:      -1,
+	})
+
+	_ = w.Close()
+	os.Stdout = oldStdout
+
+	stdoutBytes, readErr := io.ReadAll(r)
+	_ = r.Close()
+	if readErr != nil {
+		t.Fatalf("failed reading stdout: %v", readErr)
+	}
+	if sendErr != nil {
+		t.Fatalf("runSendWithTargets failed: %v (stdout=%q)", sendErr, strings.TrimSpace(string(stdoutBytes)))
+	}
+
+	var res SendResult
+	err = json.Unmarshal(stdoutBytes, &res)
+	if err != nil {
+		t.Fatalf("failed to parse send JSON: %v (stdout=%q)", err, strings.TrimSpace(string(stdoutBytes)))
+	}
+	if len(res.Targets) != 1 || res.Targets[0] != userPaneIndex {
+		t.Fatalf("expected targets [%d], got %v", userPaneIndex, res.Targets)
+	}
+	if res.RoutedTo != nil {
+		t.Fatalf("expected routed_to to be omitted when --panes is explicitly set, got %+v", *res.RoutedTo)
+	}
 }
 
 // TestRemoveComments tests the comment removal helper

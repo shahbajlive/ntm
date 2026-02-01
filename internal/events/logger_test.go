@@ -515,3 +515,445 @@ func TestEventTypeConstants(t *testing.T) {
 		seen[et] = true
 	}
 }
+
+func TestDefaultOptions(t *testing.T) {
+	t.Parallel()
+
+	opts := DefaultOptions()
+
+	if opts.RetentionDays != DefaultRetentionDays {
+		t.Errorf("RetentionDays = %d, want %d", opts.RetentionDays, DefaultRetentionDays)
+	}
+	if !opts.Enabled {
+		t.Error("Enabled should be true by default")
+	}
+	if opts.Path == "" {
+		t.Error("Path should not be empty")
+	}
+	// Path should have ~ expanded
+	if opts.Path[0] == '~' {
+		t.Error("Path should have ~ expanded")
+	}
+}
+
+func TestLogger_Since(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "events.jsonl")
+
+	// Create events at different times
+	now := time.Now().UTC()
+	old := now.Add(-2 * time.Hour)
+	recent := now.Add(-30 * time.Minute)
+
+	entries := []Event{
+		{Timestamp: old, Type: EventSessionCreate, Session: "old"},
+		{Timestamp: recent, Type: EventAgentSpawn, Session: "recent"},
+		{Timestamp: now, Type: EventPromptSend, Session: "now"},
+	}
+
+	var data []byte
+	for _, e := range entries {
+		line, _ := json.Marshal(e)
+		data = append(data, line...)
+		data = append(data, '\n')
+	}
+	if err := os.WriteFile(logPath, data, 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	logger, err := NewLogger(LoggerOptions{Path: logPath, Enabled: true})
+	if err != nil {
+		t.Fatalf("NewLogger failed: %v", err)
+	}
+	defer logger.Close()
+
+	// Get events since 1 hour ago
+	cutoff := now.Add(-1 * time.Hour)
+	events, err := logger.Since(cutoff)
+	if err != nil {
+		t.Fatalf("Since failed: %v", err)
+	}
+
+	if len(events) != 2 {
+		t.Errorf("got %d events, want 2", len(events))
+	}
+
+	// Verify the old event was filtered out
+	for _, e := range events {
+		if e.Session == "old" {
+			t.Error("old event should have been filtered out")
+		}
+	}
+}
+
+func TestLogger_Since_DisabledLogger(t *testing.T) {
+	t.Parallel()
+
+	logger, err := NewLogger(LoggerOptions{Enabled: false})
+	if err != nil {
+		t.Fatalf("NewLogger failed: %v", err)
+	}
+
+	events, err := logger.Since(time.Now().Add(-1 * time.Hour))
+	if err != nil {
+		t.Fatalf("Since failed: %v", err)
+	}
+
+	if len(events) != 0 {
+		t.Errorf("got %d events, want 0 for disabled logger", len(events))
+	}
+}
+
+func TestLogger_SinceByType(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "events.jsonl")
+
+	now := time.Now().UTC()
+	entries := []Event{
+		{Timestamp: now.Add(-1 * time.Hour), Type: EventSessionCreate, Session: "s1"},
+		{Timestamp: now.Add(-30 * time.Minute), Type: EventAgentSpawn, Session: "s2"},
+		{Timestamp: now.Add(-15 * time.Minute), Type: EventSessionCreate, Session: "s3"},
+		{Timestamp: now, Type: EventPromptSend, Session: "s4"},
+	}
+
+	var data []byte
+	for _, e := range entries {
+		line, _ := json.Marshal(e)
+		data = append(data, line...)
+		data = append(data, '\n')
+	}
+	if err := os.WriteFile(logPath, data, 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	logger, err := NewLogger(LoggerOptions{Path: logPath, Enabled: true})
+	if err != nil {
+		t.Fatalf("NewLogger failed: %v", err)
+	}
+	defer logger.Close()
+
+	// Get only SessionCreate events since 2 hours ago
+	events, err := logger.SinceByType(EventSessionCreate, now.Add(-2*time.Hour))
+	if err != nil {
+		t.Fatalf("SinceByType failed: %v", err)
+	}
+
+	if len(events) != 2 {
+		t.Errorf("got %d events, want 2", len(events))
+	}
+
+	for _, e := range events {
+		if e.Type != EventSessionCreate {
+			t.Errorf("got event type %q, want %q", e.Type, EventSessionCreate)
+		}
+	}
+}
+
+func TestLogger_EventCount(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "events.jsonl")
+
+	now := time.Now().UTC()
+	entries := []Event{
+		{Timestamp: now.Add(-2 * time.Hour), Type: EventSessionCreate, Session: "s1"},
+		{Timestamp: now.Add(-1 * time.Hour), Type: EventAgentSpawn, Session: "s2"},
+		{Timestamp: now.Add(-30 * time.Minute), Type: EventPromptSend, Session: "s3"},
+		{Timestamp: now, Type: EventError, Session: "s4"},
+	}
+
+	var data []byte
+	for _, e := range entries {
+		line, _ := json.Marshal(e)
+		data = append(data, line...)
+		data = append(data, '\n')
+	}
+	if err := os.WriteFile(logPath, data, 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	logger, err := NewLogger(LoggerOptions{Path: logPath, Enabled: true})
+	if err != nil {
+		t.Fatalf("NewLogger failed: %v", err)
+	}
+	defer logger.Close()
+
+	tests := []struct {
+		name  string
+		since time.Duration
+		want  int
+	}{
+		{"all events", -3 * time.Hour, 4},
+		{"last 90 minutes", -90 * time.Minute, 3},
+		{"last 45 minutes", -45 * time.Minute, 2},
+		{"last 15 minutes", -15 * time.Minute, 1},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			count, err := logger.EventCount(now.Add(tc.since))
+			if err != nil {
+				t.Fatalf("EventCount failed: %v", err)
+			}
+			if count != tc.want {
+				t.Errorf("count = %d, want %d", count, tc.want)
+			}
+		})
+	}
+}
+
+func TestLogger_LastEvent(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "events.jsonl")
+
+	now := time.Now().UTC()
+	entries := []Event{
+		{Timestamp: now.Add(-2 * time.Hour), Type: EventSessionCreate, Session: "first"},
+		{Timestamp: now.Add(-1 * time.Hour), Type: EventAgentSpawn, Session: "middle"},
+		{Timestamp: now, Type: EventPromptSend, Session: "last"},
+	}
+
+	var data []byte
+	for _, e := range entries {
+		line, _ := json.Marshal(e)
+		data = append(data, line...)
+		data = append(data, '\n')
+	}
+	if err := os.WriteFile(logPath, data, 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	logger, err := NewLogger(LoggerOptions{Path: logPath, Enabled: true})
+	if err != nil {
+		t.Fatalf("NewLogger failed: %v", err)
+	}
+	defer logger.Close()
+
+	event, err := logger.LastEvent()
+	if err != nil {
+		t.Fatalf("LastEvent failed: %v", err)
+	}
+
+	if event == nil {
+		t.Fatal("LastEvent returned nil")
+	}
+	if event.Session != "last" {
+		t.Errorf("Session = %q, want %q", event.Session, "last")
+	}
+	if event.Type != EventPromptSend {
+		t.Errorf("Type = %q, want %q", event.Type, EventPromptSend)
+	}
+}
+
+func TestLogger_LastEvent_EmptyFile(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "events.jsonl")
+
+	// Create empty file
+	if err := os.WriteFile(logPath, []byte{}, 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	logger, err := NewLogger(LoggerOptions{Path: logPath, Enabled: true})
+	if err != nil {
+		t.Fatalf("NewLogger failed: %v", err)
+	}
+	defer logger.Close()
+
+	event, err := logger.LastEvent()
+	if err != nil {
+		t.Fatalf("LastEvent failed: %v", err)
+	}
+
+	if event != nil {
+		t.Errorf("LastEvent = %v, want nil for empty file", event)
+	}
+}
+
+func TestLogger_LastEvent_NoFile(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "nonexistent.jsonl")
+
+	logger, err := NewLogger(LoggerOptions{Path: logPath, Enabled: true})
+	if err != nil {
+		t.Fatalf("NewLogger failed: %v", err)
+	}
+	defer logger.Close()
+
+	// Delete the file that was created by NewLogger
+	os.Remove(logPath)
+
+	event, err := logger.LastEvent()
+	if err != nil {
+		t.Fatalf("LastEvent failed: %v", err)
+	}
+
+	if event != nil {
+		t.Errorf("LastEvent = %v, want nil for nonexistent file", event)
+	}
+}
+
+func TestLogger_LastEvent_Disabled(t *testing.T) {
+	t.Parallel()
+
+	logger, err := NewLogger(LoggerOptions{Enabled: false})
+	if err != nil {
+		t.Fatalf("NewLogger failed: %v", err)
+	}
+
+	event, err := logger.LastEvent()
+	if err != nil {
+		t.Fatalf("LastEvent failed: %v", err)
+	}
+
+	if event != nil {
+		t.Errorf("LastEvent = %v, want nil for disabled logger", event)
+	}
+}
+
+func TestLogger_Replay(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "events.jsonl")
+
+	now := time.Now().UTC()
+	entries := []Event{
+		{Timestamp: now.Add(-2 * time.Hour), Type: EventSessionCreate, Session: "s1"},
+		{Timestamp: now.Add(-1 * time.Hour), Type: EventAgentSpawn, Session: "s2"},
+		{Timestamp: now, Type: EventPromptSend, Session: "s3"},
+	}
+
+	var data []byte
+	for _, e := range entries {
+		line, _ := json.Marshal(e)
+		data = append(data, line...)
+		data = append(data, '\n')
+	}
+	if err := os.WriteFile(logPath, data, 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	logger, err := NewLogger(LoggerOptions{Path: logPath, Enabled: true})
+	if err != nil {
+		t.Fatalf("NewLogger failed: %v", err)
+	}
+	defer logger.Close()
+
+	ch, err := logger.Replay(now.Add(-90 * time.Minute))
+	if err != nil {
+		t.Fatalf("Replay failed: %v", err)
+	}
+
+	var received []*Event
+	for e := range ch {
+		received = append(received, e)
+	}
+
+	if len(received) != 2 {
+		t.Errorf("received %d events, want 2", len(received))
+	}
+}
+
+func TestLogger_ReplaySession(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "events.jsonl")
+
+	now := time.Now().UTC()
+	entries := []Event{
+		{Timestamp: now.Add(-2 * time.Hour), Type: EventSessionCreate, Session: "target"},
+		{Timestamp: now.Add(-1 * time.Hour), Type: EventAgentSpawn, Session: "other"},
+		{Timestamp: now.Add(-30 * time.Minute), Type: EventPromptSend, Session: "target"},
+		{Timestamp: now, Type: EventError, Session: "target"},
+	}
+
+	var data []byte
+	for _, e := range entries {
+		line, _ := json.Marshal(e)
+		data = append(data, line...)
+		data = append(data, '\n')
+	}
+	if err := os.WriteFile(logPath, data, 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	logger, err := NewLogger(LoggerOptions{Path: logPath, Enabled: true})
+	if err != nil {
+		t.Fatalf("NewLogger failed: %v", err)
+	}
+	defer logger.Close()
+
+	ch, err := logger.ReplaySession("target", now.Add(-3*time.Hour))
+	if err != nil {
+		t.Fatalf("ReplaySession failed: %v", err)
+	}
+
+	var received []*Event
+	for e := range ch {
+		received = append(received, e)
+	}
+
+	if len(received) != 3 {
+		t.Errorf("received %d events, want 3", len(received))
+	}
+
+	for _, e := range received {
+		if e.Session != "target" {
+			t.Errorf("Session = %q, want %q", e.Session, "target")
+		}
+	}
+}
+
+func TestLogger_LastEvent_MalformedEntries(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "events.jsonl")
+
+	now := time.Now().UTC()
+	validEvent := Event{Timestamp: now, Type: EventSessionCreate, Session: "valid"}
+	validLine, _ := json.Marshal(validEvent)
+
+	// Write valid event followed by malformed line followed by another valid event
+	data := append(validLine, '\n')
+	data = append(data, []byte("not valid json\n")...)
+	lastEvent := Event{Timestamp: now.Add(time.Hour), Type: EventPromptSend, Session: "last"}
+	lastLine, _ := json.Marshal(lastEvent)
+	data = append(data, lastLine...)
+	data = append(data, '\n')
+
+	if err := os.WriteFile(logPath, data, 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	logger, err := NewLogger(LoggerOptions{Path: logPath, Enabled: true})
+	if err != nil {
+		t.Fatalf("NewLogger failed: %v", err)
+	}
+	defer logger.Close()
+
+	event, err := logger.LastEvent()
+	if err != nil {
+		t.Fatalf("LastEvent failed: %v", err)
+	}
+
+	if event == nil {
+		t.Fatal("LastEvent returned nil")
+	}
+	if event.Session != "last" {
+		t.Errorf("Session = %q, want %q (should skip malformed entries)", event.Session, "last")
+	}
+}

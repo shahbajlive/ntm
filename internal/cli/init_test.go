@@ -2,6 +2,7 @@ package cli
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,8 +12,6 @@ import (
 
 // TestInitCmd_NoArgs verifies ntm init with no arguments uses current working directory
 func TestInitCmd_NoArgs(t *testing.T) {
-	t.Parallel()
-
 	// Create temp directory
 	tmpDir := t.TempDir()
 
@@ -473,4 +472,127 @@ func TestRunShellInit_InvalidShell(t *testing.T) {
 	}
 
 	t.Logf("TEST: RunShellInit_InvalidShell | Input: powershell | Expected: error | Got: %v", err)
+}
+
+// TestInstallGitHooks_NotGitRepo verifies hooks installation skips non-git directories
+func TestInstallGitHooks_NotGitRepo(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	installed, warning := installGitHooks(tmpDir, false)
+
+	if len(installed) != 0 {
+		t.Errorf("expected no hooks installed, got %v", installed)
+	}
+
+	if warning == "" {
+		t.Error("expected warning for non-git repo")
+	}
+
+	if !strings.Contains(warning, "not a git repository") {
+		t.Errorf("expected 'not a git repository' warning, got: %s", warning)
+	}
+
+	t.Logf("TEST: InstallGitHooks_NotGitRepo | Input: %s | Expected: warning | Got: %s", tmpDir, warning)
+}
+
+// TestInstallGitHooks_GitRepo verifies hooks installation in a git repo
+func TestInstallGitHooks_GitRepo(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	// Initialize a real git repo using git init
+	cmd := exec.Command("git", "init")
+	cmd.Dir = tmpDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init failed: %v, output: %s", err, out)
+	}
+
+	installed, warning := installGitHooks(tmpDir, false)
+
+	// Should install hooks successfully without warning
+	if warning != "" {
+		t.Errorf("unexpected warning in valid git repo: %s", warning)
+	}
+
+	// Verify hooks were installed (at least pre-commit should be installed)
+	if len(installed) == 0 {
+		t.Error("expected at least one hook to be installed")
+	}
+
+	// Verify hook files exist on disk
+	hooksDir := filepath.Join(tmpDir, ".git", "hooks")
+	for _, hookName := range installed {
+		hookPath := filepath.Join(hooksDir, hookName)
+		if _, err := os.Stat(hookPath); err != nil {
+			t.Errorf("hook %s not found on disk: %v", hookName, err)
+		}
+	}
+
+	t.Logf("TEST: InstallGitHooks_GitRepo | Installed: %v | Warning: %s", installed, warning)
+}
+
+// TestInstallGitHooks_Force verifies force flag behavior
+func TestInstallGitHooks_Force(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	// Initialize a real git repo using git init
+	cmd := exec.Command("git", "init")
+	cmd.Dir = tmpDir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init failed: %v, output: %s", err, out)
+	}
+
+	hooksDir := filepath.Join(tmpDir, ".git", "hooks")
+	existingContent := "#!/bin/sh\nexit 0\n"
+
+	// Create existing hook with known content
+	preCommitPath := filepath.Join(hooksDir, "pre-commit")
+	if err := os.WriteFile(preCommitPath, []byte(existingContent), 0755); err != nil {
+		t.Fatalf("create existing hook: %v", err)
+	}
+
+	// Install without force - should skip existing hook
+	installed1, _ := installGitHooks(tmpDir, false)
+
+	// Read content after non-force install - should be unchanged
+	content1, err := os.ReadFile(preCommitPath)
+	if err != nil {
+		t.Fatalf("read hook after non-force: %v", err)
+	}
+	if string(content1) != existingContent {
+		t.Errorf("non-force install should not modify existing hook")
+	}
+
+	// Install with force - should overwrite existing hook
+	installed2, _ := installGitHooks(tmpDir, true)
+
+	// Read content after force install - should be different (our hook content)
+	content2, err := os.ReadFile(preCommitPath)
+	if err != nil {
+		t.Fatalf("read hook after force: %v", err)
+	}
+
+	// With force, pre-commit should be in installed list (overwritten)
+	foundPreCommit := false
+	for _, h := range installed2 {
+		if h == "pre-commit" {
+			foundPreCommit = true
+			break
+		}
+	}
+	if !foundPreCommit {
+		t.Error("force install should include pre-commit in installed list")
+	}
+
+	// Content should have changed from the original
+	if string(content2) == existingContent {
+		t.Error("force install should overwrite existing hook content")
+	}
+
+	t.Logf("TEST: InstallGitHooks_Force | Without force: %v | With force: %v", installed1, installed2)
 }

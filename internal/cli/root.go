@@ -1563,7 +1563,18 @@ Shell Integration:
 		}
 
 		// Show help with appropriate verbosity when run without subcommand
-		if helpMinimal {
+		showMinimal := helpMinimal
+		if !helpMinimal && helpFull {
+			showMinimal = false
+		}
+		if !helpMinimal && !helpFull && cfg != nil {
+			// Optional config default (bd-352n): help_verbosity = minimal|full
+			if strings.EqualFold(strings.TrimSpace(cfg.HelpVerbosity), "minimal") {
+				showMinimal = true
+			}
+		}
+
+		if showMinimal {
 			PrintMinimalHelp(cmd.OutOrStdout())
 		} else {
 			// Default to full help (current stunning help)

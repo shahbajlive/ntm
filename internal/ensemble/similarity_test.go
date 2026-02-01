@@ -1,6 +1,7 @@
 package ensemble
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -100,7 +101,7 @@ func TestCalculateRedundancy_DisjointFindings(t *testing.T) {
 }
 
 func TestCalculateRedundancy_PartialOverlap(t *testing.T) {
-	// Two modes with 1 shared, 1 unique each → Jaccard = 1/3 ≈ 0.333
+	// Two modes with 1 shared, 1 unique each → Dice = 2*1/(2+2) = 0.5
 	outputs := []ModeOutput{
 		{
 			ModeID: "mode-a",
@@ -131,9 +132,9 @@ func TestCalculateRedundancy_PartialOverlap(t *testing.T) {
 	}
 
 	pair := analysis.PairwiseScores[0]
-	// Jaccard for findings: 1/(2+2-1) = 1/3 ≈ 0.333
-	// No recommendations in either mode, so we use findings similarity directly
-	expectedFindingsSim := 1.0 / 3.0
+	// Dice for findings: 2*1/(2+2) = 0.5
+	// No recommendations in either mode, so we use findings similarity directly.
+	expectedFindingsSim := 0.5
 
 	if pair.Similarity < expectedFindingsSim-0.05 || pair.Similarity > expectedFindingsSim+0.05 {
 		t.Errorf("expected similarity ~%.2f for partial overlap, got %.2f",
@@ -274,6 +275,33 @@ func TestCalculateRedundancy_ThreeModes(t *testing.T) {
 	}
 	if lowSim != 2 {
 		t.Errorf("expected 2 low similarity pairs, got %d", lowSim)
+	}
+}
+
+func TestRedundancyAnalysis_SuggestReplacements(t *testing.T) {
+	analysis := &RedundancyAnalysis{
+		PairwiseScores: []PairSimilarity{
+			{ModeA: "mode-a", ModeB: "mode-b", Similarity: 0.9},
+		},
+	}
+
+	catalog, err := NewModeCatalog([]ReasoningMode{
+		{ID: "mode-a", Name: "A", Category: CategoryFormal, Tier: TierCore, ShortDesc: "A"},
+		{ID: "mode-b", Name: "B", Category: CategoryFormal, Tier: TierCore, ShortDesc: "B"},
+		{ID: "alt-1", Name: "Alt", Category: CategoryUncertainty, Tier: TierCore, ShortDesc: "Alt"},
+	}, "test")
+	if err != nil {
+		t.Fatalf("NewModeCatalog error: %v", err)
+	}
+
+	suggestions := analysis.SuggestReplacements(catalog)
+	if len(suggestions) == 0 {
+		t.Fatal("expected suggestions")
+	}
+
+	joined := strings.Join(suggestions, "\n")
+	if !strings.Contains(joined, "mode-b") || !strings.Contains(joined, "alt-1") {
+		t.Fatalf("unexpected suggestions: %v", suggestions)
 	}
 }
 

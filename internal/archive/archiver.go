@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -133,7 +134,7 @@ func (a *Archiver) Run(ctx context.Context) error {
 	// Initial capture
 	if err := a.archiveNewContent(ctx); err != nil {
 		// Log but continue - don't fail on first capture
-		fmt.Fprintf(os.Stderr, "archive: initial capture error: %v\n", err)
+		slog.Warn("archive initial capture error", "error", err)
 	}
 
 	for {
@@ -141,13 +142,13 @@ func (a *Archiver) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			// Final flush on shutdown
 			if err := a.flush(); err != nil {
-				fmt.Fprintf(os.Stderr, "archive: flush on shutdown error (session %s): %v\n", a.sessionName, err)
+				slog.Warn("archive flush on shutdown error", "session", a.sessionName, "error", err)
 			}
 			return ctx.Err()
 		case <-ticker.C:
 			if err := a.archiveNewContent(ctx); err != nil {
 				// Log but continue
-				fmt.Fprintf(os.Stderr, "archive: capture error: %v\n", err)
+				slog.Warn("archive capture error", "error", err)
 			}
 		}
 	}
@@ -181,7 +182,7 @@ func (a *Archiver) archiveNewContent(ctx context.Context) error {
 
 		if err := a.capturePane(ctx, pane); err != nil {
 			// Log but continue with other panes
-			fmt.Fprintf(os.Stderr, "archive: pane %d capture error: %v\n", pane.Index, err)
+			slog.Warn("archive pane capture error", "pane", pane.Index, "error", err)
 		}
 	}
 
@@ -281,7 +282,7 @@ func (a *Archiver) Close() error {
 	if a.file != nil {
 		if err := a.flush(); err != nil {
 			// Log but continue to close file
-			fmt.Fprintf(os.Stderr, "archive: flush on close error (session %s): %v\n", a.sessionName, err)
+			slog.Warn("archive flush on close error", "session", a.sessionName, "error", err)
 		}
 		err := a.file.Close()
 		a.file = nil

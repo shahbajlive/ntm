@@ -141,43 +141,47 @@ func killSession(logger *TestLogger, name string) {
 func KillAllTestSessions(logger *TestLogger) {
 	logger.LogSection("Killing All Test Sessions")
 
-	// List all tmux sessions
-	out, err := exec.Command(tmux.BinaryPath(), "list-sessions", "-F", "#{session_name}").Output()
-	if err != nil {
-		logger.Log("Failed to list tmux sessions: %v", err)
-		return
-	}
-
-	sessions := strings.Split(strings.TrimSpace(string(out)), "\n")
-	killed := 0
-	for _, session := range sessions {
-		// Match both naming conventions used in tests
-		if strings.HasPrefix(session, "ntm_test_") || strings.HasPrefix(session, "ntm-test-") {
-			logger.Log("Killing orphan test session: %s", session)
-			exec.Command(tmux.BinaryPath(), "kill-session", "-t", session).Run()
-			killed++
+	withGlobalTmuxTestLock(func() {
+		// List all tmux sessions
+		out, err := exec.Command(tmux.BinaryPath(), "list-sessions", "-F", "#{session_name}").Output()
+		if err != nil {
+			logger.Log("Failed to list tmux sessions: %v", err)
+			return
 		}
-	}
 
-	logger.Log("Killed %d orphan test sessions", killed)
+		sessions := strings.Split(strings.TrimSpace(string(out)), "\n")
+		killed := 0
+		for _, session := range sessions {
+			// Match both naming conventions used in tests
+			if strings.HasPrefix(session, "ntm_test_") || strings.HasPrefix(session, "ntm-test-") {
+				logger.Log("Killing orphan test session: %s", session)
+				exec.Command(tmux.BinaryPath(), "kill-session", "-t", session).Run()
+				killed++
+			}
+		}
+
+		logger.Log("Killed %d orphan test sessions", killed)
+	})
 }
 
 // KillAllTestSessionsSilent kills all ntm test sessions without logging.
 // Use this in TestMain where a logger may not be available.
 func KillAllTestSessionsSilent() int {
-	out, err := exec.Command(tmux.BinaryPath(), "list-sessions", "-F", "#{session_name}").Output()
-	if err != nil {
-		return 0
-	}
-
-	sessions := strings.Split(strings.TrimSpace(string(out)), "\n")
 	killed := 0
-	for _, session := range sessions {
-		if strings.HasPrefix(session, "ntm_test_") || strings.HasPrefix(session, "ntm-test-") {
-			exec.Command(tmux.BinaryPath(), "kill-session", "-t", session).Run()
-			killed++
+	withGlobalTmuxTestLock(func() {
+		out, err := exec.Command(tmux.BinaryPath(), "list-sessions", "-F", "#{session_name}").Output()
+		if err != nil {
+			return
 		}
-	}
+
+		sessions := strings.Split(strings.TrimSpace(string(out)), "\n")
+		for _, session := range sessions {
+			if strings.HasPrefix(session, "ntm_test_") || strings.HasPrefix(session, "ntm-test-") {
+				exec.Command(tmux.BinaryPath(), "kill-session", "-t", session).Run()
+				killed++
+			}
+		}
+	})
 	return killed
 }
 

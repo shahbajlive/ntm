@@ -45,6 +45,7 @@ internal/cli/outputs/
 # Temporary/backup files
 *.bak
 *.incomplete
+*.jsonl.lock
 
 # Screenshots
 Snipping_*.png
@@ -57,3 +58,6 @@ rustc-ice-*.txt
 *.snap.new
 sweep_*.png
 test_screenshot.png
+
+# E2E runtime lockfiles
+e2e/*.lock

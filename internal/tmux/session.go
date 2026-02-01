@@ -391,6 +391,14 @@ func (c *Client) GetAllPanesContext(ctx context.Context) (map[string][]Pane, err
 	format := fmt.Sprintf("#{session_name}%[1]s#{pane_id}%[1]s#{pane_index}%[1]s#{pane_title}%[1]s#{pane_current_command}%[1]s#{pane_width}%[1]s#{pane_height}%[1]s#{pane_active}%[1]s#{pane_pid}", sep)
 	output, err := c.RunContext(ctx, "list-panes", "-a", "-F", format)
 	if err != nil {
+		// No server/no sessions is not an error; treat as empty result.
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "no server running") ||
+			strings.Contains(errMsg, "no sessions") ||
+			strings.Contains(errMsg, "No such file or directory") ||
+			strings.Contains(errMsg, "error connecting to") {
+			return map[string][]Pane{}, nil
+		}
 		return nil, err
 	}
 
@@ -533,8 +541,21 @@ func SplitWindow(session string, directory string) (string, error) {
 // SetPaneTitle sets the title of a pane and disables title changes by programs
 // to prevent shells/processes from overwriting NTM's pane naming convention.
 func (c *Client) SetPaneTitle(paneID, title string) error {
-	if err := c.RunSilent("select-pane", "-t", paneID, "-T", title); err != nil {
-		return err
+	selectErr := c.RunSilent("select-pane", "-t", paneID, "-T", title)
+	if selectErr != nil && strings.Contains(selectErr.Error(), "can't find pane") {
+		// On busy tmux servers, newly-created panes can transiently fail to resolve by ID.
+		// Retry briefly to reduce flakiness (especially under `go test`).
+		const attempts = 5
+		for i := 0; i < attempts && selectErr != nil; i++ {
+			time.Sleep(50 * time.Millisecond)
+			selectErr = c.RunSilent("select-pane", "-t", paneID, "-T", title)
+			if selectErr != nil && !strings.Contains(selectErr.Error(), "can't find pane") {
+				break
+			}
+		}
+	}
+	if selectErr != nil {
+		return selectErr
 	}
 	// Disable allow-set-title to prevent programs (shells, node, etc.) from
 	// overwriting the pane title via terminal escape sequences (OSC 0/2).

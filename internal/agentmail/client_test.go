@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -395,7 +396,6 @@ func TestExtractMCPContent(t *testing.T) {
 	}
 }
 
-
 func TestCallToolWithMCPEnvelope(t *testing.T) {
 	// Mock server that returns MCP envelope format
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -443,4 +443,226 @@ func TestCallToolWithMCPEnvelope(t *testing.T) {
 	if agent.Program != "ntm" {
 		t.Errorf("expected program ntm, got %s", agent.Program)
 	}
+}
+
+func TestFlexTime_UnmarshalJSON(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		input       string
+		want        time.Time
+		wantErr     bool
+		wantUTCOnly bool
+	}{
+		{
+			name:        "rfc3339",
+			input:       `"2026-01-31T01:24:27Z"`,
+			want:        time.Date(2026, 1, 31, 1, 24, 27, 0, time.UTC),
+			wantUTCOnly: true,
+		},
+		{
+			name:        "rfc3339_nano",
+			input:       `"2026-01-31T01:24:27.123456789Z"`,
+			want:        time.Date(2026, 1, 31, 1, 24, 27, 123456789, time.UTC),
+			wantUTCOnly: true,
+		},
+		{
+			name:        "bare_seconds_assume_utc",
+			input:       `"2026-01-31T01:24:27"`,
+			want:        time.Date(2026, 1, 31, 1, 24, 27, 0, time.UTC),
+			wantUTCOnly: true,
+		},
+		{
+			name:        "bare_millis_assume_utc",
+			input:       `"2026-01-31T01:24:27.123"`,
+			want:        time.Date(2026, 1, 31, 1, 24, 27, 123000000, time.UTC),
+			wantUTCOnly: true,
+		},
+		{
+			name:  "empty_string_sets_zero",
+			input: `""`,
+			want:  time.Time{},
+		},
+		{
+			name:    "invalid_format",
+			input:   `"not-a-timestamp"`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var ft FlexTime
+			err := json.Unmarshal([]byte(tt.input), &ft)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if !ft.Time.Equal(tt.want) {
+				t.Fatalf("expected %s, got %s", tt.want.Format(time.RFC3339Nano), ft.Time.Format(time.RFC3339Nano))
+			}
+			if tt.wantUTCOnly && ft.Time.Location() != time.UTC {
+				t.Fatalf("expected UTC, got %s", ft.Time.Location())
+			}
+		})
+	}
+}
+
+func TestFlexTime_MarshalJSON(t *testing.T) {
+	t.Parallel()
+
+	ft := FlexTime{Time: time.Date(2026, 1, 31, 1, 24, 27, 123456789, time.UTC)}
+	got, err := json.Marshal(ft)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(got) != `"2026-01-31T01:24:27.123456789Z"` {
+		t.Fatalf("unexpected JSON: %s", string(got))
+	}
+}
+
+func TestReservationConflict_UnmarshalJSON(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		input       string
+		wantPath    string
+		wantHolders []string
+		wantErr     bool
+	}{
+		{
+			name:        "null_holders_becomes_empty_slice",
+			input:       `{"path":"internal/agentmail/*","holders":null}`,
+			wantPath:    "internal/agentmail/*",
+			wantHolders: []string{},
+		},
+		{
+			name:        "legacy_list_of_names",
+			input:       `{"path":"x","holders":["BlueLake","RedStone"]}`,
+			wantPath:    "x",
+			wantHolders: []string{"BlueLake", "RedStone"},
+		},
+		{
+			name:        "current_list_of_objects",
+			input:       `{"path":"x","holders":[{"agent":"BlueLake"},{"agent_name":"RedStone"},{"agent":"","agent_name":"GreenCastle"}]}`,
+			wantPath:    "x",
+			wantHolders: []string{"BlueLake", "RedStone", "GreenCastle"},
+		},
+		{
+			name:    "unsupported_format_errors",
+			input:   `{"path":"x","holders":123}`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var c ReservationConflict
+			err := json.Unmarshal([]byte(tt.input), &c)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if c.Path != tt.wantPath {
+				t.Fatalf("expected path %q, got %q", tt.wantPath, c.Path)
+			}
+			if !reflect.DeepEqual(c.Holders, tt.wantHolders) {
+				t.Fatalf("expected holders %#v, got %#v", tt.wantHolders, c.Holders)
+			}
+		})
+	}
+}
+
+func TestFetchInbox_UnmarshalFormats(t *testing.T) {
+	t.Parallel()
+
+	makeServer := func(t *testing.T, rawResult json.RawMessage) *httptest.Server {
+		t.Helper()
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req JSONRPCRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("failed to decode request: %v", err)
+			}
+			if req.Method != "tools/call" {
+				t.Fatalf("expected tools/call, got %s", req.Method)
+			}
+
+			params, ok := req.Params.(map[string]interface{})
+			if !ok {
+				t.Fatal("expected params to be a map")
+			}
+			if params["name"] != "fetch_inbox" {
+				t.Fatalf("expected tool fetch_inbox, got %v", params["name"])
+			}
+
+			args, _ := params["arguments"].(map[string]interface{})
+			if args["project_key"] != "/test/project" {
+				t.Fatalf("expected project_key /test/project, got %v", args["project_key"])
+			}
+			if args["agent_name"] != "BlueLake" {
+				t.Fatalf("expected agent_name BlueLake, got %v", args["agent_name"])
+			}
+			if args["include_bodies"] != true {
+				t.Fatalf("expected include_bodies true, got %v", args["include_bodies"])
+			}
+
+			resp := JSONRPCResponse{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result:  rawResult,
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+		}))
+	}
+
+	t.Run("wrapper_object", func(t *testing.T) {
+		server := makeServer(t, json.RawMessage(`{"result":[{"id":1,"subject":"Hello","from":"alice","created_ts":"2026-01-01T00:00:00Z","importance":"normal","ack_required":false,"kind":"to","body_md":"hi"}]}`))
+		defer server.Close()
+
+		c := NewClient(WithBaseURL(server.URL + "/"))
+		msgs, err := c.FetchInbox(context.Background(), FetchInboxOptions{
+			ProjectKey:    "/test/project",
+			AgentName:     "BlueLake",
+			IncludeBodies: true,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(msgs) != 1 || msgs[0].ID != 1 || msgs[0].From != "alice" {
+			t.Fatalf("unexpected messages: %+v", msgs)
+		}
+	})
+
+	t.Run("direct_array", func(t *testing.T) {
+		server := makeServer(t, json.RawMessage(`[{"id":2,"subject":"Yo","from":"bob","created_ts":"2026-01-01T00:00:00Z","importance":"normal","ack_required":false,"kind":"to","body_md":"hey"}]`))
+		defer server.Close()
+
+		c := NewClient(WithBaseURL(server.URL + "/"))
+		msgs, err := c.FetchInbox(context.Background(), FetchInboxOptions{
+			ProjectKey:    "/test/project",
+			AgentName:     "BlueLake",
+			IncludeBodies: true,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(msgs) != 1 || msgs[0].ID != 2 || msgs[0].From != "bob" {
+			t.Fatalf("unexpected messages: %+v", msgs)
+		}
+	})
 }
