@@ -27,6 +27,7 @@ var modelPricing = map[string]ModelPricing{
 	// Claude models
 	"claude-opus":       {InputPer1K: 0.015, OutputPer1K: 0.075},
 	"claude-opus-4":     {InputPer1K: 0.015, OutputPer1K: 0.075},
+	"claude-opus-4-6":   {InputPer1K: 0.015, OutputPer1K: 0.075},
 	"claude-opus-4-5":   {InputPer1K: 0.015, OutputPer1K: 0.075},
 	"claude-sonnet":     {InputPer1K: 0.003, OutputPer1K: 0.015},
 	"claude-sonnet-4":   {InputPer1K: 0.003, OutputPer1K: 0.015},
@@ -43,9 +44,10 @@ var modelPricing = map[string]ModelPricing{
 	"gpt-4o-mini": {InputPer1K: 0.00015, OutputPer1K: 0.0006},
 	"gpt-4-turbo": {InputPer1K: 0.01, OutputPer1K: 0.03},
 	"gpt-4":       {InputPer1K: 0.03, OutputPer1K: 0.06},
-	"o1":          {InputPer1K: 0.015, OutputPer1K: 0.06},
-	"o1-mini":     {InputPer1K: 0.003, OutputPer1K: 0.012},
-	"o1-preview":  {InputPer1K: 0.015, OutputPer1K: 0.06},
+	"gpt-5.3-codex": {InputPer1K: 0.005, OutputPer1K: 0.015},
+	"o1":            {InputPer1K: 0.015, OutputPer1K: 0.06},
+	"o1-mini":       {InputPer1K: 0.003, OutputPer1K: 0.012},
+	"o1-preview":    {InputPer1K: 0.015, OutputPer1K: 0.06},
 
 	// Google models
 	"gemini-pro":       {InputPer1K: 0.00025, OutputPer1K: 0.0005},
@@ -53,7 +55,8 @@ var modelPricing = map[string]ModelPricing{
 	"gemini-ultra":     {InputPer1K: 0.00125, OutputPer1K: 0.00375},
 	"gemini-flash":     {InputPer1K: 0.000075, OutputPer1K: 0.0003},
 	"gemini-flash-1.5": {InputPer1K: 0.000075, OutputPer1K: 0.0003},
-	"gemini-2.0-flash": {InputPer1K: 0.000075, OutputPer1K: 0.0003},
+	"gemini-2.0-flash":      {InputPer1K: 0.000075, OutputPer1K: 0.0003},
+	"gemini-3-pro-preview":  {InputPer1K: 0.00125, OutputPer1K: 0.00375},
 
 	// Default fallback
 	"default": {InputPer1K: 0.003, OutputPer1K: 0.015},

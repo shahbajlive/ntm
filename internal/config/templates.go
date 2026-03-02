@@ -1,7 +1,12 @@
 package config
 
 import (
+	"bufio"
 	"bytes"
+	"fmt"
+	"os"
+	"runtime"
+	"strconv"
 	"strings"
 	"text/template"
 )
@@ -30,6 +35,53 @@ func ShellQuote(s string) string {
 	// Replace single quotes with '\'' (end quote, escaped quote, start quote)
 	escaped := strings.ReplaceAll(s, "'", "'\\''")
 	return "'" + escaped + "'"
+}
+
+// systemMemoryMB returns total system RAM in MB, or 0 if unknown.
+func systemMemoryMB() uint64 {
+	switch runtime.GOOS {
+	case "linux":
+		f, err := os.Open("/proc/meminfo")
+		if err != nil {
+			return 0
+		}
+		defer f.Close()
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.HasPrefix(line, "MemTotal:") {
+				fields := strings.Fields(line)
+				if len(fields) >= 2 {
+					kb, err := strconv.ParseUint(fields[1], 10, 64)
+					if err == nil {
+						return kb / 1024
+					}
+				}
+			}
+		}
+	case "darwin":
+		// On macOS, sysctl is the standard way but we avoid exec;
+		// use a safe default for Macs (typically 16-64GB)
+		return 0
+	}
+	return 0
+}
+
+// nodeHeapMB computes a safe Node.js heap size based on system RAM.
+// Uses 25% of total RAM, clamped between 2048 MB and 16384 MB.
+func nodeHeapMB() string {
+	totalMB := systemMemoryMB()
+	if totalMB == 0 {
+		return "8192" // safe default for unknown systems
+	}
+	heapMB := totalMB / 4
+	if heapMB < 2048 {
+		heapMB = 2048
+	}
+	if heapMB > 16384 {
+		heapMB = 16384
+	}
+	return fmt.Sprintf("%d", heapMB)
 }
 
 // templateFuncs contains custom functions available in templates
@@ -72,6 +124,8 @@ var templateFuncs = template.FuncMap{
 	// shellQuote safely quotes a string for shell command usage
 	// Use this when inserting untrusted values into shell commands
 	"shellQuote": ShellQuote,
+	// nodeHeapMB returns a safe Node.js heap size based on system RAM
+	"nodeHeapMB": nodeHeapMB,
 }
 
 // GenerateAgentCommand renders an agent command template with the given variables.
@@ -108,7 +162,7 @@ func IsTemplateCommand(cmd string) bool {
 // System prompt injection is supported via SystemPromptFile for persona agents.
 func DefaultAgentTemplates() AgentConfig {
 	return AgentConfig{
-		Claude:   `NODE_OPTIONS="--max-old-space-size=32768" claude --dangerously-skip-permissions{{if .Model}} --model {{shellQuote .Model}}{{end}}{{if .SystemPromptFile}} --system-prompt-file {{shellQuote .SystemPromptFile}}{{end}}`,
+		Claude:   `NODE_OPTIONS="--max-old-space-size={{nodeHeapMB}}" claude --dangerously-skip-permissions{{if .Model}} --model {{shellQuote .Model}}{{end}}{{if .SystemPromptFile}} --system-prompt-file {{shellQuote .SystemPromptFile}}{{end}}`,
 		Codex:    `{{if .SystemPromptFile}}CODEX_SYSTEM_PROMPT="$(cat {{shellQuote .SystemPromptFile}})" {{end}}codex --dangerously-bypass-approvals-and-sandbox -m {{shellQuote (.Model | default "gpt-5.3-codex")}} -c model_reasoning_effort="xhigh" -c model_reasoning_summary_format=experimental --search`,
 		Gemini:   `gemini{{if .Model}} --model {{shellQuote .Model}}{{end}}{{if .SystemPromptFile}} --system-instruction-file {{shellQuote .SystemPromptFile}}{{end}} --yolo`,
 		Ollama:   `ollama run {{shellQuote (.Model | default "codellama:latest")}}`,

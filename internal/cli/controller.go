@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/kernel"
 	"github.com/Dicklesworthstone/ntm/internal/output"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
@@ -238,22 +239,33 @@ func buildControllerResponse(opts ControllerInput) (*ControllerResponse, error) 
 
 	// Resolve agent type to full name
 	var agentTypeFull string
-	var agentCmd string
+	var agentCmdTemplate string
 	switch agentType {
 	case "cc", "claude":
 		agentTypeFull = "claude"
-		agentCmd = cfg.Agents.Claude
+		agentCmdTemplate = cfg.Agents.Claude
 	case "cod", "codex":
 		agentTypeFull = "codex"
-		agentCmd = cfg.Agents.Codex
+		agentCmdTemplate = cfg.Agents.Codex
 	case "gmi", "gemini":
 		agentTypeFull = "gemini"
-		agentCmd = cfg.Agents.Gemini
+		agentCmdTemplate = cfg.Agents.Gemini
 	default:
 		return nil, fmt.Errorf("unknown agent type: %s (use cc, cod, or gmi)", agentType)
 	}
 
 	dir := cfg.GetProjectDir(session)
+
+	// Render the agent command template (fixes raw {{}} being sent to shell)
+	agentCmd, err := config.GenerateAgentCommand(agentCmdTemplate, config.AgentTemplateVars{
+		AgentType:   agentType,
+		SessionName: session,
+		PaneIndex:   1,
+		ProjectDir:  dir,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("rendering agent command template: %w", err)
+	}
 
 	// Find or create pane 1
 	var targetPaneID string
