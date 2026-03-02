@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -366,6 +368,9 @@ type SpawnOptions struct {
 	// CASS Context
 	CassContextQuery      string
 	NoCassContext         bool
+
+	// Recovery suppression (independent of CASS)
+	NoRecovery bool
 	Prompt                string
 	InitPrompt            string
 	LocalModel            string
@@ -534,6 +539,7 @@ func newSpawnCmd() *cobra.Command {
 	var autoRestart bool
 	var contextQuery string
 	var noCassContext bool
+	var noRecovery bool
 	var contextLimit int
 	var contextDays int
 	var prompt string
@@ -914,6 +920,7 @@ Examples:
 				PluginMap:             pluginMap,
 				CassContextQuery:      contextQuery,
 				NoCassContext:         noCassContext,
+				NoRecovery:           noRecovery,
 				Prompt:                prompt,
 				InitPrompt:            initPrompt,
 				LocalModel:            localModel,
@@ -990,7 +997,8 @@ Examples:
 
 	// CASS context flags
 	cmd.Flags().StringVar(&contextQuery, "cass-context", "", "Explicit context query for CASS")
-	cmd.Flags().BoolVar(&noCassContext, "no-cass-context", false, "Disable CASS context injection")
+	cmd.Flags().BoolVar(&noCassContext, "no-cass-context", false, "Disable CASS context injection (does not affect session recovery)")
+	cmd.Flags().BoolVar(&noRecovery, "no-recovery", false, "Disable session recovery prompt injection (does not affect CASS context)")
 	cmd.Flags().IntVar(&contextLimit, "cass-context-limit", 0, "Max past sessions to include")
 	cmd.Flags().IntVar(&contextDays, "cass-context-days", 0, "Look back N days")
 	cmd.Flags().StringVar(&prompt, "prompt", "", "Prompt to initialize agents with")
@@ -1428,8 +1436,9 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 
 	// Build recovery context if enabled (smart session recovery)
 	// Note: rc is kept as a pointer so we can format per-agent-type in the goroutines
+	// Gated by --no-recovery flag (independent of --no-cass-context)
 	var rc *RecoveryContext
-	if cfg.SessionRecovery.Enabled && cfg.SessionRecovery.AutoInjectOnSpawn {
+	if !opts.NoRecovery && cfg.SessionRecovery.Enabled && cfg.SessionRecovery.AutoInjectOnSpawn {
 		ctx, cancelCtx := context.WithTimeout(context.Background(), 5*time.Second)
 		var err error
 		rc, err = buildRecoveryContext(ctx, opts.Session, dir, cfg.SessionRecovery)
@@ -1758,7 +1767,7 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 			if cassContext != "" && !hasPrompt {
 				// Wait a bit for agent to start (simple heuristic)
 				time.Sleep(500 * time.Millisecond)
-				if err := sendPromptWithDoubleEnter(paneID, cassContext); err != nil {
+				if err := sendPromptWithDoubleEnterForAgent(paneID, cassContext, tmux.AgentType(agentType)); err != nil {
 					if !IsJSONOutput() {
 						fmt.Printf("⚠ Warning: failed to inject context for agent %d: %v\n", idx, err)
 					}
@@ -1773,7 +1782,7 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 				if recoveryPrompt != "" {
 					// Small delay to let agent initialize or after CASS
 					time.Sleep(300 * time.Millisecond)
-					if err := sendPromptWithDoubleEnter(paneID, recoveryPrompt); err != nil {
+					if err := sendPromptWithDoubleEnterForAgent(paneID, recoveryPrompt, tmux.AgentType(agentType)); err != nil {
 						if !IsJSONOutput() {
 							fmt.Printf("⚠ Warning: failed to inject recovery context for agent %d: %v\n", idx, err)
 						}
@@ -1806,7 +1815,7 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 					time.Sleep(200 * time.Millisecond)
 				}
 
-				if err := sendPromptWithDoubleEnter(paneID, finalPrompt); err != nil {
+				if err := sendPromptWithDoubleEnterForAgent(paneID, finalPrompt, tmux.AgentType(agentType)); err != nil {
 					if !IsJSONOutput() {
 						fmt.Printf("⚠ Warning: failed to send prompt to agent %d: %v\n", idx, err)
 					}
@@ -2490,8 +2499,12 @@ func registerSpawnedAgents(workingDir, sessionName string, agents []spawnedAgent
 		AgentMap:  make(map[string]string),
 	}
 
-	// Create registry for persistence
-	registry := agentmail.NewSessionAgentRegistry(sessionName, workingDir)
+	// Load existing registry to reuse identities on respawn (#69),
+	// falling back to a fresh registry if none exists.
+	registry, _ := agentmail.LoadSessionAgentRegistry(sessionName, workingDir)
+	if registry == nil {
+		registry = agentmail.NewSessionAgentRegistry(sessionName, workingDir)
+	}
 
 	// Ensure project exists
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -2508,8 +2521,26 @@ func registerSpawnedAgents(workingDir, sessionName string, agents []spawnedAgent
 	}
 	status.ProjectRegistered = true
 
-	// Register each agent
+	// Register each agent (reusing existing identities from prior sessions when possible)
 	for _, agent := range agents {
+		// Check if this pane already has an identity from a prior session (#69)
+		if existingName, ok := registry.GetAgent(agent.paneTitle, agent.paneID); ok && existingName != "" {
+			status.AgentsRegistered++
+			status.AgentMap[fmt.Sprintf("%d", agent.paneIndex)] = existingName
+			if !IsJSONOutput() {
+				output.PrintInfof("Reused existing identity for pane %d: %s", agent.paneIndex, existingName)
+			}
+			// Still write the identity file (it may have been cleaned from /tmp)
+			h := md5.Sum([]byte(workingDir))
+			projHash := hex.EncodeToString(h[:])[:12]
+			identityPath := "/tmp/agent-mail-name." + projHash
+			if agent.paneID != "" {
+				identityPath += "." + agent.paneID
+			}
+			_ = os.WriteFile(identityPath, []byte(existingName+"\n"), 0o600)
+			continue
+		}
+
 		// Map agent type to program name
 		program := agentTypeToProgram(agent.agentType)
 		model := agent.resolvedModel
@@ -2531,6 +2562,23 @@ func registerSpawnedAgents(workingDir, sessionName string, agents []spawnedAgent
 				output.PrintWarningf("Agent Mail registration failed for pane %d: %v", agent.paneIndex, err)
 			}
 			continue
+		}
+
+		// Write per-pane identity file so notify hooks can resolve AGENT_MAIL_AGENT.
+		// Path contract (must match notify_wrapper.sh and register_agent.sh):
+		//   /tmp/agent-mail-name.<md5(project_key)[0:12]>[.<pane_id>]
+		{
+			h := md5.Sum([]byte(workingDir))
+			projHash := hex.EncodeToString(h[:])[:12]
+			identityPath := "/tmp/agent-mail-name." + projHash
+			if agent.paneID != "" {
+				identityPath += "." + agent.paneID
+			}
+			if writeErr := os.WriteFile(identityPath, []byte(registered.Name+"\n"), 0o600); writeErr != nil {
+				if !IsJSONOutput() {
+					output.PrintWarningf("Failed to write identity file for pane %d: %v", agent.paneIndex, writeErr)
+				}
+			}
 		}
 
 		status.AgentsRegistered++
@@ -3417,7 +3465,7 @@ func sendInitPromptToReadyAgents(session, prompt string) (int, error) {
 			continue
 		}
 
-		if err := sendPromptWithDoubleEnter(pane.ID, prompt); err != nil {
+		if err := sendPromptWithDoubleEnterForAgent(pane.ID, prompt, pane.Type); err != nil {
 			errs = append(errs, fmt.Sprintf("pane %d: %v", pane.Index, err))
 			continue
 		}

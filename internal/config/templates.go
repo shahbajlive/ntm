@@ -134,6 +134,16 @@ var templateFuncs = template.FuncMap{
 func GenerateAgentCommand(tmpl string, vars AgentTemplateVars) (string, error) {
 	// Fast path: if no template syntax, return as-is (legacy mode)
 	if !strings.Contains(tmpl, "{{") {
+		// Guard: if a model override was explicitly requested but the command
+		// has no template syntax, the model would be silently dropped.
+		// Fail fast with an actionable error so the user knows to upgrade
+		// their agent command to template format.
+		if vars.Model != "" {
+			return "", fmt.Errorf(
+				"model override %q was specified but agent command has no template syntax (no {{.Model}} placeholder); "+
+					"the model would be silently ignored. Convert the command to template format or remove the model override. "+
+					"Command: %s", vars.Model, tmpl)
+		}
 		return tmpl, nil
 	}
 

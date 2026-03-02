@@ -7,6 +7,7 @@ import (
 
 func TestGenerateAgentCommand_LegacyMode(t *testing.T) {
 	// Test that commands without template syntax are returned as-is
+	// when no model override is specified
 	tests := []struct {
 		name     string
 		template string
@@ -14,15 +15,15 @@ func TestGenerateAgentCommand_LegacyMode(t *testing.T) {
 		want     string
 	}{
 		{
-			name:     "plain command",
+			name:     "plain command no model",
 			template: "claude --dangerously-skip-permissions",
-			vars:     AgentTemplateVars{Model: "opus"},
+			vars:     AgentTemplateVars{},
 			want:     "claude --dangerously-skip-permissions",
 		},
 		{
-			name:     "codex command",
+			name:     "codex command no model",
 			template: "codex -m gpt-4",
-			vars:     AgentTemplateVars{Model: "gpt-4"},
+			vars:     AgentTemplateVars{},
 			want:     "codex -m gpt-4",
 		},
 	}
@@ -35,6 +36,42 @@ func TestGenerateAgentCommand_LegacyMode(t *testing.T) {
 			}
 			if got != tt.want {
 				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGenerateAgentCommand_LegacyModeModelOverrideGuard(t *testing.T) {
+	// Test that legacy (non-template) commands fail fast when a model
+	// override is specified, rather than silently dropping it.
+	tests := []struct {
+		name     string
+		template string
+		vars     AgentTemplateVars
+	}{
+		{
+			name:     "plain command with model override",
+			template: "claude --dangerously-skip-permissions",
+			vars:     AgentTemplateVars{Model: "opus"},
+		},
+		{
+			name:     "codex command with model override",
+			template: "codex -m gpt-4",
+			vars:     AgentTemplateVars{Model: "gpt-4"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := GenerateAgentCommand(tt.template, tt.vars)
+			if err == nil {
+				t.Fatal("expected error for model override on legacy command, got nil")
+			}
+			if !strings.Contains(err.Error(), "model override") {
+				t.Errorf("error should mention 'model override', got: %v", err)
+			}
+			if !strings.Contains(err.Error(), tt.vars.Model) {
+				t.Errorf("error should mention the model %q, got: %v", tt.vars.Model, err)
 			}
 		})
 	}
