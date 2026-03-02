@@ -475,6 +475,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.recents = msg.keys
 			m.buildVisualOrder()
+			m.listViewport.GotoTop()
 		}
 		return m, nil
 
@@ -907,14 +908,35 @@ func (m *Model) visualPosToLineNum(pos int) int {
 		itemsBeforePos += recentsCount
 	}
 
-	// Category sections: each has header + items + blank
-	// Estimate categories from remaining items
-	remainingItems := len(m.visualOrder) - itemsBeforePos
-	if remainingItems > 0 && pos >= itemsBeforePos {
-		posInCategories := pos - itemsBeforePos
-		// Estimate ~4 items per category on average, with 2 extra lines per category
-		estimatedCategories := (posInCategories / 4) + 1
-		lineNum += posInCategories + (estimatedCategories * 2)
+	// Category sections: exact iteration mirroring the actual render structure.
+	// Each category has 1 header line + N items + 1 blank separator line.
+	if pos >= itemsBeforePos {
+		// Rebuild category order exactly as buildVisualOrder / renderCommandList do.
+		catItems := make(map[string][]int)
+		catOrder := []string{}
+		for i, cmd := range m.filtered {
+			if used[i] {
+				continue
+			}
+			cat := cmd.Category
+			if cat == "" {
+				cat = "General"
+			}
+			if _, exists := catItems[cat]; !exists {
+				catOrder = append(catOrder, cat)
+			}
+			catItems[cat] = append(catItems[cat], i)
+		}
+
+		for _, cat := range catOrder {
+			count := len(catItems[cat])
+			lineNum++ // category header
+			if pos < itemsBeforePos+count {
+				return lineNum + (pos - itemsBeforePos)
+			}
+			lineNum += count + 1 // items + blank separator
+			itemsBeforePos += count
+		}
 	}
 
 	return lineNum
@@ -925,20 +947,24 @@ func (m *Model) ensureCursorVisible() {
 	pos := m.cursorVisualPos()
 	linePos := m.visualPosToLineNum(pos)
 
-	// If cursor is above the visible area, scroll up
+	// If cursor is above the visible area, scroll up.
+	// Assign YOffset directly rather than calling SetYOffset: SetYOffset clamps to
+	// maxYOffset() = max(0, len(lines)-Height), but lines is nil here because
+	// SetContent only runs inside View() which is a value receiver (its mutations
+	// are discarded). Assigning directly lets the next View() call re-clamp safely.
 	if linePos < m.listViewport.YOffset {
-		m.listViewport.SetYOffset(linePos)
+		m.listViewport.YOffset = linePos
 	}
 
-	// If cursor is below the visible area, scroll down
-	// Leave a small margin at the bottom
+	// If cursor is below the visible area, scroll down.
+	// Leave a small margin at the bottom.
 	visibleBottom := m.listViewport.YOffset + m.listViewport.Height - 2
 	if linePos > visibleBottom {
 		newOffset := linePos - m.listViewport.Height + 3
 		if newOffset < 0 {
 			newOffset = 0
 		}
-		m.listViewport.SetYOffset(newOffset)
+		m.listViewport.YOffset = newOffset
 	}
 }
 
