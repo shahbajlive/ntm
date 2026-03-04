@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/config"
-	"github.com/Dicklesworthstone/ntm/internal/events"
-	"github.com/Dicklesworthstone/ntm/internal/redaction"
+	"github.com/shahbajlive/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/events"
+	"github.com/shahbajlive/ntm/internal/redaction"
 )
 
 // BusBridge subscribes to an events.EventBus and dispatches webhook-compatible

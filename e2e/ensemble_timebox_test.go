@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/ensemble"
+	"github.com/shahbajlive/ntm/internal/ensemble"
 )
 
 // runTimeboxCmd executes an ntm command and returns structured output.

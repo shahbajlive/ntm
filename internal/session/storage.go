@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/audit"
-	"github.com/Dicklesworthstone/ntm/internal/util"
+	"github.com/shahbajlive/ntm/internal/audit"
+	"github.com/shahbajlive/ntm/internal/util"
 )
 
 const (

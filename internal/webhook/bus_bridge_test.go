@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/events"
-	"github.com/Dicklesworthstone/ntm/internal/redaction"
+	"github.com/shahbajlive/ntm/internal/events"
+	"github.com/shahbajlive/ntm/internal/redaction"
 )
 
 func TestBusBridge_DispatchesWebhookEvents(t *testing.T) {

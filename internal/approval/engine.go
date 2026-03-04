@@ -13,10 +13,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/events"
-	"github.com/Dicklesworthstone/ntm/internal/notify"
-	"github.com/Dicklesworthstone/ntm/internal/state"
-	"github.com/Dicklesworthstone/ntm/internal/tools"
+	"github.com/shahbajlive/ntm/internal/events"
+	"github.com/shahbajlive/ntm/internal/notify"
+	"github.com/shahbajlive/ntm/internal/state"
+	"github.com/shahbajlive/ntm/internal/tools"
 )
 
 // DefaultExpiry is the default time before an approval request expires.

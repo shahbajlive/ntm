@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/policy"
+	"github.com/shahbajlive/ntm/internal/policy"
 )
 
 // SafetyStatusResponse mirrors the JSON output from `ntm safety status --json`.

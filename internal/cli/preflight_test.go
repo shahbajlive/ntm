@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/config"
-	"github.com/Dicklesworthstone/ntm/internal/lint"
+	"github.com/shahbajlive/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/lint"
 )
 
 // TestPreflightTableDriven covers the core preflight scenarios with table-driven tests.

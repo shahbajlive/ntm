@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/handoff"
+	"github.com/shahbajlive/ntm/internal/handoff"
 )
 
 // HandoffTestSuite manages E2E tests for handoff workflows

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Dicklesworthstone/ntm/internal/redaction"
+	"github.com/shahbajlive/ntm/internal/redaction"
 )
 
 // RedactionConfig holds the server-level redaction configuration.

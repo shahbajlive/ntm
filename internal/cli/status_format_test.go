@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/config"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 func TestFormatDuration(t *testing.T) {

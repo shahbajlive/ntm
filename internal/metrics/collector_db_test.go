@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/state"
+	"github.com/shahbajlive/ntm/internal/state"
 )
 
 // setupTestStore creates a temporary state.Store with migrations applied.

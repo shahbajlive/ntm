@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/encryption"
+	"github.com/shahbajlive/ntm/internal/encryption"
 )
 
 func testKey(t *testing.T) []byte {

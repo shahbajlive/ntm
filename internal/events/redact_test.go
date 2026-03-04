@@ -3,7 +3,7 @@ package events
 import (
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/redaction"
+	"github.com/shahbajlive/ntm/internal/redaction"
 )
 
 func TestSetRedactionConfig(t *testing.T) {

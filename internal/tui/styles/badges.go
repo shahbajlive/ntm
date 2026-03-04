@@ -8,9 +8,9 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/Dicklesworthstone/ntm/internal/tui/icons"
-	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
-	"github.com/Dicklesworthstone/ntm/internal/util"
+	"github.com/shahbajlive/ntm/internal/tui/icons"
+	"github.com/shahbajlive/ntm/internal/tui/theme"
+	"github.com/shahbajlive/ntm/internal/util"
 )
 
 // BadgeStyle defines the visual style of a badge

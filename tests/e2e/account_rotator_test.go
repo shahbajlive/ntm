@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/tests/testutil"
+	"github.com/shahbajlive/ntm/tests/testutil"
 )
 
 // TestAccountRotator_ListAccounts tests listing available accounts via caam.

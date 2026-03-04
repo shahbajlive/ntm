@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
+	"github.com/shahbajlive/ntm/internal/tui/theme"
 )
 
 // =============================================================================

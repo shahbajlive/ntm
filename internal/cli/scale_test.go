@@ -3,7 +3,7 @@ package cli
 import (
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 func TestAgentTypeLabel(t *testing.T) {

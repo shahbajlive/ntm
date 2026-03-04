@@ -3,7 +3,7 @@ package history
 import (
 	"sync"
 
-	"github.com/Dicklesworthstone/ntm/internal/encryption"
+	"github.com/shahbajlive/ntm/internal/encryption"
 )
 
 var (

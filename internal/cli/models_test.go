@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/agent/ollama"
+	"github.com/shahbajlive/ntm/internal/agent/ollama"
 )
 
 func TestModelsCmd(t *testing.T) {

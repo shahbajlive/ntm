@@ -3,7 +3,7 @@ package cli
 import (
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/health"
+	"github.com/shahbajlive/ntm/internal/health"
 )
 
 func TestStatusSeverity(t *testing.T) {

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/audit"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/audit"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // Capture captures the current state of a tmux session.

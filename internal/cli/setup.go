@@ -14,9 +14,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/output"
-	"github.com/Dicklesworthstone/ntm/internal/robot"
-	"github.com/Dicklesworthstone/ntm/internal/util"
+	"github.com/shahbajlive/ntm/internal/output"
+	"github.com/shahbajlive/ntm/internal/robot"
+	"github.com/shahbajlive/ntm/internal/util"
 )
 
 func newSetupCmd() *cobra.Command {

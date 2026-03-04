@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 func runRobotVerbosityCmd(t *testing.T, args ...string) []byte {

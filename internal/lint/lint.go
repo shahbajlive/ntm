@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/redaction"
+	"github.com/shahbajlive/ntm/internal/redaction"
 )
 
 // Linter performs prompt validation against configured rules.

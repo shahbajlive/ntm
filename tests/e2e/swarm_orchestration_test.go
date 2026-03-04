@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/tests/testutil"
+	"github.com/shahbajlive/ntm/tests/testutil"
 )
 
 // extractJSON extracts JSON object from output that may have log lines before it.

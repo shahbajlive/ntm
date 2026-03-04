@@ -3,7 +3,7 @@ package robot
 import (
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/bv"
+	"github.com/shahbajlive/ntm/internal/bv"
 )
 
 func TestComputeProgress(t *testing.T) {

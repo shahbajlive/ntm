@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/util"
+	"github.com/shahbajlive/ntm/internal/util"
 
-	"github.com/Dicklesworthstone/ntm/internal/redaction"
+	"github.com/shahbajlive/ntm/internal/redaction"
 )
 
 func TestNewLogger(t *testing.T) {

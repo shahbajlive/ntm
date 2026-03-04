@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/config"
-	"github.com/Dicklesworthstone/ntm/internal/output"
+	"github.com/shahbajlive/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/output"
 )
 
 func newQuickCmd() *cobra.Command {

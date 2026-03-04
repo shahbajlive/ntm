@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/audit"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/audit"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // Restore recreates a session from saved state.

@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/redaction"
+	"github.com/shahbajlive/ntm/internal/redaction"
 )
 
 // ExportFormat specifies the archive format for export.

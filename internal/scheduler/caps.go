@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/ratelimit"
+	"github.com/shahbajlive/ntm/internal/ratelimit"
 )
 
 // AgentCapConfig configures concurrency caps for a specific agent type.

@@ -19,11 +19,11 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/config"
-	"github.com/Dicklesworthstone/ntm/internal/redaction"
-	"github.com/Dicklesworthstone/ntm/internal/robot"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
-	"github.com/Dicklesworthstone/ntm/internal/util"
+	"github.com/shahbajlive/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/redaction"
+	"github.com/shahbajlive/ntm/internal/robot"
+	"github.com/shahbajlive/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/util"
 )
 
 // supportBundleOptions holds the command options.

@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/audit"
-	"github.com/Dicklesworthstone/ntm/tests/testutil"
+	"github.com/shahbajlive/ntm/internal/audit"
+	"github.com/shahbajlive/ntm/tests/testutil"
 )
 
 // TestAudit_LogCreation tests audit log creation with entries.

@@ -3,7 +3,7 @@ package cli
 import (
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/assignment"
+	"github.com/shahbajlive/ntm/internal/assignment"
 )
 
 func TestCalculateImbalanceScore(t *testing.T) {

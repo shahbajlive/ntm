@@ -4,7 +4,7 @@
 // `internal/redaction`.
 package redaction
 
-import redactionlib "github.com/Dicklesworthstone/ntm/internal/redaction"
+import redactionlib "github.com/shahbajlive/ntm/internal/redaction"
 
 type Mode = redactionlib.Mode
 

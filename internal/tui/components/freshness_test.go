@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/status"
+	"github.com/shahbajlive/ntm/internal/status"
 )
 
 func TestIsStale(t *testing.T) {

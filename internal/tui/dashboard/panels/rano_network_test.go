@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/status"
-	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
+	"github.com/shahbajlive/ntm/internal/status"
+	"github.com/shahbajlive/ntm/internal/tui/theme"
 )
 
 // =============================================================================

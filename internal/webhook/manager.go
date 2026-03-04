@@ -20,7 +20,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/redaction"
+	"github.com/shahbajlive/ntm/internal/redaction"
 )
 
 // Default configuration values

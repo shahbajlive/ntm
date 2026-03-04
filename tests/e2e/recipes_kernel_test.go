@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/tests/testutil"
+	"github.com/shahbajlive/ntm/tests/testutil"
 )
 
 // recipesListResponse is the JSON output for ntm recipes list.

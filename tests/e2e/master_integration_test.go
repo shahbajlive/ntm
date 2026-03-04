@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/tests/testutil"
+	"github.com/shahbajlive/ntm/tests/testutil"
 )
 
 // PhaseResult captures the result of a single test phase.

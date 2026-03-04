@@ -7,7 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/config"
 )
 
 // SessionState tracks per-session privacy settings.

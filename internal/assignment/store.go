@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/events"
-	"github.com/Dicklesworthstone/ntm/internal/util"
+	"github.com/shahbajlive/ntm/internal/events"
+	"github.com/shahbajlive/ntm/internal/util"
 )
 
 const (

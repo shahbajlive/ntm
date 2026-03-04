@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/process"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
-	"github.com/Dicklesworthstone/ntm/internal/tokens"
+	"github.com/shahbajlive/ntm/internal/process"
+	"github.com/shahbajlive/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tokens"
 )
 
 // Output tracking state

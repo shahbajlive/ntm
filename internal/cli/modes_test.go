@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/ensemble"
-	"github.com/Dicklesworthstone/ntm/internal/output"
+	"github.com/shahbajlive/ntm/internal/ensemble"
+	"github.com/shahbajlive/ntm/internal/output"
 	"gopkg.in/yaml.v3"
 )
 

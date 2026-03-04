@@ -12,8 +12,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/audit"
-	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
+	"github.com/shahbajlive/ntm/internal/audit"
+	"github.com/shahbajlive/ntm/internal/tui/theme"
 )
 
 func newAuditCmd() *cobra.Command {

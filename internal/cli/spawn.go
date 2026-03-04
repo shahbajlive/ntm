@@ -2,13 +2,8 @@ package cli
 
 import (
 	"context"
-	"crypto/md5"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"flag"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -21,29 +16,27 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/agent/ollama"
-	"github.com/Dicklesworthstone/ntm/internal/agentmail"
-	"github.com/Dicklesworthstone/ntm/internal/audit"
-	"github.com/Dicklesworthstone/ntm/internal/bv"
-	"github.com/Dicklesworthstone/ntm/internal/checkpoint"
-	"github.com/Dicklesworthstone/ntm/internal/cm"
-	"github.com/Dicklesworthstone/ntm/internal/config"
-	"github.com/Dicklesworthstone/ntm/internal/events"
-	"github.com/Dicklesworthstone/ntm/internal/gemini"
-	"github.com/Dicklesworthstone/ntm/internal/handoff"
-	"github.com/Dicklesworthstone/ntm/internal/hooks"
-	"github.com/Dicklesworthstone/ntm/internal/integrations/dcg"
-	"github.com/Dicklesworthstone/ntm/internal/output"
-	"github.com/Dicklesworthstone/ntm/internal/persona"
-	"github.com/Dicklesworthstone/ntm/internal/plugins"
-	"github.com/Dicklesworthstone/ntm/internal/ratelimit"
-	"github.com/Dicklesworthstone/ntm/internal/recipe"
-	"github.com/Dicklesworthstone/ntm/internal/resilience"
-	"github.com/Dicklesworthstone/ntm/internal/state"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
-	"github.com/Dicklesworthstone/ntm/internal/webhook"
-	"github.com/Dicklesworthstone/ntm/internal/workflow"
-	"github.com/Dicklesworthstone/ntm/internal/worktrees"
+	"github.com/shahbajlive/ntm/internal/agentmail"
+	"github.com/shahbajlive/ntm/internal/bv"
+	"github.com/shahbajlive/ntm/internal/checkpoint"
+	"github.com/shahbajlive/ntm/internal/cm"
+	"github.com/shahbajlive/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/events"
+	"github.com/shahbajlive/ntm/internal/gemini"
+	"github.com/shahbajlive/ntm/internal/handoff"
+	"github.com/shahbajlive/ntm/internal/hooks"
+	"github.com/shahbajlive/ntm/internal/integrations/dcg"
+	"github.com/shahbajlive/ntm/internal/output"
+	"github.com/shahbajlive/ntm/internal/persona"
+	"github.com/shahbajlive/ntm/internal/plugins"
+	"github.com/shahbajlive/ntm/internal/ratelimit"
+	"github.com/shahbajlive/ntm/internal/recipe"
+	"github.com/shahbajlive/ntm/internal/resilience"
+	"github.com/shahbajlive/ntm/internal/skill"
+	"github.com/shahbajlive/ntm/internal/state"
+	"github.com/shahbajlive/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/workflow"
+	"github.com/shahbajlive/ntm/internal/worktrees"
 )
 
 // optionalDurationValue implements pflag.Value for a duration flag with optional value.
@@ -149,113 +142,6 @@ func parseEnvDurationMs(key string) (time.Duration, error) {
 		return 0, fmt.Errorf("%s must be non-negative, got %d", key, ms)
 	}
 	return time.Duration(ms) * time.Millisecond, nil
-}
-
-func resolveSpawnAssignAgentType(agent string, ccOnly, codOnly, gmiOnly bool) string {
-	if strings.TrimSpace(agent) != "" {
-		return strings.ToLower(agent)
-	}
-	if ccOnly {
-		return "claude"
-	}
-	if codOnly {
-		return "codex"
-	}
-	if gmiOnly {
-		return "gemini"
-	}
-	return ""
-}
-
-func parseLocalFallbackProvider(raw string) (AgentType, error) {
-	provider := strings.ToLower(strings.TrimSpace(raw))
-	if provider == "" {
-		provider = "cod"
-	}
-	switch provider {
-	case "cc", "claude", "claude-code":
-		return AgentTypeClaude, nil
-	case "cod", "codex", "openai-codex":
-		return AgentTypeCodex, nil
-	case "gmi", "gemini", "google-gemini":
-		return AgentTypeGemini, nil
-	default:
-		return "", fmt.Errorf("invalid --local-fallback-provider %q (expected one of: cc|cod|gmi)", raw)
-	}
-}
-
-func recomputeSpawnAgentCounts(opts *SpawnOptions) {
-	opts.CCCount = 0
-	opts.CodCount = 0
-	opts.GmiCount = 0
-	opts.CursorCount = 0
-	opts.WindsurfCount = 0
-	opts.AiderCount = 0
-
-	for _, agent := range opts.Agents {
-		switch agent.Type {
-		case AgentTypeClaude:
-			opts.CCCount++
-		case AgentTypeCodex:
-			opts.CodCount++
-		case AgentTypeGemini:
-			opts.GmiCount++
-		case AgentTypeCursor:
-			opts.CursorCount++
-		case AgentTypeWindsurf:
-			opts.WindsurfCount++
-		case AgentTypeAider:
-			opts.AiderCount++
-		}
-	}
-}
-
-func applyLocalFallback(opts *SpawnOptions, provider AgentType) int {
-	if opts == nil || len(opts.Agents) == 0 {
-		return 0
-	}
-
-	replaced := 0
-	indices := make(map[AgentType]int)
-	for i := range opts.Agents {
-		if opts.Agents[i].Type == AgentTypeOllama {
-			opts.Agents[i].Type = provider
-			// Always use the provider default model on fallback.
-			opts.Agents[i].Model = ""
-			replaced++
-		}
-		indices[opts.Agents[i].Type]++
-		opts.Agents[i].Index = indices[opts.Agents[i].Type]
-	}
-
-	if replaced > 0 {
-		recomputeSpawnAgentCounts(opts)
-		opts.LocalHost = ""
-	}
-
-	return replaced
-}
-
-func handleOllamaPreflightError(opts *SpawnOptions, preflightErr error) (bool, string, error) {
-	if preflightErr == nil {
-		return false, "", nil
-	}
-	if opts == nil || !opts.LocalFallback {
-		return false, "", preflightErr
-	}
-
-	provider := opts.LocalFallbackProvider
-	if provider == "" {
-		provider = AgentTypeCodex
-	}
-
-	replaced := applyLocalFallback(opts, provider)
-	if replaced == 0 {
-		return false, "", preflightErr
-	}
-
-	msg := fmt.Sprintf("Ollama preflight failed (%v); falling back %d local agent(s) to %s", preflightErr, replaced, provider)
-	return true, msg, nil
 }
 
 func (v *optionalDurationValue) Type() string {
@@ -367,17 +253,10 @@ type SpawnOptions struct {
 	ProfileList []*persona.Persona
 
 	// CASS Context
-	CassContextQuery      string
-	NoCassContext         bool
-
-	// Recovery suppression (independent of CASS)
-	NoRecovery bool
-	Prompt                string
-	InitPrompt            string
-	LocalModel            string
-	LocalHost             string
-	LocalFallback         bool
-	LocalFallbackProvider AgentType
+	CassContextQuery string
+	NoCassContext    bool
+	Prompt           string
+	InitPrompt       string
 
 	// Hooks
 	NoHooks bool
@@ -410,18 +289,12 @@ type SpawnOptions struct {
 	// Git worktree isolation configuration
 	UseWorktrees bool // Enable git worktree isolation for agents
 
-	// Privacy mode configuration (bd-2u3tv)
-	PrivacyMode  bool // Enable privacy mode (no persistence)
-	AllowPersist bool // Allow persistence even in privacy mode
+	// Skill configuration
+	SkillName string // Skill to compose with agents
 
-	// Marching orders: pane-specific initialization prompts (bd-2lodn)
-	MarchingOrders map[int]string // pane index (0-based) -> prompt
-
-	// Per-agent-type default prompts (bd-2ywo)
-	DefaultPrompts config.PromptsConfig
-
-	// Goal label for multi-session support (bd-1933u)
-	Label string
+	// NTM-native Cockpit configuration
+	CockpitMode  bool   // Enable Cockpit mode (Pane 0 = Cockpit, Panes 1-N = Workers)
+	WorkflowFile string // Path to WORKFLOW.md (default: WORKFLOW.md)
 }
 
 // RecoveryContext holds all the information needed to help an agent recover
@@ -540,7 +413,6 @@ func newSpawnCmd() *cobra.Command {
 	var autoRestart bool
 	var contextQuery string
 	var noCassContext bool
-	var noRecovery bool
 	var contextLimit int
 	var contextDays int
 	var prompt string
@@ -548,16 +420,9 @@ func newSpawnCmd() *cobra.Command {
 	var noHooks bool
 	var profilesFlag string
 	var profileSetFlag string
-	var sessionProfileName string // bd-29kr: session profile
 	var staggerDuration time.Duration
 	var staggerEnabled bool
 	var safety bool
-	var localCount int
-	var ollamaCount int
-	var localModel string
-	var localHost string
-	var localFallback bool
-	var localFallbackProvider string
 
 	// New stagger flags for bd-2wih
 	var staggerMode string         // smart, fixed, or none
@@ -572,22 +437,16 @@ func newSpawnCmd() *cobra.Command {
 	var assignQuiet bool
 	var assignTimeout time.Duration
 	var assignAgentType string
-	var assignCCOnly bool
-	var assignCodOnly bool
-	var assignGmiOnly bool
 
 	// Git worktree isolation flag
 	var useWorktrees bool
 
-	// Privacy mode flag (bd-2u3tv)
-	var privacyMode bool
-	var allowPersist bool
+	// Skill flag
+	var skillName string
 
-	// Marching orders flag (bd-2lodn)
-	var marchingOrdersFile string
-
-	// Goal label for multi-session support (bd-1933u)
-	var label string
+	// Cockpit flags
+	var cockpitMode bool
+	var workflowFile string
 
 	// Pre-load plugins to avoid double loading in RunE
 	// TODO: This runs eagerly during init() which slows down startup for all commands.
@@ -670,20 +529,6 @@ Worktree isolation (--worktrees):
     ntm worktrees list                    # View created worktrees
     ntm worktrees merge claude_1          # Merge agent's work back to main
 
-Local fallback (--local-fallback):
-  If Ollama is unavailable or model preflight fails, local agents can be
-  converted to cloud agents instead of failing spawn.
-  --local-fallback-provider selects fallback target (cc, cod, gmi).
-
-For running multiple agent swarms on the same project with different goals,
-use --label:
-
-  ntm spawn myproject --label frontend --cc=3
-  ntm spawn myproject --label backend --cc=2
-
-This creates separate sessions (myproject--frontend, myproject--backend) that
-share the same project directory. Use ntm list --project myproject to see all.
-
 Examples:
   ntm spawn myproject --cc=2 --cod=2           # 2 Claude, 2 Codex + user pane
   ntm spawn myproject --cc=3 --cod=3 --gmi=1   # 3 Claude, 3 Codex, 1 Gemini
@@ -697,25 +542,10 @@ Examples:
   ntm spawn myproject --cc=1 --prompt="fix auth" # Inject context about auth
   ntm spawn myproject --cc=3 --stagger --prompt="find bugs"  # Staggered prompts (legacy)
   ntm spawn myproject --cc=5 --stagger-mode=smart  # Adaptive rate limit avoidance
-  ntm spawn myproject --cc=4 --stagger-mode=fixed --stagger-delay=20s  # Fixed 20s delay
-  ntm spawn myproject --local=2 --local-fallback --local-fallback-provider=cod`,
+  ntm spawn myproject --cc=4 --stagger-mode=fixed --stagger-delay=20s  # Fixed 20s delay`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sessionName := args[0]
-
-			// Reject project names containing "--" (reserved separator) (bd-1933u)
-			if err := config.ValidateProjectName(sessionName); err != nil {
-				return err
-			}
-
-			// Apply goal label to session name (bd-1933u)
-			if label != "" {
-				if err := config.ValidateLabel(label); err != nil {
-					return fmt.Errorf("invalid label: %w", err)
-				}
-				sessionName = config.FormatSessionName(sessionName, label)
-			}
-
 			dir := cfg.GetProjectDir(sessionName)
 
 			// Update CASS config from flags
@@ -809,16 +639,6 @@ Examples:
 				}
 			}
 
-			var err error
-			localModel, err = appendOllamaAgentSpecs(&agentSpecs, localCount, ollamaCount, localModel)
-			if err != nil {
-				return err
-			}
-			fallbackProvider, err := parseLocalFallbackProvider(localFallbackProvider)
-			if err != nil {
-				return err
-			}
-
 			// Extract simple counts
 			ccCount := agentSpecs.ByType(AgentTypeClaude).TotalCount()
 			codCount := agentSpecs.ByType(AgentTypeCodex).TotalCount()
@@ -888,7 +708,7 @@ Examples:
 				}
 
 				// Warn if profile count doesn't match agent count
-				totalAgents := agentSpecs.TotalCount()
+				totalAgents := ccCount + codCount + gmiCount
 				if len(profileList) > 0 && totalAgents > 0 && len(profileList) != totalAgents {
 					if !IsJSONOutput() {
 						fmt.Printf("Warning: %d profiles for %d agents; profiles will be assigned in order\n",
@@ -897,68 +717,40 @@ Examples:
 				}
 			}
 
-			// Parse marching orders file if provided (bd-2lodn)
-			var marchingOrders map[int]string
-			if marchingOrdersFile != "" {
-				var err error
-				marchingOrders, err = ParseMarchingOrders(marchingOrdersFile)
-				if err != nil {
-					return fmt.Errorf("--marching-orders: %w", err)
-				}
-			}
-
-			assignAgentFilter := resolveSpawnAssignAgentType(assignAgentType, assignCCOnly, assignCodOnly, assignGmiOnly)
 			opts := SpawnOptions{
-				Session:               sessionName,
-				Agents:                agentSpecs.Flatten(),
-				CCCount:               ccCount,
-				CodCount:              codCount,
-				GmiCount:              gmiCount,
-				UserPane:              !noUserPane,
-				AutoRestart:           autoRestart,
-				RecipeName:            recipeName,
-				PersonaMap:            personaMap,
-				PluginMap:             pluginMap,
-				CassContextQuery:      contextQuery,
-				NoCassContext:         noCassContext,
-				NoRecovery:           noRecovery,
-				Prompt:                prompt,
-				InitPrompt:            initPrompt,
-				LocalModel:            localModel,
-				LocalHost:             localHost,
-				LocalFallback:         localFallback,
-				LocalFallbackProvider: fallbackProvider,
-				NoHooks:               noHooks,
-				Safety:                safety,
-				StaggerMode:           staggerMode,
-				StaggerDelay:          staggerDelay,
-				Stagger:               staggerDuration,
-				StaggerEnabled:        staggerEnabled,
-				ProfileList:           profileList,
-				Assign:                assignEnabled,
-				AssignStrategy:        assignStrategy,
-				AssignLimit:           assignLimit,
-				AssignReadyTimeout:    assignReadyTimeout,
-				AssignVerbose:         assignVerbose,
-				AssignQuiet:           assignQuiet,
-				AssignTimeout:         assignTimeout,
-				AssignAgentType:       assignAgentFilter,
-				UseWorktrees:          useWorktrees,
-				PrivacyMode:           privacyMode,
-				AllowPersist:          allowPersist,
-				MarchingOrders:        marchingOrders,
-				DefaultPrompts:        cfg.Prompts,
-				Label:                 label,
-			}
-
-			// Apply session profile if specified (bd-29kr).
-			// Profile provides defaults; explicit flags override.
-			if sessionProfileName != "" {
-				profile, err := LoadSessionProfile(sessionProfileName)
-				if err != nil {
-					return fmt.Errorf("loading profile %q: %w", sessionProfileName, err)
-				}
-				ApplySessionProfileToSpawnOptions(&opts, profile)
+				Session:            sessionName,
+				Agents:             agentSpecs.Flatten(),
+				CCCount:            ccCount,
+				CodCount:           codCount,
+				GmiCount:           gmiCount,
+				UserPane:           !noUserPane,
+				AutoRestart:        autoRestart,
+				RecipeName:         recipeName,
+				PersonaMap:         personaMap,
+				PluginMap:          pluginMap,
+				CassContextQuery:   contextQuery,
+				NoCassContext:      noCassContext,
+				Prompt:             prompt,
+				InitPrompt:         initPrompt,
+				NoHooks:            noHooks,
+				Safety:             safety,
+				StaggerMode:        staggerMode,
+				StaggerDelay:       staggerDelay,
+				Stagger:            staggerDuration,
+				StaggerEnabled:     staggerEnabled,
+				ProfileList:        profileList,
+				Assign:             assignEnabled,
+				AssignStrategy:     assignStrategy,
+				AssignLimit:        assignLimit,
+				AssignReadyTimeout: assignReadyTimeout,
+				AssignVerbose:      assignVerbose,
+				AssignQuiet:        assignQuiet,
+				AssignTimeout:      assignTimeout,
+				AssignAgentType:    assignAgentType,
+				UseWorktrees:       useWorktrees,
+				SkillName:          skillName,
+				CockpitMode:        cockpitMode,
+				WorkflowFile:       workflowFile,
 			}
 
 			return spawnSessionLogic(opts)
@@ -969,12 +761,6 @@ Examples:
 	cmd.Flags().Var(NewAgentSpecsValue(AgentTypeClaude, &agentSpecs), "cc", "Claude agents (N or N:model, model charset: a-zA-Z0-9._/@:+-)")
 	cmd.Flags().Var(NewAgentSpecsValue(AgentTypeCodex, &agentSpecs), "cod", "Codex agents (N or N:model, model charset: a-zA-Z0-9._/@:+-)")
 	cmd.Flags().Var(NewAgentSpecsValue(AgentTypeGemini, &agentSpecs), "gmi", "Gemini agents (N or N:model, model charset: a-zA-Z0-9._/@:+-)")
-	cmd.Flags().IntVar(&localCount, "local", 0, "Local agents via Ollama (alias: --ollama)")
-	cmd.Flags().IntVar(&ollamaCount, "ollama", 0, "Alias for --local (explicit Ollama)")
-	cmd.Flags().StringVar(&localModel, "local-model", "codellama:latest", "Ollama model to run for --local/--ollama agents")
-	cmd.Flags().StringVar(&localHost, "local-host", "", "Ollama host URL for --local/--ollama agents (overrides OLLAMA_HOST/NTM_OLLAMA_HOST)")
-	cmd.Flags().BoolVar(&localFallback, "local-fallback", false, "Fallback local Ollama agents to cloud provider when preflight fails")
-	cmd.Flags().StringVar(&localFallbackProvider, "local-fallback-provider", "cod", "Provider for --local-fallback: cc|cod|gmi")
 	cmd.Flags().Var(NewAgentSpecsValue(AgentTypeCursor, &agentSpecs), "cursor", "Cursor agents (N or N:model)")
 	cmd.Flags().Var(NewAgentSpecsValue(AgentTypeWindsurf, &agentSpecs), "windsurf", "Windsurf agents (N or N:model)")
 	cmd.Flags().Var(NewAgentSpecsValue(AgentTypeAider, &agentSpecs), "aider", "Aider agents (N or N:model)")
@@ -983,9 +769,6 @@ Examples:
 	cmd.Flags().StringVarP(&recipeName, "recipe", "r", "", "use a recipe for agent configuration")
 	cmd.Flags().StringVarP(&templateName, "template", "t", "", "use a workflow template for agent configuration")
 	cmd.Flags().BoolVar(&autoRestart, "auto-restart", false, "monitor and auto-restart crashed agents")
-
-	// Goal label for multi-session support (bd-1933u)
-	cmd.Flags().StringVarP(&label, "label", "l", "", "Goal label for multi-session support (e.g., --label frontend creates session PROJECT--frontend)")
 
 	// Stagger flag for thundering herd prevention
 	// Custom handling: --stagger enables with default 30s, --stagger=2m for custom duration
@@ -998,8 +781,7 @@ Examples:
 
 	// CASS context flags
 	cmd.Flags().StringVar(&contextQuery, "cass-context", "", "Explicit context query for CASS")
-	cmd.Flags().BoolVar(&noCassContext, "no-cass-context", false, "Disable CASS context injection (does not affect session recovery)")
-	cmd.Flags().BoolVar(&noRecovery, "no-recovery", false, "Disable session recovery prompt injection (does not affect CASS context)")
+	cmd.Flags().BoolVar(&noCassContext, "no-cass-context", false, "Disable CASS context injection")
 	cmd.Flags().IntVar(&contextLimit, "cass-context-limit", 0, "Max past sessions to include")
 	cmd.Flags().IntVar(&contextDays, "cass-context-days", 0, "Look back N days")
 	cmd.Flags().StringVar(&prompt, "prompt", "", "Prompt to initialize agents with")
@@ -1016,26 +798,17 @@ Examples:
 	cmd.Flags().BoolVarP(&assignQuiet, "assign-quiet", "", false, "Suppress non-essential assignment output")
 	cmd.Flags().DurationVar(&assignTimeout, "assign-timeout", 30*time.Second, "Timeout for external calls during assignment (bv, br, Agent Mail)")
 	cmd.Flags().StringVar(&assignAgentType, "assign-agent", "", "Filter assignment to specific agent type: claude, codex, gemini")
-	cmd.Flags().BoolVar(&assignCCOnly, "assign-cc-only", false, "Only assign to Claude agents (alias for --assign-agent=claude)")
-	cmd.Flags().BoolVar(&assignCodOnly, "assign-cod-only", false, "Only assign to Codex agents (alias for --assign-agent=codex)")
-	cmd.Flags().BoolVar(&assignGmiOnly, "assign-gmi-only", false, "Only assign to Gemini agents (alias for --assign-agent=gemini)")
 
 	// Git worktree isolation flag
 	cmd.Flags().BoolVar(&useWorktrees, "worktrees", false, "Enable git worktree isolation for agents (each agent gets isolated working directory)")
 
-	// Privacy mode flags (bd-2u3tv)
-	cmd.Flags().BoolVar(&privacyMode, "privacy", false, "Enable privacy mode (disables persistence of session data)")
-	cmd.Flags().BoolVar(&allowPersist, "allow-persist", false, "Allow persistence operations even in privacy mode")
-
-	// Marching orders: pane-specific initialization prompts (bd-2lodn)
-	cmd.Flags().StringVar(&marchingOrdersFile, "marching-orders", "", "File with pane-specific prompts (format: pane:N <prompt>)")
-
-	// Profile flags for mapping personas to agents
 	cmd.Flags().StringVar(&profilesFlag, "profiles", "", "Comma-separated list of profile/persona names to map to agents in order")
 	cmd.Flags().StringVar(&profileSetFlag, "profile-set", "", "Predefined profile set name (e.g., backend-team, review-team)")
+	cmd.Flags().StringVar(&skillName, "skill", "", "Skill to compose with agents (instruction set and pre-spawn scripts)")
 
-	// Session profile flag (bd-29kr): load saved spawn config
-	cmd.Flags().StringVar(&sessionProfileName, "profile", "", "Load a saved session profile (see: ntm profile save)")
+	// Cockpit flags (NTM-native)
+	cmd.Flags().BoolVar(&cockpitMode, "cockpit", false, "Launch in Cockpit mode (Orchestrator + Workers)")
+	cmd.Flags().StringVar(&workflowFile, "workflow", "", "Path to WORKFLOW.md (for Cockpit mode)")
 
 	// Register plugin flags dynamically
 	// Note: We scan for plugins here to register flags.
@@ -1052,7 +825,7 @@ Examples:
 }
 
 // spawnSessionLogic handles the creation of the session and spawning of agents
-func spawnSessionLogic(opts SpawnOptions) (err error) {
+func spawnSessionLogic(opts SpawnOptions) error {
 	// Helper for JSON error output
 	outputError := func(err error) error {
 		if IsJSONOutput() {
@@ -1070,17 +843,6 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 		return outputError(err)
 	}
 
-	ollamaHost, err := preflightOllamaSpawn(opts)
-	if err != nil {
-		applied, fallbackMsg, fallbackErr := handleOllamaPreflightError(&opts, err)
-		if fallbackErr != nil {
-			return outputError(fallbackErr)
-		}
-		if applied && !IsJSONOutput() {
-			output.PrintWarning(fallbackMsg)
-		}
-	}
-
 	// Safety check: fail if session already exists (when --safety is enabled)
 	if opts.Safety && tmux.SessionExists(opts.Session) {
 		return outputError(fmt.Errorf("session '%s' already exists (--safety mode prevents reuse; use 'ntm kill %s' first)", opts.Session, opts.Session))
@@ -1088,6 +850,33 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 
 	// Calculate total agents - either from Agents slice or explicit counts (legacy path)
 	var totalAgents int
+
+	// NTM-native Cockpit Mode: Force configuration
+	if opts.CockpitMode {
+		if !IsJSONOutput() {
+			fmt.Printf("🚀 Initializing Cockpit Swarm...\n")
+		}
+		// Default to WORKFLOW.md if not specified
+		if opts.WorkflowFile == "" {
+			opts.WorkflowFile = "WORKFLOW.md"
+		}
+
+		// If agents defined via flags (e.g. --spawn-cc=3), they are in opts.Agents already?
+		// No, legacy counting flags (CCCount etc) are used to build agents list if opts.Agents is empty.
+		// However, newSpawnCmd logic (lines 752+) builds opts.Agents from flags BEFORE calling this.
+		// So we assume opts.Agents is populated.
+
+		for i := range opts.Agents {
+			if i == 0 {
+				opts.Agents[i].Type = AgentTypeClaude
+				opts.Agents[i].Model = "cockpit"
+			} else {
+				opts.Agents[i].Type = AgentTypeClaude
+				opts.Agents[i].Model = "worker"
+			}
+		}
+	}
+
 	if len(opts.Agents) == 0 {
 		totalAgents = opts.CCCount + opts.CodCount + opts.GmiCount + opts.CursorCount + opts.WindsurfCount + opts.AiderCount
 		if totalAgents == 0 {
@@ -1098,42 +887,6 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 	}
 
 	dir := cfg.GetProjectDir(opts.Session)
-	auditStart := time.Now()
-	auditSessionCreated := false
-	auditPanesAdded := 0
-	auditAgentsLaunched := 0
-	_ = audit.LogEvent(opts.Session, audit.EventTypeSpawn, audit.ActorUser, "session.spawn", map[string]interface{}{
-		"phase":              "start",
-		"session":            opts.Session,
-		"total_agents":       totalAgents,
-		"user_pane":          opts.UserPane,
-		"recipe":             opts.RecipeName,
-		"prompt_length":      len(opts.Prompt),
-		"init_prompt_length": len(opts.InitPrompt),
-		"stagger_mode":       opts.StaggerMode,
-		"assign_enabled":     opts.Assign,
-		"worktrees":          opts.UseWorktrees,
-		"working_dir":        dir,
-		"correlation_id":     auditCorrelationID,
-	}, nil)
-	defer func() {
-		payload := map[string]interface{}{
-			"phase":           "finish",
-			"session":         opts.Session,
-			"total_agents":    totalAgents,
-			"session_created": auditSessionCreated,
-			"panes_added":     auditPanesAdded,
-			"agents_launched": auditAgentsLaunched,
-			"success":         err == nil,
-			"duration_ms":     time.Since(auditStart).Milliseconds(),
-			"working_dir":     dir,
-			"correlation_id":  auditCorrelationID,
-		}
-		if err != nil {
-			payload["error"] = err.Error()
-		}
-		_ = audit.LogEvent(opts.Session, audit.EventTypeSpawn, audit.ActorUser, "session.spawn", payload, nil)
-	}()
 
 	testPacing, err := resolveSpawnTestPacing()
 	if err != nil {
@@ -1221,23 +974,52 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 		totalPanes++
 	}
 
+	// Skill integration: load skill and run pre-spawn scripts
+	var sk *skill.Skill
+	if opts.SkillName != "" {
+		var err error
+		sk, err = skill.LoadSkill(opts.SkillName)
+		if err != nil {
+			return outputError(fmt.Errorf("loading skill %q: %w", opts.SkillName, err))
+		}
+
+		if !IsJSONOutput() {
+			fmt.Printf("✓ Using skill '%s': %s\n", sk.Name, sk.Description)
+		}
+
+		// Run pre-spawn scripts once for each agent type present in spawn
+		seenTypes := make(map[AgentType]bool)
+		for _, agent := range opts.Agents {
+			if !seenTypes[agent.Type] {
+				if err := sk.RunPreSpawnScripts(string(agent.Type)); err != nil {
+					// Scripts log their own errors/warnings, we continue
+				}
+				seenTypes[agent.Type] = true
+			}
+		}
+
+		// Prepend skill instructions to the prompt
+		if sk.Instruction != "" {
+			if opts.Prompt == "" {
+				opts.Prompt = sk.Instruction
+			} else {
+				opts.Prompt = sk.Instruction + "\n\n" + opts.Prompt
+			}
+		}
+	}
+
 	// Create or use existing session
 	steps := output.NewSteps()
 	if !tmux.SessionExists(opts.Session) {
 		if !IsJSONOutput() {
 			steps.Start(fmt.Sprintf("Creating session '%s'", opts.Session))
 		}
-		historyLimit := tmux.DefaultHistoryLimit
-		if cfg != nil && cfg.Tmux.HistoryLimit > 0 {
-			historyLimit = cfg.Tmux.HistoryLimit
-		}
-		if err := tmux.CreateSessionWithHistoryLimit(opts.Session, dir, historyLimit); err != nil {
+		if err := tmux.CreateSession(opts.Session, dir); err != nil {
 			if !IsJSONOutput() {
 				steps.Fail()
 			}
 			return outputError(fmt.Errorf("creating session: %w", err))
 		}
-		auditSessionCreated = true
 		if !IsJSONOutput() {
 			steps.Done()
 		}
@@ -1308,7 +1090,6 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 	if existingPanes < totalPanes {
 		toAdd := totalPanes - existingPanes
 		panesAdded = toAdd
-		auditPanesAdded = panesAdded
 		if !IsJSONOutput() {
 			steps.Start(fmt.Sprintf("Creating %d pane(s)", toAdd))
 		}
@@ -1437,9 +1218,8 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 
 	// Build recovery context if enabled (smart session recovery)
 	// Note: rc is kept as a pointer so we can format per-agent-type in the goroutines
-	// Gated by --no-recovery flag (independent of --no-cass-context)
 	var rc *RecoveryContext
-	if !opts.NoRecovery && cfg.SessionRecovery.Enabled && cfg.SessionRecovery.AutoInjectOnSpawn {
+	if cfg.SessionRecovery.Enabled && cfg.SessionRecovery.AutoInjectOnSpawn {
 		ctx, cancelCtx := context.WithTimeout(context.Background(), 5*time.Second)
 		var err error
 		rc, err = buildRecoveryContext(ctx, opts.Session, dir, cfg.SessionRecovery)
@@ -1483,11 +1263,6 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 			agentCmdTemplate = cfg.Agents.Codex
 		case AgentTypeGemini:
 			agentCmdTemplate = cfg.Agents.Gemini
-		case AgentTypeOllama:
-			agentCmdTemplate = cfg.Agents.Ollama
-			if ollamaHost != "" {
-				envVars = map[string]string{"OLLAMA_HOST": ollamaHost}
-			}
 		case AgentTypeCursor:
 			agentCmdTemplate = cfg.Agents.Cursor
 		case AgentTypeWindsurf:
@@ -1506,75 +1281,35 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 			}
 		}
 
-		// Configure Claude hooks for DCG and RCH integrations
-		if agent.Type == AgentTypeClaude {
-			var preToolHooks []dcg.HookEntry
-			var hookSources []string
-
-			if cfg.Integrations.DCG.Enabled && dcg.ShouldConfigureHooks(cfg.Integrations.DCG.Enabled, cfg.Integrations.DCG.BinaryPath) {
-				customWhitelist := cfg.Integrations.DCG.CustomWhitelist
-				if cfg.Integrations.RCH.Enabled && cfg.Integrations.RCH.DCGWhitelist {
-					customWhitelist = dcg.AppendRCHWhitelist(customWhitelist)
-				}
+		// Configure DCG hooks for Claude agents when DCG integration is enabled
+		if agent.Type == AgentTypeClaude && cfg.Integrations.DCG.Enabled {
+			if dcg.ShouldConfigureHooks(cfg.Integrations.DCG.Enabled, cfg.Integrations.DCG.BinaryPath) {
 				dcgOpts := dcg.DCGHookOptions{
 					BinaryPath:      cfg.Integrations.DCG.BinaryPath,
 					AuditLog:        cfg.Integrations.DCG.AuditLog,
 					Timeout:         5000, // 5 second timeout for hook
 					CustomBlocklist: cfg.Integrations.DCG.CustomBlocklist,
-					CustomWhitelist: customWhitelist,
+					CustomWhitelist: cfg.Integrations.DCG.CustomWhitelist,
 				}
-				dcgConfig, err := dcg.GenerateHookConfig(dcgOpts)
-				if err == nil {
-					preToolHooks = append(preToolHooks, dcgConfig.Hooks.PreToolUse...)
-					hookSources = append(hookSources, "dcg")
-				} else if !IsJSONOutput() {
-					output.PrintWarningf("Failed to configure DCG hooks for agent %d: %v", agent.Index, err)
-				}
-			}
-
-			if dcg.ShouldConfigureRCHHooks(cfg.Integrations.RCH.Enabled, cfg.Integrations.RCH.InterceptPatterns) {
-				rchHook, err := dcg.GenerateRCHHookEntry(dcg.RCHHookOptions{
-					BinaryPath: cfg.Integrations.RCH.BinaryPath,
-					Patterns:   cfg.Integrations.RCH.InterceptPatterns,
-					Timeout:    5000,
-				})
-				if err == nil {
-					preToolHooks = append(preToolHooks, rchHook)
-					hookSources = append(hookSources, "rch")
-				} else if !IsJSONOutput() {
-					output.PrintWarningf("Failed to configure RCH hooks for agent %d: %v", agent.Index, err)
-				}
-			}
-
-			if len(preToolHooks) > 0 {
-				hookConfig := dcg.ClaudeHookConfig{
-					Hooks: dcg.HooksSection{
-						PreToolUse: preToolHooks,
-					},
-				}
-				hookJSON, err := json.Marshal(hookConfig)
+				dcgEnvVars, err := dcg.HookEnvVars(dcgOpts)
 				if err == nil {
 					if envVars == nil {
 						envVars = make(map[string]string)
 					}
-					envVars["CLAUDE_CODE_HOOKS"] = string(hookJSON)
+					for k, v := range dcgEnvVars {
+						envVars[k] = v
+					}
 					if !IsJSONOutput() {
-						output.PrintInfof("Claude hooks configured for agent %d (%s)", agent.Index, strings.Join(hookSources, ", "))
+						output.PrintInfof("DCG hooks configured for agent %d", agent.Index)
 					}
 				} else if !IsJSONOutput() {
-					output.PrintWarningf("Failed to configure Claude hooks for agent %d: %v", agent.Index, err)
+					output.PrintWarningf("Failed to configure DCG hooks for agent %d: %v", agent.Index, err)
 				}
 			}
 		}
 
 		// Resolve model alias to full model name
 		resolvedModel := ResolveModel(agent.Type, agent.Model)
-		if agent.Type == AgentTypeOllama && resolvedModel == "" {
-			resolvedModel = strings.TrimSpace(opts.LocalModel)
-			if resolvedModel == "" {
-				resolvedModel = "codellama:latest"
-			}
-		}
 
 		// Check if this is a persona agent and prepare system prompt
 		var systemPromptFile string
@@ -1739,28 +1474,8 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 				}
 			}
 
-			// Determine if we have a user prompt to send.
-			// Marching orders (pane-specific prompts) take precedence over global --prompt.
-			panePrompt := opts.Prompt
-			if mo, ok := opts.MarchingOrders[idx]; ok {
-				panePrompt = mo
-			}
-
-			// Prepend per-agent-type default prompt if configured (bd-2ywo).
-			if defaultPrompt, err := opts.DefaultPrompts.ResolveForType(string(agentType)); err != nil {
-				if !IsJSONOutput() {
-					fmt.Printf("⚠ Warning: failed to resolve default prompt for %s agent %d: %v\n", agentType, idx, err)
-				}
-			} else if defaultPrompt != "" {
-				if panePrompt == "" {
-					// If no explicit prompt was provided, still send the default prompt so agents
-					// come up with the expected behavioral baseline.
-					panePrompt = defaultPrompt
-				} else {
-					panePrompt = defaultPrompt + "\n\n" + panePrompt
-				}
-			}
-			hasPrompt := panePrompt != ""
+			// Determine if we have a user prompt to send
+			hasPrompt := opts.Prompt != ""
 
 			// Inject CASS context if available
 			// Only send separately if we DON'T have a prompt to combine it with
@@ -1768,7 +1483,7 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 			if cassContext != "" && !hasPrompt {
 				// Wait a bit for agent to start (simple heuristic)
 				time.Sleep(500 * time.Millisecond)
-				if err := sendPromptWithDoubleEnterForAgent(paneID, cassContext, tmux.AgentType(agentType)); err != nil {
+				if err := sendPromptWithDoubleEnter(paneID, cassContext); err != nil {
 					if !IsJSONOutput() {
 						fmt.Printf("⚠ Warning: failed to inject context for agent %d: %v\n", idx, err)
 					}
@@ -1783,7 +1498,7 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 				if recoveryPrompt != "" {
 					// Small delay to let agent initialize or after CASS
 					time.Sleep(300 * time.Millisecond)
-					if err := sendPromptWithDoubleEnterForAgent(paneID, recoveryPrompt, tmux.AgentType(agentType)); err != nil {
+					if err := sendPromptWithDoubleEnter(paneID, recoveryPrompt); err != nil {
 						if !IsJSONOutput() {
 							fmt.Printf("⚠ Warning: failed to inject recovery context for agent %d: %v\n", idx, err)
 						}
@@ -1794,9 +1509,9 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 			// Send user prompt (Staggered or Immediate)
 			if hasPrompt {
 				// Combine CASS context with user prompt if not sent yet
-				finalPrompt := panePrompt
+				finalPrompt := opts.Prompt
 				if cassContext != "" && !cassSent {
-					finalPrompt = cassContext + "\n\n" + panePrompt
+					finalPrompt = cassContext + "\n\n" + opts.Prompt
 				}
 
 				// Apply annotation if staggered
@@ -1816,7 +1531,7 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 					time.Sleep(200 * time.Millisecond)
 				}
 
-				if err := sendPromptWithDoubleEnterForAgent(paneID, finalPrompt, tmux.AgentType(agentType)); err != nil {
+				if err := sendPromptWithDoubleEnter(paneID, finalPrompt); err != nil {
 					if !IsJSONOutput() {
 						fmt.Printf("⚠ Warning: failed to send prompt to agent %d: %v\n", idx, err)
 					}
@@ -1861,7 +1576,6 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 			command:       safeAgentCmd,
 			promptDelay:   promptDelay,
 		})
-		auditAgentsLaunched = len(launchedAgents)
 
 		staggerAgentIdx++
 		profileIdx++
@@ -1871,6 +1585,42 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 	// Complete the launching step
 	if !IsJSONOutput() {
 		steps.Done()
+	}
+
+	// Cockpit Bootstrap: Inject workflow context
+	if opts.CockpitMode && opts.WorkflowFile != "" {
+		if !IsJSONOutput() {
+			fmt.Printf("✨ Bootstrapping Cockpit with %s...\n", opts.WorkflowFile)
+		}
+
+		// Read workflow file
+		workflowPath := filepath.Join(dir, opts.WorkflowFile)
+		content, err := os.ReadFile(workflowPath)
+		if err == nil {
+			// Find Cockpit Pane (Pane 0)
+			// We can assume it's the first one we launched or just ID of first agent
+			if len(launchedAgents) > 0 {
+				targetPane := launchedAgents[0].paneID
+
+				// Send a "bootstrap" command or just inject the context as a variable
+				// We'll use a hidden variable injection or just a clear message.
+				// For now, let's just use an echo to confirm it's working.
+				// In reality, we want to inject it into the agent's context.
+
+				// Actually, the System Prompt for Cockpit tells it to read WORKFLOW.md.
+				// So we just need to make sure the file exists or prompt it to start.
+
+				startMsg := fmt.Sprintf("echo 'NTM Cockpit Mode Active. Workflow loaded from %s';cat %s",
+					opts.WorkflowFile, opts.WorkflowFile)
+
+				// Send as a command
+				// tmux.SendKeys(targetPane, startMsg, true) // Execute
+			}
+		} else {
+			if !IsJSONOutput() {
+				fmt.Printf("⚠ Warning: Could not read workflow file %s: %v\n", opts.WorkflowFile, err)
+			}
+		}
 	}
 
 	// Save initial spawn state for dashboard display
@@ -1890,6 +1640,7 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 			Session:     opts.Session,
 			ProjectDir:  dir,
 			AutoRestart: opts.AutoRestart || cfg.Resilience.AutoRestart,
+			CockpitMode: opts.CockpitMode,
 		}
 		for _, agent := range launchedAgents {
 			manifest.Agents = append(manifest.Agents, resilience.AgentConfig{
@@ -1944,25 +1695,17 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 	// Set up signal handling for graceful interruption during stagger wait
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	isJSON := IsJSONOutput()
-
-	sigDone := make(chan struct{})
-	defer close(sigDone)
 	defer signal.Stop(sigChan)
 
 	go func() {
-		select {
-		case <-sigChan:
-			// If interrupted, we just print a warning. The monitor is already running.
-			// The spawn command will exit, killing the goroutines sending prompts.
-			if !isJSON {
-				fmt.Println("\n⚠ Spawn interrupted. Some prompts may not have been delivered.")
-				fmt.Println("ℹ Session monitor is running (agents will auto-restart if they crash).")
-			}
-			os.Exit(1)
-		case <-sigDone:
-			return
+		<-sigChan
+		// If interrupted, we just print a warning. The monitor is already running.
+		// The spawn command will exit, killing the goroutines sending prompts.
+		if !IsJSONOutput() {
+			fmt.Println("\n⚠ Spawn interrupted. Some prompts may not have been delivered.")
+			fmt.Println("ℹ Session monitor is running (agents will auto-restart if they crash).")
 		}
+		os.Exit(1)
 	}()
 
 	// Wait for staggered prompt delivery to complete (if any)
@@ -1995,64 +1738,6 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 
 	// Get final pane list for output
 	finalPanes, _ := tmux.GetPanes(opts.Session)
-
-	// Enable project webhooks (if configured) for this session and emit
-	// webhook-compatible lifecycle events (always, regardless of JSON mode).
-	//
-	// Note: This is best-effort and should never fail the spawn command.
-	if cfg != nil {
-		redactCfg := cfg.Redaction.ToRedactionLibConfig()
-		bridge, err := webhook.StartBridgeFromProjectConfig(dir, opts.Session, events.DefaultBus, &redactCfg)
-		if err != nil {
-			slog.Default().Debug("webhook bridge init failed", "session", opts.Session, "error", err)
-		} else if bridge != nil {
-			defer bridge.Close()
-		}
-	}
-
-	events.DefaultEmitter().Emit(events.NewWebhookEvent(
-		events.WebhookSessionCreated,
-		opts.Session,
-		"",
-		"",
-		fmt.Sprintf("Session %s created", opts.Session),
-		map[string]string{
-			"project_dir": dir,
-			"recipe":      opts.RecipeName,
-			"agent_count": fmt.Sprintf("%d", opts.CCCount+opts.CodCount+opts.GmiCount),
-			"agent_cc":    fmt.Sprintf("%d", opts.CCCount),
-			"agent_cod":   fmt.Sprintf("%d", opts.CodCount),
-			"agent_gmi":   fmt.Sprintf("%d", opts.GmiCount),
-		},
-	))
-
-	for _, agent := range launchedAgents {
-		events.DefaultEmitter().Emit(events.NewWebhookEvent(
-			events.WebhookAgentStarted,
-			opts.Session,
-			agent.paneID,
-			agent.agentType,
-			fmt.Sprintf("Agent started (%s)", agent.agentType),
-			map[string]string{
-				"project_dir":    dir,
-				"pane_index":     fmt.Sprintf("%d", agent.paneIndex),
-				"pane_title":     agent.paneTitle,
-				"model":          agent.model,
-				"resolved_model": agent.resolvedModel,
-			},
-		))
-	}
-
-	// Emit analytics events (JSONL) for session creation and agent spawns.
-	events.EmitSessionCreate(opts.Session, opts.CCCount, opts.CodCount, opts.GmiCount, dir, opts.RecipeName)
-	for _, agent := range launchedAgents {
-		events.Emit(events.EventAgentSpawn, opts.Session, events.AgentSpawnData{
-			AgentType: agent.agentType,
-			Model:     agent.resolvedModel,
-			Variant:   agent.model,
-			PaneIndex: agent.paneIndex,
-		})
-	}
 
 	// JSON output mode
 	if IsJSONOutput() {
@@ -2182,6 +1867,19 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 	// Print "What's next?" suggestions
 	output.SuccessFooter(output.SpawnSuggestions(opts.Session)...)
 
+	// Emit session_create event
+	events.EmitSessionCreate(opts.Session, opts.CCCount, opts.CodCount, opts.GmiCount, dir, opts.RecipeName)
+
+	// Emit agent_spawn events for each agent
+	for _, agent := range launchedAgents {
+		events.Emit(events.EventAgentSpawn, opts.Session, events.AgentSpawnData{
+			AgentType: agent.agentType,
+			Model:     agent.resolvedModel,
+			Variant:   agent.model,
+			PaneIndex: agent.paneIndex,
+		})
+	}
+
 	// Register spawned agents with Agent Mail (non-JSON mode)
 	if len(launchedAgents) > 0 {
 		spawnedAgents := make([]spawnedAgentInfo, len(launchedAgents))
@@ -2289,143 +1987,6 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 	return nil
 }
 
-func appendOllamaAgentSpecs(agentSpecs *AgentSpecs, localCount, ollamaCount int, localModel string) (string, error) {
-	// --ollama is an alias for --local (both spawn the same "ollama" agent type).
-	if localCount < 0 {
-		return "", fmt.Errorf("--local must be >= 0, got %d", localCount)
-	}
-	if ollamaCount < 0 {
-		return "", fmt.Errorf("--ollama must be >= 0, got %d", ollamaCount)
-	}
-	if localCount > 0 && ollamaCount > 0 {
-		return "", fmt.Errorf("cannot use both --local and --ollama; pick one")
-	}
-
-	total := localCount
-	if total == 0 {
-		total = ollamaCount
-	}
-
-	model := strings.TrimSpace(localModel)
-	if model == "" {
-		model = "codellama:latest"
-	}
-
-	if total > 0 {
-		if !modelPattern.MatchString(model) {
-			return "", fmt.Errorf("invalid characters in --local-model %q; allowed: letters, numbers, . _ / @ : + -", model)
-		}
-		*agentSpecs = append(*agentSpecs, AgentSpec{
-			Type:  AgentTypeOllama,
-			Count: total,
-			Model: model,
-		})
-	}
-
-	return model, nil
-}
-
-func preflightOllamaSpawn(opts SpawnOptions) (string, error) {
-	if len(opts.Agents) == 0 {
-		return "", nil
-	}
-
-	var requiredModels []string
-	seenModels := make(map[string]struct{})
-	for _, a := range opts.Agents {
-		if a.Type != AgentTypeOllama {
-			continue
-		}
-		model := strings.TrimSpace(a.Model)
-		if model == "" {
-			model = strings.TrimSpace(opts.LocalModel)
-		}
-		if model == "" {
-			model = "codellama:latest"
-		}
-		if !modelPattern.MatchString(model) {
-			return "", fmt.Errorf("invalid Ollama model %q; allowed: letters, numbers, . _ / @ : + -", model)
-		}
-		if _, ok := seenModels[model]; ok {
-			continue
-		}
-		seenModels[model] = struct{}{}
-		requiredModels = append(requiredModels, model)
-	}
-
-	if len(requiredModels) == 0 {
-		return "", nil
-	}
-
-	host := strings.TrimSpace(opts.LocalHost)
-	if host == "" {
-		host = strings.TrimSpace(os.Getenv("NTM_OLLAMA_HOST"))
-	}
-	if host == "" {
-		host = strings.TrimSpace(os.Getenv("OLLAMA_HOST"))
-	}
-	if host == "" {
-		host = ollama.DefaultHost
-	}
-
-	adapter := ollama.NewAdapter()
-	if err := adapter.Connect(host); err != nil {
-		return "", err
-	}
-	defer func() {
-		_ = adapter.Close()
-	}()
-
-	normalizedHost := adapter.Host()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	models, err := adapter.ListModels(ctx)
-	cancel()
-	if err != nil {
-		return "", err
-	}
-
-	available := make(map[string]struct{}, len(models))
-	for _, m := range models {
-		available[m.Name] = struct{}{}
-	}
-
-	for _, model := range requiredModels {
-		if _, ok := available[model]; ok {
-			continue
-		}
-
-		if IsJSONOutput() {
-			var names []string
-			for name := range available {
-				names = append(names, name)
-			}
-			return "", fmt.Errorf("Ollama model %q not found at %s (available: %s)", model, normalizedHost, strings.Join(names, ", "))
-		}
-
-		// Offer to pull missing model.
-		prompt := fmt.Sprintf("Ollama model %q not found at %s. Pull it now?", model, normalizedHost)
-		if !output.ConfirmWithOptions(prompt, output.ConfirmOptions{Style: output.StyleInfo, Default: false}) {
-			return "", fmt.Errorf("Ollama model %q not found (try: ollama pull %s)", model, model)
-		}
-
-		pullCtx, pullCancel := context.WithTimeout(context.Background(), 30*time.Minute)
-		var pullErr error
-		if IsJSONOutput() {
-			pullErr = adapter.PullModel(pullCtx, model)
-		} else {
-			fmt.Printf("Pulling %s...\n", model)
-			pullErr = adapter.PullModelWithProgress(pullCtx, model, newOllamaPullProgressPrinter("  "))
-		}
-		pullCancel()
-		if pullErr != nil {
-			return "", pullErr
-		}
-	}
-
-	return normalizedHost, nil
-}
-
 // registerSessionAgent registers the session with Agent Mail.
 // This is non-blocking and logs but does not fail if unavailable.
 func registerSessionAgent(sessionName, workingDir string) {
@@ -2500,12 +2061,8 @@ func registerSpawnedAgents(workingDir, sessionName string, agents []spawnedAgent
 		AgentMap:  make(map[string]string),
 	}
 
-	// Load existing registry to reuse identities on respawn (#69),
-	// falling back to a fresh registry if none exists.
-	registry, _ := agentmail.LoadSessionAgentRegistry(sessionName, workingDir)
-	if registry == nil {
-		registry = agentmail.NewSessionAgentRegistry(sessionName, workingDir)
-	}
+	// Create registry for persistence
+	registry := agentmail.NewSessionAgentRegistry(sessionName, workingDir)
 
 	// Ensure project exists
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -2522,33 +2079,8 @@ func registerSpawnedAgents(workingDir, sessionName string, agents []spawnedAgent
 	}
 	status.ProjectRegistered = true
 
-	// Register each agent (reusing existing identities from prior sessions when possible)
+	// Register each agent
 	for _, agent := range agents {
-		// Check if this pane already has an identity from a prior session (#69)
-		if existingName, ok := registry.GetAgent(agent.paneTitle, agent.paneID); ok && existingName != "" {
-			status.AgentsRegistered++
-			status.AgentMap[fmt.Sprintf("%d", agent.paneIndex)] = existingName
-			if !IsJSONOutput() {
-				output.PrintInfof("Reused existing identity for pane %d: %s", agent.paneIndex, existingName)
-			}
-			// Write canonical identity file (XDG-compliant persistent location)
-			identityContent := existingName + "\n" + fmt.Sprintf("%d", time.Now().Unix()) + "\n"
-			if canonPath, err := getIdentityFilePath(workingDir, agent.paneID); err == nil {
-				_ = os.WriteFile(canonPath, []byte(identityContent), 0o600)
-			}
-			// Backward compat: also write to legacy /tmp/ location
-			{
-				h := md5.Sum([]byte(workingDir))
-				projHash := hex.EncodeToString(h[:])[:12]
-				legacyPath := "/tmp/agent-mail-name." + projHash
-				if agent.paneID != "" {
-					legacyPath += "." + agent.paneID
-				}
-				_ = os.WriteFile(legacyPath, []byte(existingName+"\n"), 0o600)
-			}
-			continue
-		}
-
 		// Map agent type to program name
 		program := agentTypeToProgram(agent.agentType)
 		model := agent.resolvedModel
@@ -2570,31 +2102,6 @@ func registerSpawnedAgents(workingDir, sessionName string, agents []spawnedAgent
 				output.PrintWarningf("Agent Mail registration failed for pane %d: %v", agent.paneIndex, err)
 			}
 			continue
-		}
-
-		// Write per-pane identity file so notify hooks can resolve AGENT_MAIL_AGENT.
-		// Path contract (must match notify_wrapper.sh and register_agent.sh):
-		//   Canonical: <XDG_STATE_HOME or ~/.local/state>/agent-mail/identity/<sha256(project_key)[0:12]>/<pane_id>
-		//   Legacy:    /tmp/agent-mail-name.<md5(project_key)[0:12]>[.<pane_id>]
-		{
-			identityContent := registered.Name + "\n" + fmt.Sprintf("%d", time.Now().Unix()) + "\n"
-			if canonPath, err := getIdentityFilePath(workingDir, agent.paneID); err == nil {
-				if writeErr := os.WriteFile(canonPath, []byte(identityContent), 0o600); writeErr != nil {
-					if !IsJSONOutput() {
-						output.PrintWarningf("Failed to write identity file for pane %d: %v", agent.paneIndex, writeErr)
-					}
-				}
-			} else if !IsJSONOutput() {
-				output.PrintWarningf("Failed to resolve identity path for pane %d: %v", agent.paneIndex, err)
-			}
-			// Backward compat: also write to legacy /tmp/ location
-			h := md5.Sum([]byte(workingDir))
-			projHash := hex.EncodeToString(h[:])[:12]
-			legacyPath := "/tmp/agent-mail-name." + projHash
-			if agent.paneID != "" {
-				legacyPath += "." + agent.paneID
-			}
-			_ = os.WriteFile(legacyPath, []byte(registered.Name+"\n"), 0o600)
 		}
 
 		status.AgentsRegistered++
@@ -2638,28 +2145,6 @@ func agentTypeToProgram(agentType string) string {
 	default:
 		return agentType
 	}
-}
-
-// getIdentityFilePath builds the canonical Agent Mail identity file path.
-// Convention: <state_dir>/agent-mail/identity/<sha256(projectKey)[0:12]>/<paneID>
-// Respects XDG_STATE_HOME; defaults to ~/.local/state.
-// Creates the parent directory (mode 0700) if it does not exist.
-func getIdentityFilePath(projectKey, paneID string) (string, error) {
-	stateDir := os.Getenv("XDG_STATE_HOME")
-	if stateDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("cannot determine home directory: %w", err)
-		}
-		stateDir = filepath.Join(home, ".local", "state")
-	}
-	h := sha256.Sum256([]byte(projectKey))
-	projHash := hex.EncodeToString(h[:])[:12]
-	dir := filepath.Join(stateDir, "agent-mail", "identity", projHash)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", fmt.Errorf("cannot create identity directory %s: %w", dir, err)
-	}
-	return filepath.Join(dir, paneID), nil
 }
 
 // getMemoryContext retrieves and formats CM (CASS Memory) memories for agent spawn.
@@ -3503,7 +2988,7 @@ func sendInitPromptToReadyAgents(session, prompt string) (int, error) {
 			continue
 		}
 
-		if err := sendPromptWithDoubleEnterForAgent(pane.ID, prompt, pane.Type); err != nil {
+		if err := sendPromptWithDoubleEnter(pane.ID, prompt); err != nil {
 			errs = append(errs, fmt.Sprintf("pane %d: %v", pane.Index, err))
 			continue
 		}

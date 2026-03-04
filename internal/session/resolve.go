@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 type ResolveExplicitSessionNameErrorKind string

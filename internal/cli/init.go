@@ -9,10 +9,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/audit"
-	"github.com/Dicklesworthstone/ntm/internal/config"
-	"github.com/Dicklesworthstone/ntm/internal/hooks"
-	"github.com/Dicklesworthstone/ntm/internal/output"
+	"github.com/shahbajlive/ntm/internal/audit"
+	"github.com/shahbajlive/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/hooks"
+	"github.com/shahbajlive/ntm/internal/output"
 )
 
 func newInitCmd() *cobra.Command {

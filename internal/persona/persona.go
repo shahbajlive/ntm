@@ -4,6 +4,7 @@
 package persona
 
 import (
+	_ "embed" // Embed system prompts
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,12 @@ import (
 )
 
 var nameRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+//go:embed prompts/cockpit.md
+var cockpitPrompt string
+
+//go:embed prompts/worker.md
+var workerPrompt string
 
 // Persona defines the configuration for an agent persona.
 type Persona struct {
@@ -476,6 +483,24 @@ Include examples where helpful.
 Keep documentation up to date with code changes.`,
 			Tags:          []string{"documentation", "writing", "clarity"},
 			FocusPatterns: []string{"*.md", "docs/**", "README*"},
+		},
+		{
+			Name:          "cockpit",
+			Description:   "Workflow orchestrator that manages swarms",
+			AgentType:     "claude",
+			Model:         "sonnet", // Smart capability, fast enough for orchestration
+			SystemPrompt:  cockpitPrompt,
+			Tags:          []string{"orchestrator", "manager", "cockpit"},
+			FocusPatterns: []string{"WORKFLOW.md", "dag.json", ".cockpit/**"},
+		},
+		{
+			Name:          "worker",
+			Description:   "Task executor optimized for pulling work",
+			AgentType:     "claude", // High capability default
+			Model:         "sonnet",
+			SystemPrompt:  workerPrompt,
+			Tags:          []string{"executor", "worker"},
+			FocusPatterns: []string{"src/**", "tests/**", "*.go", "*.py", "*.ts"},
 		},
 	}
 }

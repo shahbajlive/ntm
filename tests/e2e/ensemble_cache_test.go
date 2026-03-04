@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/ensemble"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
-	"github.com/Dicklesworthstone/ntm/tests/testutil"
+	"github.com/shahbajlive/ntm/internal/ensemble"
+	"github.com/shahbajlive/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/tests/testutil"
 )
 
 func TestEnsembleSynthesize_UsesModeOutputCache(t *testing.T) {

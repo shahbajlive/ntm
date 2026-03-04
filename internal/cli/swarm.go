@@ -13,12 +13,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/health"
-	"github.com/Dicklesworthstone/ntm/internal/output"
-	"github.com/Dicklesworthstone/ntm/internal/robot"
-	"github.com/Dicklesworthstone/ntm/internal/status"
-	"github.com/Dicklesworthstone/ntm/internal/swarm"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/health"
+	"github.com/shahbajlive/ntm/internal/output"
+	"github.com/shahbajlive/ntm/internal/robot"
+	"github.com/shahbajlive/ntm/internal/status"
+	"github.com/shahbajlive/ntm/internal/swarm"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 func newSwarmCmd() *cobra.Command {

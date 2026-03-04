@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/tools"
+	"github.com/shahbajlive/ntm/internal/tools"
 )
 
 // --- proxy_status.go edge cases ---

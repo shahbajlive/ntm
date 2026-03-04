@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/metrics"
-	"github.com/Dicklesworthstone/ntm/internal/state"
+	"github.com/shahbajlive/ntm/internal/metrics"
+	"github.com/shahbajlive/ntm/internal/state"
 	"github.com/go-chi/chi/v5"
 )
 

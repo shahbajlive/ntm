@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/process"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/process"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // =============================================================================

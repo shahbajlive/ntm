@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/tools"
+	"github.com/shahbajlive/ntm/internal/tools"
 )
 
 // SLBPendingOutput represents the output for --robot-slb-pending.

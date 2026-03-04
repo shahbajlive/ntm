@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/output"
+	"github.com/shahbajlive/ntm/internal/output"
 )
 
 // ---------------------------------------------------------------------------

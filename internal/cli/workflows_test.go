@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/workflow"
+	"github.com/shahbajlive/ntm/internal/workflow"
 )
 
 func TestCoordinationIcon(t *testing.T) {

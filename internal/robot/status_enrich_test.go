@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/process"
+	"github.com/shahbajlive/ntm/internal/process"
 )
 
 // ====================

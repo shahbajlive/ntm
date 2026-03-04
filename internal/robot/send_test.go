@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/redaction"
+	"github.com/shahbajlive/ntm/internal/redaction"
 )
 
 // TestSendOutputSchemaStability ensures SendOutput structure remains stable

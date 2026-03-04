@@ -16,9 +16,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/agent/ollama"
-	"github.com/Dicklesworthstone/ntm/internal/output"
-	"github.com/Dicklesworthstone/ntm/internal/util"
+	"github.com/shahbajlive/ntm/internal/agent/ollama"
+	"github.com/shahbajlive/ntm/internal/output"
+	"github.com/shahbajlive/ntm/internal/util"
 )
 
 const (

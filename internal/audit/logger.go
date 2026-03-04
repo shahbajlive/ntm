@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/privacy"
-	"github.com/Dicklesworthstone/ntm/internal/redaction"
+	"github.com/shahbajlive/ntm/internal/privacy"
+	"github.com/shahbajlive/ntm/internal/redaction"
 )
 
 // EventType represents the type of audit event

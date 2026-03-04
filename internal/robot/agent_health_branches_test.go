@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/caut"
+	"github.com/shahbajlive/ntm/internal/caut"
 )
 
 // ---------------------------------------------------------------------------

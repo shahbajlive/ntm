@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/audit"
+	"github.com/shahbajlive/ntm/internal/audit"
 )
 
 // --- Pure function tests (safe to run in parallel) ---

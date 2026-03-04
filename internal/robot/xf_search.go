@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Dicklesworthstone/ntm/internal/tools"
+	"github.com/shahbajlive/ntm/internal/tools"
 )
 
 // XFSearchOutput represents the output for --robot-xf-search.

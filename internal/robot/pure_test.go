@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/agentmail"
-	"github.com/Dicklesworthstone/ntm/internal/ensemble"
-	"github.com/Dicklesworthstone/ntm/internal/integrations/pt"
+	"github.com/shahbajlive/ntm/internal/agentmail"
+	"github.com/shahbajlive/ntm/internal/ensemble"
+	"github.com/shahbajlive/ntm/internal/integrations/pt"
 )
 
 func TestParseJFPIDs(t *testing.T) {

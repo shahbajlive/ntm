@@ -3,7 +3,7 @@ package robot
 import (
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/tools"
+	"github.com/shahbajlive/ntm/internal/tools"
 )
 
 func TestBuildProxyStatusInfo_WithRouteDetails(t *testing.T) {

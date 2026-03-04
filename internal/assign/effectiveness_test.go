@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/scoring"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/scoring"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 func TestDefaultEffectivenessConfig(t *testing.T) {

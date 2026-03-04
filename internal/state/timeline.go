@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/audit"
+	"github.com/shahbajlive/ntm/internal/audit"
 )
 
 // TimelineState represents the operational state of an agent in the timeline.

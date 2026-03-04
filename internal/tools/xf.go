@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/util"
+	"github.com/shahbajlive/ntm/internal/util"
 )
 
 // XFAdapter provides integration with the XF (X Find) tool.

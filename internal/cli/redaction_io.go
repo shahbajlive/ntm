@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Dicklesworthstone/ntm/internal/redaction"
+	"github.com/shahbajlive/ntm/internal/redaction"
 )
 
 // RedactionSummary is a safe-to-print summary of redaction findings.

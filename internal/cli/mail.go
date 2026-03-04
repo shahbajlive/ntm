@@ -15,10 +15,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/agentmail"
-	"github.com/Dicklesworthstone/ntm/internal/redaction"
-	"github.com/Dicklesworthstone/ntm/internal/status"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/agentmail"
+	"github.com/shahbajlive/ntm/internal/redaction"
+	"github.com/shahbajlive/ntm/internal/status"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 func newMailCmd() *cobra.Command {

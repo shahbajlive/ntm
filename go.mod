@@ -1,4 +1,4 @@
-module github.com/Dicklesworthstone/ntm
+module github.com/shahbajlive/ntm
 
 go 1.25
 

@@ -17,8 +17,8 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/redaction"
-	"github.com/Dicklesworthstone/ntm/internal/util"
+	"github.com/shahbajlive/ntm/internal/redaction"
+	"github.com/shahbajlive/ntm/internal/util"
 )
 
 // EventType represents the type of notification event

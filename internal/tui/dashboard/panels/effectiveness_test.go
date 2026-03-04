@@ -3,7 +3,7 @@ package panels
 import (
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/scoring"
+	"github.com/shahbajlive/ntm/internal/scoring"
 )
 
 func TestNewEffectivenessPanel(t *testing.T) {

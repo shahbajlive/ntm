@@ -13,7 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/Dicklesworthstone/ntm/internal/agent"
+	"github.com/shahbajlive/ntm/internal/agent"
 )
 
 // paneNameRegex matches the NTM pane naming convention:

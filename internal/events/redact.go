@@ -3,7 +3,7 @@ package events
 import (
 	"sync"
 
-	"github.com/Dicklesworthstone/ntm/internal/redaction"
+	"github.com/shahbajlive/ntm/internal/redaction"
 )
 
 var (

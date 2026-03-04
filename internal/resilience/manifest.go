@@ -13,6 +13,7 @@ type SpawnManifest struct {
 	ProjectDir  string        `json:"project_dir"`
 	Agents      []AgentConfig `json:"agents"`
 	AutoRestart bool          `json:"auto_restart"`
+	CockpitMode bool          `json:"cockpit_mode"` // Enable Cockpit heartbeat triggers
 }
 
 // AgentConfig represents the configuration for a single agent

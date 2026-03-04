@@ -9,10 +9,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/Dicklesworthstone/ntm/internal/status"
-	"github.com/Dicklesworthstone/ntm/internal/tools"
-	"github.com/Dicklesworthstone/ntm/internal/tui/dashboard"
-	"github.com/Dicklesworthstone/ntm/internal/tui/dashboard/panels"
+	"github.com/shahbajlive/ntm/internal/status"
+	"github.com/shahbajlive/ntm/internal/tools"
+	"github.com/shahbajlive/ntm/internal/tui/dashboard"
+	"github.com/shahbajlive/ntm/internal/tui/dashboard/panels"
 )
 
 func TestRCHDashboardWidgetDisplay(t *testing.T) {

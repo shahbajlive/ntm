@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/cost"
+	"github.com/shahbajlive/ntm/internal/cost"
 )
 
 // extractJSON extracts JSON from output that may contain log lines

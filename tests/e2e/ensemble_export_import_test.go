@@ -14,8 +14,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/Dicklesworthstone/ntm/internal/ensemble"
-	"github.com/Dicklesworthstone/ntm/tests/testutil"
+	"github.com/shahbajlive/ntm/internal/ensemble"
+	"github.com/shahbajlive/ntm/tests/testutil"
 )
 
 type ensemblePresetsResponse struct {

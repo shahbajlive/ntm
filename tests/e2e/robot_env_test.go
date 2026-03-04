@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/tests/testutil"
+	"github.com/shahbajlive/ntm/tests/testutil"
 )
 
 // robotEnvResponse is the JSON output for ntm --robot-env.

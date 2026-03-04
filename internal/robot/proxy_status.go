@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/tools"
+	"github.com/shahbajlive/ntm/internal/tools"
 )
 
 // ProxyStatusOutput represents the response from --robot-proxy-status.

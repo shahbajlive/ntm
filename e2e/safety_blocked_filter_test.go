@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/policy"
+	"github.com/shahbajlive/ntm/internal/policy"
 )
 
 func TestSafetyBlocked_JSON_Filters(t *testing.T) {

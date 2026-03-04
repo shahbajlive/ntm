@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/bv"
-	"github.com/Dicklesworthstone/ntm/internal/status"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
-	"github.com/Dicklesworthstone/ntm/internal/tracker"
-	"github.com/Dicklesworthstone/ntm/internal/tui/styles"
-	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
+	"github.com/shahbajlive/ntm/internal/bv"
+	"github.com/shahbajlive/ntm/internal/status"
+	"github.com/shahbajlive/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tracker"
+	"github.com/shahbajlive/ntm/internal/tui/styles"
+	"github.com/shahbajlive/ntm/internal/tui/theme"
 )
 
 // ---------------------------------------------------------------------------

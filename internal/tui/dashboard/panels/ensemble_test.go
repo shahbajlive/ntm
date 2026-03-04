@@ -8,8 +8,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/Dicklesworthstone/ntm/internal/ensemble"
-	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
+	"github.com/shahbajlive/ntm/internal/ensemble"
+	"github.com/shahbajlive/ntm/internal/tui/theme"
 )
 
 func TestMinInt(t *testing.T) {

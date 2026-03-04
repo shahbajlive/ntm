@@ -1,7 +1,7 @@
 package robot
 
 import (
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // tmuxIsInstalledReal delegates to the real tmux.IsInstalled.

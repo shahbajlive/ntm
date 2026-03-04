@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/scoring"
+	"github.com/shahbajlive/ntm/internal/scoring"
 )
 
 // ScoringTestSuite manages E2E tests for effectiveness scoring

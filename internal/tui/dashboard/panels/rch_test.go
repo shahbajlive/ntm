@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/status"
-	"github.com/Dicklesworthstone/ntm/internal/tools"
+	"github.com/shahbajlive/ntm/internal/status"
+	"github.com/shahbajlive/ntm/internal/tools"
 )
 
 func TestRCHPanelViewDisabled(t *testing.T) {

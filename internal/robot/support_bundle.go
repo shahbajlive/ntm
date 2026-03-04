@@ -6,10 +6,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/bundle"
-	"github.com/Dicklesworthstone/ntm/internal/privacy"
-	"github.com/Dicklesworthstone/ntm/internal/redaction"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/bundle"
+	"github.com/shahbajlive/ntm/internal/privacy"
+	"github.com/shahbajlive/ntm/internal/redaction"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // SupportBundleOptions configures support bundle generation.

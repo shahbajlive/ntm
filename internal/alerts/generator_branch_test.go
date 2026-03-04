@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // dummyPane returns a zero-value tmux.Pane for tests that need one.

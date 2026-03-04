@@ -13,7 +13,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/spf13/cobra"
 
-	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/config"
 )
 
 // SessionProfile is the TOML-serializable spawn configuration stored in a profile.

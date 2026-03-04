@@ -3,7 +3,7 @@ package privacy
 import (
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/config"
 )
 
 func TestNew(t *testing.T) {

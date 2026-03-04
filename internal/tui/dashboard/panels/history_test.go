@@ -8,8 +8,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/Dicklesworthstone/ntm/internal/history"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/history"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 func TestNewHistoryPanel(t *testing.T) {

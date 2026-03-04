@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/events"
-	"github.com/Dicklesworthstone/ntm/internal/robot"
-	"github.com/Dicklesworthstone/ntm/internal/status"
+	"github.com/shahbajlive/ntm/internal/events"
+	"github.com/shahbajlive/ntm/internal/robot"
+	"github.com/shahbajlive/ntm/internal/status"
 )
 
 func TestNewSessionCoordinator(t *testing.T) {

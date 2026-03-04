@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/shahbajlive/ntm/internal/config"
 )
 
 func TestParseAgentSpec_ModelValidation(t *testing.T) {

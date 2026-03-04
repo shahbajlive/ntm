@@ -14,7 +14,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/Dicklesworthstone/ntm/internal/ensemble"
+	"github.com/shahbajlive/ntm/internal/ensemble"
 )
 
 func TestNewEnsemblePresetsCmd(t *testing.T) {

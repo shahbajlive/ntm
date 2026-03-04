@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/alerts"
-	"github.com/Dicklesworthstone/ntm/internal/bv"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/alerts"
+	"github.com/shahbajlive/ntm/internal/bv"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 func TestRenderAgentTable(t *testing.T) {

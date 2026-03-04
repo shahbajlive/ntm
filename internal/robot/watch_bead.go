@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/bv"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/bv"
+	"github.com/shahbajlive/ntm/internal/tmux"
 )
 
 // WatchBeadOptions configures the --robot-watch-bead operation.

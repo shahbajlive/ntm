@@ -3,7 +3,7 @@ package lint
 import (
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/redaction"
+	"github.com/shahbajlive/ntm/internal/redaction"
 )
 
 // =============================================================================

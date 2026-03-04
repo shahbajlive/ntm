@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/ratelimit"
+	"github.com/shahbajlive/ntm/internal/ratelimit"
 )
 
 func TestAgentTypeToProvider(t *testing.T) {

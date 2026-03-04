@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/agentmail"
-	"github.com/Dicklesworthstone/ntm/internal/handoff"
+	"github.com/shahbajlive/ntm/internal/agentmail"
+	"github.com/shahbajlive/ntm/internal/handoff"
 )
 
 // ---------------------------------------------------------------------------

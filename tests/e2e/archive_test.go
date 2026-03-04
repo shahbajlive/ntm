@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/archive"
-	"github.com/Dicklesworthstone/ntm/tests/testutil"
+	"github.com/shahbajlive/ntm/internal/archive"
+	"github.com/shahbajlive/ntm/tests/testutil"
 )
 
 // TestArchive_CreateAndRetrieve tests basic archive creation and retrieval.

@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/alerts"
-	ntmctx "github.com/Dicklesworthstone/ntm/internal/context"
-	"github.com/Dicklesworthstone/ntm/internal/handoff"
-	"github.com/Dicklesworthstone/ntm/internal/state"
-	"github.com/Dicklesworthstone/ntm/tests/testutil"
+	"github.com/shahbajlive/ntm/internal/alerts"
+	ntmctx "github.com/shahbajlive/ntm/internal/context"
+	"github.com/shahbajlive/ntm/internal/handoff"
+	"github.com/shahbajlive/ntm/internal/state"
+	"github.com/shahbajlive/ntm/tests/testutil"
 )
 
 // TestContextThresholdAlerts tests that context threshold alerts are generated

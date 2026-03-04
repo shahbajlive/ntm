@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/scanner"
+	"github.com/shahbajlive/ntm/internal/scanner"
 	"github.com/go-chi/chi/v5"
 )
 

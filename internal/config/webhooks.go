@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/watcher"
+	"github.com/shahbajlive/ntm/internal/watcher"
 	"gopkg.in/yaml.v3"
 )
 

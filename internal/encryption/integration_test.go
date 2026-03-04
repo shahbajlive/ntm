@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/encryption"
-	"github.com/Dicklesworthstone/ntm/internal/events"
-	"github.com/Dicklesworthstone/ntm/internal/history"
+	"github.com/shahbajlive/ntm/internal/encryption"
+	"github.com/shahbajlive/ntm/internal/events"
+	"github.com/shahbajlive/ntm/internal/history"
 )
 
 const plaintextMarker = "ENCRYPTION_E2E_CANARY_8f3a2b91"

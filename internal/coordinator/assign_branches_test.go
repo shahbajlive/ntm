@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/bv"
-	"github.com/Dicklesworthstone/ntm/internal/robot"
+	"github.com/shahbajlive/ntm/internal/bv"
+	"github.com/shahbajlive/ntm/internal/robot"
 )
 
 // ---------------------------------------------------------------------------

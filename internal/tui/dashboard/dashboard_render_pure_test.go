@@ -6,14 +6,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/ensemble"
-	"github.com/Dicklesworthstone/ntm/internal/scanner"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
-	"github.com/Dicklesworthstone/ntm/internal/tools"
-	"github.com/Dicklesworthstone/ntm/internal/tui/dashboard/panels"
-	"github.com/Dicklesworthstone/ntm/internal/tui/icons"
-	"github.com/Dicklesworthstone/ntm/internal/tui/layout"
-	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
+	"github.com/shahbajlive/ntm/internal/ensemble"
+	"github.com/shahbajlive/ntm/internal/scanner"
+	"github.com/shahbajlive/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tools"
+	"github.com/shahbajlive/ntm/internal/tui/dashboard/panels"
+	"github.com/shahbajlive/ntm/internal/tui/icons"
+	"github.com/shahbajlive/ntm/internal/tui/layout"
+	"github.com/shahbajlive/ntm/internal/tui/theme"
 )
 
 // ---------------------------------------------------------------------------

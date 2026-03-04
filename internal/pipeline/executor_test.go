@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/status"
+	"github.com/shahbajlive/ntm/internal/status"
 )
 
 // mockDetector implements status.Detector for testing without tmux.

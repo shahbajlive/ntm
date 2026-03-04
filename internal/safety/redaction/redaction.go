@@ -1,6 +1,6 @@
 package redaction
 
-import redactionlib "github.com/Dicklesworthstone/ntm/internal/redaction"
+import redactionlib "github.com/shahbajlive/ntm/internal/redaction"
 
 func ScanAndRedact(input string, cfg Config) Result { return redactionlib.ScanAndRedact(input, cfg) }
 

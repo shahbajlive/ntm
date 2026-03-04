@@ -4,12 +4,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/bv"
-	"github.com/Dicklesworthstone/ntm/internal/checkpoint"
-	"github.com/Dicklesworthstone/ntm/internal/cli/tiers"
-	"github.com/Dicklesworthstone/ntm/internal/handoff"
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
-	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
+	"github.com/shahbajlive/ntm/internal/bv"
+	"github.com/shahbajlive/ntm/internal/checkpoint"
+	"github.com/shahbajlive/ntm/internal/cli/tiers"
+	"github.com/shahbajlive/ntm/internal/handoff"
+	"github.com/shahbajlive/ntm/internal/tmux"
+	"github.com/shahbajlive/ntm/internal/tui/theme"
 )
 
 // =============================================================================

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/redaction"
+	"github.com/shahbajlive/ntm/internal/redaction"
 )
 
 func TestLinterBasic(t *testing.T) {
