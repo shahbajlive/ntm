@@ -457,6 +457,115 @@ func TestParseWaitSeconds(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// RecordRateLimitWithCooldown (bd-8gkp7)
+// =============================================================================
+
+func TestRecordRateLimitWithCooldown(t *testing.T) {
+	t.Parallel()
+	tracker := NewRateLimitTracker("")
+
+	// With explicit positive waitSeconds
+	cooldown := tracker.RecordRateLimitWithCooldown("anthropic", "spawn", 30)
+	if cooldown != 30*time.Second {
+		t.Errorf("cooldown = %v, want 30s", cooldown)
+	}
+	if !tracker.IsInCooldown("anthropic") {
+		t.Error("expected IsInCooldown=true after setting cooldown")
+	}
+	remaining := tracker.CooldownRemaining("anthropic")
+	if remaining <= 0 || remaining > 30*time.Second {
+		t.Errorf("CooldownRemaining = %v, expected (0, 30s]", remaining)
+	}
+}
+
+func TestRecordRateLimitWithCooldown_ZeroWait(t *testing.T) {
+	t.Parallel()
+	tracker := NewRateLimitTracker("")
+
+	// With waitSeconds <= 0, should use adaptive delay
+	cooldown := tracker.RecordRateLimitWithCooldown("anthropic", "send", 0)
+	if cooldown <= 0 {
+		t.Errorf("expected positive cooldown from adaptive delay, got %v", cooldown)
+	}
+	// The adaptive delay after one rate limit should be default * 1.5
+	expectedApprox := time.Duration(float64(DefaultDelayAnthropic) * delayIncreaseRate)
+	if cooldown != expectedApprox {
+		t.Errorf("cooldown = %v, want ~%v (default * increase rate)", cooldown, expectedApprox)
+	}
+}
+
+func TestRecordRateLimitWithCooldown_ExtendsNotShrinks(t *testing.T) {
+	t.Parallel()
+	tracker := NewRateLimitTracker("")
+
+	// Set a long cooldown first
+	tracker.RecordRateLimitWithCooldown("anthropic", "spawn", 60)
+	// Then a shorter one — should not shrink
+	tracker.RecordRateLimitWithCooldown("anthropic", "spawn", 5)
+	remaining := tracker.CooldownRemaining("anthropic")
+	if remaining < 50*time.Second {
+		t.Errorf("cooldown should not shrink: remaining = %v", remaining)
+	}
+}
+
+// =============================================================================
+// CooldownRemaining / IsInCooldown / ClearCooldown (bd-8gkp7)
+// =============================================================================
+
+func TestCooldownRemaining_UnknownProvider(t *testing.T) {
+	t.Parallel()
+	tracker := NewRateLimitTracker("")
+
+	remaining := tracker.CooldownRemaining("nonexistent")
+	if remaining != 0 {
+		t.Errorf("CooldownRemaining for unknown provider = %v, want 0", remaining)
+	}
+}
+
+func TestIsInCooldown_NoCooldownSet(t *testing.T) {
+	t.Parallel()
+	tracker := NewRateLimitTracker("")
+
+	// Just record a rate limit without cooldown
+	tracker.RecordRateLimit("anthropic", "send")
+	if tracker.IsInCooldown("anthropic") {
+		t.Error("IsInCooldown should be false without explicit cooldown")
+	}
+}
+
+func TestClearCooldown(t *testing.T) {
+	t.Parallel()
+	tracker := NewRateLimitTracker("")
+
+	// Set cooldown
+	tracker.RecordRateLimitWithCooldown("anthropic", "spawn", 60)
+	if !tracker.IsInCooldown("anthropic") {
+		t.Fatal("expected cooldown to be active")
+	}
+
+	// Clear it
+	tracker.ClearCooldown("anthropic")
+	if tracker.IsInCooldown("anthropic") {
+		t.Error("IsInCooldown should be false after ClearCooldown")
+	}
+	if tracker.CooldownRemaining("anthropic") != 0 {
+		t.Error("CooldownRemaining should be 0 after ClearCooldown")
+	}
+}
+
+func TestClearCooldown_UnknownProvider(t *testing.T) {
+	t.Parallel()
+	tracker := NewRateLimitTracker("")
+
+	// Should not panic for unknown provider
+	tracker.ClearCooldown("nonexistent")
+}
+
+// =============================================================================
+// Existing tests below
+// =============================================================================
+
 func TestDetectRateLimit(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -499,5 +608,372 @@ func TestDetectRateLimit(t *testing.T) {
 				t.Fatalf("DetectRateLimit(%q) WaitSeconds=%d, want %d", tt.output, detection.WaitSeconds, tt.wantWait)
 			}
 		})
+	}
+}
+
+// =============================================================================
+// Codex-specific rate-limit detection (bd-3qoly)
+// =============================================================================
+
+func TestDetectCodexRateLimit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		text string
+		want bool
+	}{
+		{"empty", "", false},
+		{"normal_output", "Codex is working on the task...", false},
+		{"openai_rate_limit", "Error: OpenAI rate limit exceeded", true},
+		{"codex_rate_limit", "codex rate-limit hit, wait 30s", true},
+		{"tokens_per_min", "Error: tokens per min exceeded", true},
+		{"requests_per_min", "Error: requests per min limit", true},
+		{"api_429", "api.openai.com returned 429", true},
+		{"insufficient_quota", "Error: insufficient_quota", true},
+		{"billing_limit", "billing limit reached", true},
+		{"exceeded_token_limit", "exceeded token limit", true},
+		{"please_try_again", "Error: please try again later", true},
+		{"usage_cap_reached", "usage cap reached", true},
+		{"RateLimitError", "RateLimitError: too many requests", true},
+		{"not_rate_limit", "error: file not found", false},
+		{"partial_match_no_trigger", "limit of items per page: 50", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := DetectCodexRateLimit(tt.text)
+			if got != tt.want {
+				t.Errorf("DetectCodexRateLimit(%q) = %v, want %v", tt.text, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDetectRateLimitForAgent_CodSpecific(t *testing.T) {
+	t.Parallel()
+
+	// Codex-specific pattern that generic DetectRateLimit won't catch
+	output := "Error: OpenAI rate limit triggered for codex"
+	// Generic detection should catch "rate limit" substring
+	generic := DetectRateLimit(output)
+	if !generic.RateLimited {
+		// If generic doesn't catch it, agent-specific should
+		agented := DetectRateLimitForAgent(output, "cod")
+		if !agented.RateLimited {
+			t.Error("DetectRateLimitForAgent should detect Codex rate limit")
+		}
+		if agented.AgentType != "cod" {
+			t.Errorf("AgentType = %q, want %q", agented.AgentType, "cod")
+		}
+	}
+
+	// Ensure non-cod agents don't trigger Codex patterns
+	ccOutput := "Some normal output"
+	ccDetection := DetectRateLimitForAgent(ccOutput, "cc")
+	if ccDetection.RateLimited {
+		t.Error("Non-rate-limit output should not be detected for cc agent")
+	}
+}
+
+func TestDetectRateLimitForAgent_PreservesAgentType(t *testing.T) {
+	t.Parallel()
+
+	detection := DetectRateLimitForAgent("rate limit exceeded", "cod")
+	if detection.AgentType != "cod" {
+		t.Errorf("AgentType = %q, want %q", detection.AgentType, "cod")
+	}
+	if !detection.RateLimited {
+		t.Error("Expected rate limit to be detected")
+	}
+}
+
+// =============================================================================
+// CodexThrottle AIMD tests (bd-3qoly)
+// =============================================================================
+
+func TestCodexThrottle_NewDefaults(t *testing.T) {
+	t.Parallel()
+	ct := NewCodexThrottle(3)
+	st := ct.Status()
+	if st.Phase != ThrottleNormal {
+		t.Errorf("initial phase = %s, want normal", st.Phase)
+	}
+	if st.AllowedConcurrent != 3 {
+		t.Errorf("allowed = %d, want 3", st.AllowedConcurrent)
+	}
+	if st.MaxConcurrent != 3 {
+		t.Errorf("max = %d, want 3", st.MaxConcurrent)
+	}
+}
+
+func TestCodexThrottle_NewDefaults_MinOne(t *testing.T) {
+	t.Parallel()
+	ct := NewCodexThrottle(0)
+	st := ct.Status()
+	if st.MaxConcurrent != 3 {
+		t.Errorf("max = %d, want 3 (default)", st.MaxConcurrent)
+	}
+}
+
+func TestCodexThrottle_RateLimit_PausesLaunches(t *testing.T) {
+	t.Parallel()
+	ct := NewCodexThrottle(4)
+
+	// Should allow launches initially
+	if !ct.MayLaunch(0) {
+		t.Fatal("expected MayLaunch=true before rate limit")
+	}
+
+	// Record rate limit
+	ct.RecordRateLimit("pane-1", 30)
+
+	// Should be paused now
+	if ct.MayLaunch(0) {
+		t.Fatal("expected MayLaunch=false after rate limit")
+	}
+
+	st := ct.Status()
+	if st.Phase != ThrottlePaused {
+		t.Errorf("phase = %s, want paused", st.Phase)
+	}
+	if st.CooldownRemaining <= 0 {
+		t.Error("expected positive cooldown remaining")
+	}
+	if len(st.AffectedPanes) != 1 || st.AffectedPanes[0] != "pane-1" {
+		t.Errorf("affected panes = %v, want [pane-1]", st.AffectedPanes)
+	}
+}
+
+func TestCodexThrottle_AIMD_MultiplicativeDecrease(t *testing.T) {
+	t.Parallel()
+	ct := NewCodexThrottle(4)
+
+	ct.RecordRateLimit("p1", 0)
+
+	ct.mu.RLock()
+	allowed := ct.allowedConcurrent
+	ct.mu.RUnlock()
+
+	// 4 * 0.5 = 2
+	if allowed != 2 {
+		t.Errorf("after first rate limit, allowed = %d, want 2", allowed)
+	}
+
+	ct.RecordRateLimit("p1", 0)
+
+	ct.mu.RLock()
+	allowed = ct.allowedConcurrent
+	ct.mu.RUnlock()
+
+	// 2 * 0.5 = 1
+	if allowed != 1 {
+		t.Errorf("after second rate limit, allowed = %d, want 1", allowed)
+	}
+
+	ct.RecordRateLimit("p1", 0)
+
+	ct.mu.RLock()
+	allowed = ct.allowedConcurrent
+	ct.mu.RUnlock()
+
+	// 1 * 0.5 = 0
+	if allowed != 0 {
+		t.Errorf("after third rate limit, allowed = %d, want 0", allowed)
+	}
+}
+
+func TestCodexThrottle_Recovery_AdditiveIncrease(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	ct := NewCodexThrottle(4)
+	ct.nowFn = func() time.Time { return now }
+
+	// Trigger rate limit
+	ct.RecordRateLimit("p1", 0)
+	if ct.MayLaunch(0) {
+		t.Fatal("expected paused immediately after rate limit")
+	}
+
+	// Advance past cooldown (default 30s)
+	now = now.Add(DefaultCooldownWindow + time.Second)
+
+	// Should enter recovery
+	if !ct.MayLaunch(0) {
+		t.Fatal("expected MayLaunch=true after cooldown expires (at least 1 allowed)")
+	}
+
+	st := ct.Status()
+	if st.Phase != ThrottleRecovering {
+		t.Errorf("phase = %s, want recovering", st.Phase)
+	}
+
+	// Advance through recovery intervals to fully recover
+	// Allowed starts at max(AIMD result, 1) = max(2, 1) = 2 (from 4*0.5)
+	// but we may need additive steps to get to 4
+	// 2 + 1 = 3, 3 + 1 = 4 -> normal
+	now = now.Add(RecoveryCheckInterval)
+	ct.MayLaunch(0) // trigger advance
+
+	now = now.Add(RecoveryCheckInterval)
+	ct.MayLaunch(0) // trigger advance
+
+	st = ct.Status()
+	if st.Phase != ThrottleNormal {
+		// May need more time
+		now = now.Add(RecoveryCheckInterval * 5)
+		ct.MayLaunch(0)
+		st = ct.Status()
+	}
+	if st.Phase != ThrottleNormal {
+		t.Errorf("phase = %s, want normal after full recovery", st.Phase)
+	}
+	if st.AllowedConcurrent != 4 {
+		t.Errorf("allowed = %d, want 4 (fully recovered)", st.AllowedConcurrent)
+	}
+}
+
+func TestCodexThrottle_Reset(t *testing.T) {
+	t.Parallel()
+	ct := NewCodexThrottle(3)
+	ct.RecordRateLimit("p1", 10)
+
+	ct.Reset()
+
+	st := ct.Status()
+	if st.Phase != ThrottleNormal {
+		t.Errorf("phase after reset = %s, want normal", st.Phase)
+	}
+	if st.AllowedConcurrent != 3 {
+		t.Errorf("allowed after reset = %d, want 3", st.AllowedConcurrent)
+	}
+	if st.RateLimitCount != 0 {
+		t.Errorf("rate limit count after reset = %d, want 0", st.RateLimitCount)
+	}
+}
+
+func TestCodexThrottle_ClearAffectedPane(t *testing.T) {
+	t.Parallel()
+	ct := NewCodexThrottle(3)
+	ct.RecordRateLimit("p1", 0)
+	ct.RecordRateLimit("p2", 0)
+
+	ct.ClearAffectedPane("p1")
+	st := ct.Status()
+	if len(st.AffectedPanes) != 1 || st.AffectedPanes[0] != "p2" {
+		t.Errorf("after clearing p1, affected = %v, want [p2]", st.AffectedPanes)
+	}
+}
+
+func TestCodexThrottle_RecordSuccess_ResetsCounter(t *testing.T) {
+	t.Parallel()
+	ct := NewCodexThrottle(3)
+	ct.RecordRateLimit("p1", 0)
+
+	st := ct.Status()
+	if st.RateLimitCount == 0 {
+		t.Fatal("expected non-zero rate limit count after rate limit")
+	}
+
+	ct.RecordSuccess()
+	st = ct.Status()
+	if st.RateLimitCount != 0 {
+		t.Errorf("rate limit count after success = %d, want 0", st.RateLimitCount)
+	}
+}
+
+func TestCodexThrottle_Guidance(t *testing.T) {
+	t.Parallel()
+
+	ct := NewCodexThrottle(3)
+	st := ct.Status()
+	if st.Guidance == "" {
+		t.Error("expected non-empty guidance in normal state")
+	}
+
+	ct.RecordRateLimit("p1", 30)
+	st = ct.Status()
+	if st.Guidance == "" {
+		t.Error("expected non-empty guidance in paused state")
+	}
+	if st.Phase != ThrottlePaused {
+		t.Errorf("phase = %s, want paused", st.Phase)
+	}
+}
+
+func TestCodexThrottle_CooldownScalesOnRepeated(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	ct := NewCodexThrottle(4)
+	ct.nowFn = func() time.Time { return now }
+
+	// First rate limit with explicit wait
+	ct.RecordRateLimit("p1", 10) // 10s cooldown
+
+	ct.mu.RLock()
+	firstCooldown := ct.cooldownDur
+	ct.mu.RUnlock()
+
+	// Advance past first cooldown
+	now = now.Add(firstCooldown + time.Second)
+
+	// Second rate limit -- rateLimitCount=2, so cooldown should be scaled
+	ct.RecordRateLimit("p1", 10)
+
+	ct.mu.RLock()
+	secondCooldown := ct.cooldownDur
+	ct.mu.RUnlock()
+
+	if secondCooldown <= firstCooldown {
+		t.Errorf("second cooldown (%v) should be longer than first (%v) due to backoff",
+			secondCooldown, firstCooldown)
+	}
+}
+
+func TestCodexThrottle_OtherAgentsUnaffected(t *testing.T) {
+	t.Parallel()
+
+	// The throttle only affects cod agents. Other agent types
+	// should not be blocked by the throttle.
+	ct := NewCodexThrottle(3)
+	ct.RecordRateLimit("p1", 30)
+
+	// The throttle itself only tracks cod state.
+	// The caller (AgentCaps) is responsible for only checking
+	// the throttle for cod agents. Here we verify the throttle
+	// correctly blocks cod:
+	if ct.MayLaunch(0) {
+		t.Error("cod should be blocked when throttled")
+	}
+
+	// The test verifies the contract: throttle says no for cod,
+	// but the AgentCaps integration only checks it for agentType=="cod",
+	// so cc/gmi are unaffected.
+}
+
+func TestCodexThrottle_MayLaunch_RespectsCurrentRunning(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	ct := NewCodexThrottle(4)
+	ct.nowFn = func() time.Time { return now }
+
+	// Rate limit to drop allowed to 2
+	ct.RecordRateLimit("p1", 0)
+
+	// Advance past cooldown to enter recovery
+	now = now.Add(DefaultCooldownWindow + time.Second)
+
+	// In recovery with allowed=2: running=1 should be OK
+	if !ct.MayLaunch(1) {
+		t.Error("expected MayLaunch(1)=true when allowed=2")
+	}
+
+	// running=2 should be blocked
+	if ct.MayLaunch(2) {
+		t.Error("expected MayLaunch(2)=false when allowed=2")
 	}
 }

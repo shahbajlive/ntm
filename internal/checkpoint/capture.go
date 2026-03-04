@@ -14,9 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shahbajlive/ntm/internal/assignment"
-	"github.com/shahbajlive/ntm/internal/bv"
-	"github.com/shahbajlive/ntm/internal/tmux"
+	"github.com/Dicklesworthstone/ntm/internal/assignment"
+	"github.com/Dicklesworthstone/ntm/internal/bv"
+	"github.com/Dicklesworthstone/ntm/internal/privacy"
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
 // Capturer handles capturing session state for checkpoints.
@@ -43,6 +44,11 @@ func (c *Capturer) Create(sessionName, name string, opts ...CheckpointOption) (*
 	options := defaultOptions()
 	for _, opt := range opts {
 		opt(&options)
+	}
+
+	// Check privacy mode before creating checkpoint
+	if err := privacy.GetDefaultManager().CanPersist(sessionName, privacy.OpCheckpoint); err != nil {
+		return nil, fmt.Errorf("checkpoint blocked: %w", err)
 	}
 
 	// Check session exists

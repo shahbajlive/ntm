@@ -2,19 +2,25 @@ package robot
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/shahbajlive/ntm/internal/bv"
-	"github.com/shahbajlive/ntm/internal/config"
-	"github.com/shahbajlive/ntm/internal/tmux"
-	"github.com/shahbajlive/ntm/tests/testutil"
+	"github.com/Dicklesworthstone/ntm/internal/agentmail"
+	"github.com/Dicklesworthstone/ntm/internal/bv"
+	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/Dicklesworthstone/ntm/tests/testutil"
 )
 
 // Helper to capture stdout
@@ -389,6 +395,9 @@ func TestSendOutputMarshal(t *testing.T) {
 	output := SendOutput{
 		Session:        "myproject",
 		SentAt:         time.Now().UTC(),
+		Blocked:        false,
+		Redaction:      RedactionSummary{Mode: "off", Findings: 0, Action: "off"},
+		Warnings:       []string{},
 		Targets:        []string{"1", "2", "3"},
 		Successful:     []string{"1", "2"},
 		Failed:         []SendError{{Pane: "3", Error: "pane not found"}},
@@ -545,6 +554,19 @@ func TestPrintStatus(t *testing.T) {
 	// Verify structure
 	if result.GeneratedAt.IsZero() {
 		t.Error("GeneratedAt is zero")
+	}
+
+	if result.SafetyProfile == "" {
+		t.Error("SafetyProfile is empty")
+	} else {
+		valid := map[string]bool{
+			config.SafetyProfileStandard: true,
+			config.SafetyProfileSafe:     true,
+			config.SafetyProfileParanoid: true,
+		}
+		if !valid[result.SafetyProfile] {
+			t.Errorf("SafetyProfile = %q, want one of standard|safe|paranoid", result.SafetyProfile)
+		}
 	}
 
 	// System info should be populated
@@ -980,6 +1002,10 @@ func TestPrintSnapshot(t *testing.T) {
 	// Timestamp should be set
 	if result.Timestamp == "" {
 		t.Error("Timestamp is empty")
+	}
+
+	if result.SafetyProfile != config.SafetyProfileStandard {
+		t.Errorf("SafetyProfile = %q, want %q", result.SafetyProfile, config.SafetyProfileStandard)
 	}
 
 	// Sessions should be an array
@@ -3485,5 +3511,105 @@ func TestUpdateActivityLinesDelta(t *testing.T) {
 	_, delta = updateActivity(paneID, "p\n")
 	if delta != 1 {
 		t.Fatalf("reset delta = %d, want 1", delta)
+	}
+}
+
+func TestEnsureProjectWithRetryRetriesDatabaseLock(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		n := calls.Add(1)
+		if n <= 2 {
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"Database error: Query error: database is locked"}],"isError":true}}`))
+			return
+		}
+
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"structuredContent":{"id":1,"slug":"data-projects-ntm","human_key":"/data/projects/ntm"},"isError":false}}`))
+	}))
+	defer server.Close()
+
+	client := agentmail.NewClient(agentmail.WithBaseURL(server.URL + "/"))
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	project, err := ensureProjectWithRetry(ctx, client, "/data/projects/ntm")
+	if err != nil {
+		t.Fatalf("ensureProjectWithRetry returned error: %v", err)
+	}
+	if project == nil {
+		t.Fatal("ensureProjectWithRetry returned nil project")
+	}
+	if project.HumanKey != "/data/projects/ntm" {
+		t.Fatalf("project.HumanKey=%q, want /data/projects/ntm", project.HumanKey)
+	}
+	if calls.Load() != 3 {
+		t.Fatalf("ensureProjectWithRetry attempts=%d, want 3", calls.Load())
+	}
+}
+
+func TestEnsureProjectWithRetryDoesNotRetryNonLockErrors(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		calls.Add(1)
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"permission denied"}],"isError":true}}`))
+	}))
+	defer server.Close()
+
+	client := agentmail.NewClient(agentmail.WithBaseURL(server.URL + "/"))
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	_, err := ensureProjectWithRetry(ctx, client, "/data/projects/ntm")
+	if err == nil {
+		t.Fatal("ensureProjectWithRetry returned nil error")
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("ensureProjectWithRetry attempts=%d, want 1", calls.Load())
+	}
+}
+
+func TestIsAgentMailDBLockError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "database is locked",
+			err:  errors.New("agentmail: ensure_project failed: tool error: Database error: Query error: database is locked"),
+			want: true,
+		},
+		{
+			name: "resource busy",
+			err:  errors.New("tool error: RESOURCE BUSY"),
+			want: true,
+		},
+		{
+			name: "non-lock error",
+			err:  errors.New("tool error: unauthorized"),
+			want: false,
+		},
+		{
+			name: "nil",
+			err:  nil,
+			want: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isAgentMailDBLockError(tc.err)
+			if got != tc.want {
+				t.Fatalf("isAgentMailDBLockError(%v)=%v, want %v", tc.err, got, tc.want)
+			}
+		})
 	}
 }

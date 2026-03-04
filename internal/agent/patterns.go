@@ -49,9 +49,6 @@ var (
 		"running ",    // Command execution
 		"executing ",  // Command execution
 		"installing ", // Package installation
-		"thinking",    // Processing indicator
-		"processing",  // Processing indicator
-		"analyzing",   // Analysis in progress
 		"compiling",   // Compilation
 		"building",    // Build process
 		"testing",     // Test execution
@@ -64,9 +61,15 @@ var (
 	// When these match at the end of output, it's safe to restart or send new work.
 	ccIdlePatterns = []*regexp.Regexp{
 		regexp.MustCompile(`>\s*$`),      // Prompt waiting for input
+		regexp.MustCompile(`(?m)^>\s*`),  // Prompt start (handles user typing)
 		regexp.MustCompile(`Human:\s*$`), // Conversation mode prompt
 		regexp.MustCompile(`waiting for input`),
 		regexp.MustCompile(`\?\s*$`), // Question prompt
+		// Claude Code TUI patterns (welcome screen and status bar)
+		regexp.MustCompile(`(?i)claude\s+code\s+v[\d.]+`), // Version banner
+		regexp.MustCompile(`(?i)bypass\s+permissions\s+on`), // Status bar
+		regexp.MustCompile(`(?i)welcome\s+back`),            // Welcome message
+		regexp.MustCompile(`╰─>\s*$`),                       // Arrow prompt
 	}
 
 	// ccErrorPatterns indicates an error condition.
@@ -84,7 +87,7 @@ var (
 	}
 
 	// ccHeaderPattern confirms output is from Claude Code.
-	ccHeaderPattern = regexp.MustCompile(`(?i)(opus|claude|sonnet|haiku)\s*\d*\.?\d*`)
+	ccHeaderPattern = regexp.MustCompile(`(?i)\b(opus|claude|sonnet|haiku)\b\s*\d*\.?\d*`)
 )
 
 // Codex CLI (cod) patterns for state detection.
@@ -142,7 +145,7 @@ var (
 	}
 
 	// codHeaderPattern confirms output is from Codex CLI.
-	codHeaderPattern = regexp.MustCompile(`(?i)(codex|openai|gpt-\d)`)
+	codHeaderPattern = regexp.MustCompile(`(?i)\b(codex|openai|gpt-\d)\b`)
 )
 
 // Gemini CLI (gmi) patterns for state detection.
@@ -177,6 +180,8 @@ var (
 		"running ",    // Running command
 		"generating ", // Content generation
 		"analyzing ",  // Analysis
+		"processing",  // General processing
+		"thinking",    // Chain of thought
 	}
 
 	// gmiIdlePatterns indicates waiting for input.
@@ -327,36 +332,44 @@ func collectMatches(text string, patterns []string) []string {
 	return matches
 }
 
-// extractFloat extracts the first float value from a regex match group.
+// extractFloat extracts the last float value from a regex match group.
 // Returns nil if no match or parse error.
 func extractFloat(pattern *regexp.Regexp, text string) *float64 {
-	match := pattern.FindStringSubmatch(text)
+	matches := pattern.FindAllStringSubmatch(text, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	match := matches[len(matches)-1]
 	if len(match) < 2 {
 		return nil
 	}
 	// Handle comma-separated numbers (e.g., "219,582")
 	cleaned := strings.ReplaceAll(match[1], ",", "")
 	val, err := strconv.ParseFloat(cleaned, 64)
-	if err != nil {
-		return nil
+	if err == nil {
+		return &val
 	}
-	return &val
+	return nil
 }
 
-// extractInt extracts the first integer value from a regex match group.
+// extractInt extracts the last integer value from a regex match group.
 // Returns nil if no match or parse error.
 func extractInt(pattern *regexp.Regexp, text string) *int64 {
-	match := pattern.FindStringSubmatch(text)
+	matches := pattern.FindAllStringSubmatch(text, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	match := matches[len(matches)-1]
 	if len(match) < 2 {
 		return nil
 	}
 	// Handle comma-separated numbers
 	cleaned := strings.ReplaceAll(match[1], ",", "")
 	val, err := strconv.ParseInt(cleaned, 10, 64)
-	if err != nil {
-		return nil
+	if err == nil {
+		return &val
 	}
-	return &val
+	return nil
 }
 
 // getLastNLines returns the last n lines of text.

@@ -196,15 +196,35 @@ func (g *Generator) detectRateLimit(session string, pane tmux.Pane, lines []stri
 	for _, line := range checkLines {
 		for _, pattern := range rateLimitPatterns {
 			if pattern.MatchString(line) {
+				msg := "Rate limiting detected"
+				guidance := ""
+
+				// Codex-specific guidance (bd-3qoly)
+				if string(pane.Type) == "cod" {
+					msg = "Codex (OpenAI) rate limiting detected"
+					guidance = "New cod launches are paused automatically. " +
+						"Claude and Gemini agents continue unaffected. " +
+						"Consider reducing concurrent Codex panes or waiting for quota reset. " +
+						"Check throttle status with: ntm --robot-status"
+				}
+
+				ctx := map[string]interface{}{
+					"matched_line": truncateString(line, 200),
+					"agent_type":   string(pane.Type),
+				}
+				if guidance != "" {
+					ctx["guidance"] = guidance
+				}
+
 				return &Alert{
 					ID:         generateAlertID(AlertRateLimit, session, pane.ID),
 					Type:       AlertRateLimit,
 					Severity:   SeverityWarning,
 					Source:     "agents",
-					Message:    "Rate limiting detected",
+					Message:    msg,
 					Session:    session,
 					Pane:       pane.ID,
-					Context:    map[string]interface{}{"matched_line": truncateString(line, 200)},
+					Context:    ctx,
 					CreatedAt:  time.Now(),
 					LastSeenAt: time.Now(),
 					Count:      1,

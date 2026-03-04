@@ -9,7 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/shahbajlive/ntm/internal/output"
+	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/Dicklesworthstone/ntm/internal/output"
 )
 
 func newQuickCmd() *cobra.Command {
@@ -18,6 +19,7 @@ func newQuickCmd() *cobra.Command {
 		noVSCode       bool
 		noClaudeConfig bool
 		template       string
+		label          string
 	)
 
 	cmd := &cobra.Command{
@@ -35,10 +37,26 @@ func newQuickCmd() *cobra.Command {
 Examples:
   ntm quick myproject           # Full setup
   ntm quick myproject --no-git  # Skip git init
-  ntm quick api --template=go   # Use Go template`,
+  ntm quick api --template=go   # Use Go template
+  ntm quick myproject --label frontend  # Labeled session`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runQuick(args[0], quickOptions{
+			name := args[0]
+
+			// Reject project names containing "--" (reserved separator) (bd-1933u)
+			if err := config.ValidateProjectName(name); err != nil {
+				return err
+			}
+
+			// Apply goal label to session name (bd-3cu02.5)
+			if label != "" {
+				if err := config.ValidateLabel(label); err != nil {
+					return fmt.Errorf("invalid label: %w", err)
+				}
+				name = config.FormatSessionName(name, label)
+			}
+
+			return runQuick(name, quickOptions{
 				NoGit:          noGit,
 				NoVSCode:       noVSCode,
 				NoClaudeConfig: noClaudeConfig,
@@ -51,6 +69,7 @@ Examples:
 	cmd.Flags().BoolVar(&noVSCode, "no-vscode", false, "Skip VSCode settings")
 	cmd.Flags().BoolVar(&noClaudeConfig, "no-claude", false, "Skip Claude config")
 	cmd.Flags().StringVarP(&template, "template", "t", "", "Project template (go, python, node, rust)")
+	cmd.Flags().StringVarP(&label, "label", "l", "", "Goal label for multi-session support (e.g., --label frontend creates session PROJECT--frontend)")
 
 	return cmd
 }

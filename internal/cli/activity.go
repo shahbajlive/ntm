@@ -150,6 +150,7 @@ func runActivityWatch(session string, opts activityOptions) error {
 	// Handle Ctrl+C
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
 	go func() {
 		<-sigChan
 		fmt.Print("\033[?25h") // Show cursor

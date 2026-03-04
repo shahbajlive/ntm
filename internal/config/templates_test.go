@@ -7,6 +7,7 @@ import (
 
 func TestGenerateAgentCommand_LegacyMode(t *testing.T) {
 	// Test that commands without template syntax are returned as-is
+	// when no model override is specified
 	tests := []struct {
 		name     string
 		template string
@@ -14,15 +15,15 @@ func TestGenerateAgentCommand_LegacyMode(t *testing.T) {
 		want     string
 	}{
 		{
-			name:     "plain command",
+			name:     "plain command no model",
 			template: "claude --dangerously-skip-permissions",
-			vars:     AgentTemplateVars{Model: "opus"},
+			vars:     AgentTemplateVars{},
 			want:     "claude --dangerously-skip-permissions",
 		},
 		{
-			name:     "codex command",
+			name:     "codex command no model",
 			template: "codex -m gpt-4",
-			vars:     AgentTemplateVars{Model: "gpt-4"},
+			vars:     AgentTemplateVars{},
 			want:     "codex -m gpt-4",
 		},
 	}
@@ -35,6 +36,42 @@ func TestGenerateAgentCommand_LegacyMode(t *testing.T) {
 			}
 			if got != tt.want {
 				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGenerateAgentCommand_LegacyModeModelOverrideGuard(t *testing.T) {
+	// Test that legacy (non-template) commands fail fast when a model
+	// override is specified, rather than silently dropping it.
+	tests := []struct {
+		name     string
+		template string
+		vars     AgentTemplateVars
+	}{
+		{
+			name:     "plain command with model override",
+			template: "claude --dangerously-skip-permissions",
+			vars:     AgentTemplateVars{Model: "opus"},
+		},
+		{
+			name:     "codex command with model override",
+			template: "codex -m gpt-4",
+			vars:     AgentTemplateVars{Model: "gpt-4"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := GenerateAgentCommand(tt.template, tt.vars)
+			if err == nil {
+				t.Fatal("expected error for model override on legacy command, got nil")
+			}
+			if !strings.Contains(err.Error(), "model override") {
+				t.Errorf("error should mention 'model override', got: %v", err)
+			}
+			if !strings.Contains(err.Error(), tt.vars.Model) {
+				t.Errorf("error should mention the model %q, got: %v", tt.vars.Model, err)
 			}
 		})
 	}
@@ -245,6 +282,8 @@ func TestDefaultAgentTemplates_ShellQuoting(t *testing.T) {
 
 	templates := DefaultAgentTemplates()
 
+	// check verifies that a template correctly shell-quotes both the model and
+	// the system prompt file (for agents that support the system-prompt-file flag).
 	check := func(name, tmpl string) {
 		cmd, err := GenerateAgentCommand(tmpl, vars)
 		if err != nil {
@@ -265,9 +304,57 @@ func TestDefaultAgentTemplates_ShellQuoting(t *testing.T) {
 		}
 	}
 
+	// checkModelOnly verifies shell-quoting of the model only — for agents where
+	// system-prompt-file injection is not supported via CLI flags (e.g. Gemini,
+	// which removed --system-instruction-file in v0.31.0).
+	checkModelOnly := func(name, tmpl string) {
+		cmd, err := GenerateAgentCommand(tmpl, vars)
+		if err != nil {
+			t.Fatalf("%s template: %v", name, err)
+		}
+		quotedModel := ShellQuote(vars.Model)
+		if !strings.Contains(cmd, quotedModel) {
+			t.Fatalf("%s template should contain quoted model %q, got: %s", name, quotedModel, cmd)
+		}
+		if strings.Contains(cmd, vars.Model) && !strings.Contains(cmd, quotedModel) {
+			t.Fatalf("%s template appears to include unquoted model: %s", name, cmd)
+		}
+	}
+
 	check("claude", templates.Claude)
 	check("codex", templates.Codex)
-	check("gemini", templates.Gemini)
+	// Gemini dropped --system-instruction-file in v0.31.0; only model quoting applies.
+	checkModelOnly("gemini", templates.Gemini)
+}
+
+// TestShellQuote_Branches tests both branches of ShellQuote.
+func TestShellQuote_Branches(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"empty string", "", "''"},
+		{"plain text", "hello", "'hello'"},
+		{"single quote", "it's", "'it'\\''s'"},
+		{"only single quote", "'", "''\\'''"},
+		{"multiple single quotes", "a''b", "'a'\\'''\\''b'"},
+		{"no special chars", "abc123", "'abc123'"},
+		{"with spaces", "hello world", "'hello world'"},
+		{"with semicolons", "cmd; rm -rf /", "'cmd; rm -rf /'"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := ShellQuote(tc.input)
+			if got != tc.want {
+				t.Errorf("ShellQuote(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
 }
 
 func TestTemplateFunctions(t *testing.T) {

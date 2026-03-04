@@ -13,8 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shahbajlive/ntm/internal/bv"
-	"github.com/shahbajlive/ntm/internal/tmux"
+	"github.com/Dicklesworthstone/ntm/internal/bv"
+	"github.com/Dicklesworthstone/ntm/internal/process"
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
 // HealthOutput provides a focused project health summary for AI agents
@@ -428,8 +429,10 @@ var healthErrorPatterns = []struct {
 	{"network unreachable", "network_error"},
 }
 
-// CheckAgentHealthWithActivity performs a comprehensive health check using activity detection
-func CheckAgentHealthWithActivity(paneID string, agentType string) (*HealthCheck, error) {
+// CheckAgentHealthWithActivity performs a comprehensive health check using activity detection.
+// shellPID is the tmux pane's shell PID used for authoritative PID-based liveness checking.
+// Pass 0 if the PID is unknown (falls back to text-based detection).
+func CheckAgentHealthWithActivity(paneID string, agentType string, shellPID int) (*HealthCheck, error) {
 	check := &HealthCheck{
 		PaneID:      paneID,
 		AgentType:   agentType,
@@ -439,7 +442,7 @@ func CheckAgentHealthWithActivity(paneID string, agentType string) (*HealthCheck
 	}
 
 	// 1. Process check - is the agent still running or crashed?
-	check.ProcessCheck = checkProcess(paneID)
+	check.ProcessCheck = checkProcess(paneID, shellPID)
 
 	// 2. Stall check - use activity detection for stall detection
 	check.StallCheck = checkStallWithActivity(paneID, agentType)
@@ -456,11 +459,24 @@ func CheckAgentHealthWithActivity(paneID string, agentType string) (*HealthCheck
 	return check, nil
 }
 
-// checkProcess checks if the agent process is running or crashed
-func checkProcess(paneID string) *ProcessCheckResult {
+// checkProcess checks if the agent process is running or crashed.
+// shellPID enables authoritative PID-based liveness checking when > 0.
+func checkProcess(paneID string, shellPID int) *ProcessCheckResult {
 	result := &ProcessCheckResult{
 		Running: true,
 		Crashed: false,
+	}
+
+	// PID-based liveness check (authoritative, avoids false positives)
+	if shellPID > 0 {
+		if process.HasChildAlive(shellPID) {
+			return result // Running=true, agent is alive per PID check
+		}
+		// PID says dead — mark as crashed but continue to text patterns
+		// for better diagnostics (exit code, etc.)
+		result.Running = false
+		result.Crashed = true
+		result.Reason = "PID-based check: no living child process"
 	}
 
 	// Capture pane output to check for exit indicators
@@ -811,8 +827,8 @@ func GetSessionHealth(session string) (*SessionHealthOutput, error) {
 			agentHealth.IdleSinceSeconds = int(time.Since(activityTime).Seconds())
 		}
 
-		// Perform comprehensive health check
-		check, err := CheckAgentHealthWithActivity(pane.ID, agentType)
+		// Perform comprehensive health check (pass shell PID for authoritative liveness)
+		check, err := CheckAgentHealthWithActivity(pane.ID, agentType, pane.PID)
 		if err == nil {
 			agentHealth.Confidence = check.Confidence
 
@@ -2076,10 +2092,11 @@ func ClearRestartManager(session string) {
 // Integration: Auto-Restart Unhealthy Agents
 // =============================================================================
 
-// AutoRestartUnhealthyAgent checks agent health and restarts if needed
-func AutoRestartUnhealthyAgent(ctx context.Context, session, paneID, agentType string, alerter AlerterInterface) *RestartResult {
+// AutoRestartUnhealthyAgent checks agent health and restarts if needed.
+// shellPID is the tmux pane's shell PID for PID-based liveness checking (0 to skip).
+func AutoRestartUnhealthyAgent(ctx context.Context, session, paneID, agentType string, shellPID int, alerter AlerterInterface) *RestartResult {
 	// Check current health (paneID can be just the pane or full session:pane target)
-	check, err := CheckAgentHealthWithActivity(paneID, agentType)
+	check, err := CheckAgentHealthWithActivity(paneID, agentType, shellPID)
 	if err != nil {
 		return &RestartResult{
 			PaneID:    paneID,
@@ -2105,287 +2122,147 @@ func AutoRestartUnhealthyAgent(ctx context.Context, session, paneID, agentType s
 }
 
 // =============================================================================
-// OAuth and Rate Limit Status API (bd-2plo3)
+// Auto-Restart Stuck Agents (bd-krqz)
 // =============================================================================
 
-// OAuthStatus represents OAuth authentication status for an agent
-type OAuthStatus string
-
-const (
-	OAuthValid   OAuthStatus = "valid"
-	OAuthExpired OAuthStatus = "expired"
-	OAuthError   OAuthStatus = "error"
-	OAuthUnknown OAuthStatus = "unknown"
-)
-
-// RateLimitStatus represents rate limit status for an agent
-type RateLimitStatus string
-
-const (
-	RateLimitOK      RateLimitStatus = "ok"
-	RateLimitWarning RateLimitStatus = "warning" // 3+ limits in 5 minutes
-	RateLimitLimited RateLimitStatus = "limited"
-)
-
-// AgentOAuthHealth contains OAuth and rate limit status for a single agent
-type AgentOAuthHealth struct {
-	Pane              int             `json:"pane"`
-	AgentType         string          `json:"agent_type"`
-	Provider          string          `json:"provider"` // anthropic, openai, google
-	OAuthStatus       OAuthStatus     `json:"oauth_status"`
-	OAuthError        string          `json:"oauth_error,omitempty"`
-	RateLimitStatus   RateLimitStatus `json:"rate_limit_status"`
-	RateLimitCount    int             `json:"rate_limit_count"`   // limits in window
-	CooldownRemaining int             `json:"cooldown_remaining"` // seconds
-	LastActivitySec   int             `json:"last_activity_sec"`
-	ErrorCount        int             `json:"error_count"` // errors in last 5 minutes
-}
-
-// OAuthHealthOutput is the response format for --robot-health-oauth=SESSION
-type OAuthHealthOutput struct {
+// AutoRestartStuckOutput is the structured output for --robot-health-restart-stuck.
+type AutoRestartStuckOutput struct {
 	RobotResponse
-	Session   string             `json:"session"`
-	CheckedAt time.Time          `json:"checked_at"`
-	Agents    []AgentOAuthHealth `json:"agents"`
-	Summary   OAuthHealthSummary `json:"summary"`
+	Session    string `json:"session"`
+	StuckPanes []int  `json:"stuck_panes"`
+	Restarted  []int  `json:"restarted"`
+	Failed     []int  `json:"failed,omitempty"`
+	Threshold  string `json:"threshold"`
+	DryRun     bool   `json:"dry_run,omitempty"`
+	CheckedAt  string `json:"checked_at"`
 }
 
-// OAuthHealthSummary contains aggregate OAuth/rate limit status
-type OAuthHealthSummary struct {
-	Total         int `json:"total"`
-	OAuthValid    int `json:"oauth_valid"`
-	OAuthExpired  int `json:"oauth_expired"`
-	OAuthError    int `json:"oauth_error"`
-	RateLimitOK   int `json:"rate_limit_ok"`
-	RateLimitWarn int `json:"rate_limit_warn"`
-	RateLimited   int `json:"rate_limited"`
+// AutoRestartStuckOptions configures the auto-restart-stuck operation.
+type AutoRestartStuckOptions struct {
+	Session   string        // Target session name
+	Threshold time.Duration // Duration of inactivity before considering stuck (default 5m)
+	DryRun    bool          // Preview mode: report but don't restart
 }
 
-// GetHealthOAuth collects per-agent OAuth and rate limit status for a session.
-// This function returns the data struct directly, enabling CLI/REST parity.
-func GetHealthOAuth(session string) (*OAuthHealthOutput, error) {
-	output := &OAuthHealthOutput{
+// DefaultStuckThreshold is the default idle duration before a pane is considered stuck.
+const DefaultStuckThreshold = 5 * time.Minute
+
+// ClassifyStuckPanes identifies panes that are stuck based on health data.
+// A pane is stuck if it is an agent pane (not user/unknown) and has been idle
+// longer than the threshold duration. This is a pure function for testability.
+func ClassifyStuckPanes(agents []SessionAgentHealth, threshold time.Duration) []int {
+	var stuck []int
+	thresholdSec := int(threshold.Seconds())
+	for _, agent := range agents {
+		if agent.Health == "unhealthy" || agent.Health == "degraded" {
+			if agent.IdleSinceSeconds >= thresholdSec {
+				stuck = append(stuck, agent.Pane)
+			}
+		} else if agent.IdleSinceSeconds >= thresholdSec {
+			// Healthy but idle for too long - also stuck
+			stuck = append(stuck, agent.Pane)
+		}
+	}
+	return stuck
+}
+
+// BuildAutoRestartStuckOutput constructs the output struct from health data
+// and restart results. Pure function for testability.
+func BuildAutoRestartStuckOutput(session string, stuckPanes []int, restarted []int, failed []int, threshold time.Duration, dryRun bool) *AutoRestartStuckOutput {
+	output := &AutoRestartStuckOutput{
 		RobotResponse: NewRobotResponse(true),
 		Session:       session,
-		CheckedAt:     time.Now().UTC(),
-		Agents:        []AgentOAuthHealth{},
-		Summary:       OAuthHealthSummary{},
+		StuckPanes:    stuckPanes,
+		Restarted:     restarted,
+		Failed:        failed,
+		Threshold:     threshold.String(),
+		DryRun:        dryRun,
+		CheckedAt:     time.Now().UTC().Format(time.RFC3339),
+	}
+	if len(stuckPanes) == 0 {
+		output.StuckPanes = []int{}
+	}
+	if len(restarted) == 0 {
+		output.Restarted = []int{}
+	}
+	return output
+}
+
+// GetAutoRestartStuck detects stuck agent panes and optionally restarts them.
+// It uses GetSessionHealth() to detect panes idle beyond the threshold,
+// then calls GetRestartPane() for each stuck pane.
+func GetAutoRestartStuck(opts AutoRestartStuckOptions) (*AutoRestartStuckOutput, error) {
+	if opts.Threshold <= 0 {
+		opts.Threshold = DefaultStuckThreshold
 	}
 
-	// Check if session exists
-	if !tmux.SessionExists(session) {
-		output.RobotResponse = NewErrorResponse(
-			fmt.Errorf("session '%s' not found", session),
-			ErrCodeSessionNotFound,
-			"Use --robot-status to list available sessions",
-		)
+	// Get current health state
+	healthOutput, err := GetSessionHealth(opts.Session)
+	if err != nil {
+		return nil, err
+	}
+	if !healthOutput.Success {
+		output := &AutoRestartStuckOutput{
+			RobotResponse: healthOutput.RobotResponse,
+			Session:       opts.Session,
+			StuckPanes:    []int{},
+			Restarted:     []int{},
+			Threshold:     opts.Threshold.String(),
+			DryRun:        opts.DryRun,
+			CheckedAt:     time.Now().UTC().Format(time.RFC3339),
+		}
 		return output, nil
 	}
 
-	// Get panes in the session
-	panes, err := tmux.GetPanes(session)
-	if err != nil {
-		output.RobotResponse = NewErrorResponse(
-			err,
-			ErrCodeInternalError,
-			"Check tmux session state",
-		)
-		return output, nil
+	// Classify stuck panes
+	stuckPanes := ClassifyStuckPanes(healthOutput.Agents, opts.Threshold)
+
+	// Dry-run: report without restarting
+	if opts.DryRun {
+		return BuildAutoRestartStuckOutput(opts.Session, stuckPanes, nil, nil, opts.Threshold, true), nil
 	}
 
-	// Check OAuth/rate limit status for each agent pane
-	for _, pane := range panes {
-		agentType := detectAgentTypeFromPane(pane)
-		if agentType == "user" || agentType == "unknown" {
-			continue // Skip non-agent panes
+	// Restart stuck panes
+	var restarted, failed []int
+	for _, paneIdx := range stuckPanes {
+		restartOpts := RestartPaneOptions{
+			Session: opts.Session,
+			Panes:   []string{fmt.Sprintf("%d", paneIdx)},
 		}
-
-		agentHealth := getAgentOAuthHealth(session, pane, agentType)
-		output.Agents = append(output.Agents, agentHealth)
-
-		// Update summary
-		output.Summary.Total++
-		switch agentHealth.OAuthStatus {
-		case OAuthValid:
-			output.Summary.OAuthValid++
-		case OAuthExpired:
-			output.Summary.OAuthExpired++
-		case OAuthError:
-			output.Summary.OAuthError++
-		}
-		switch agentHealth.RateLimitStatus {
-		case RateLimitOK:
-			output.Summary.RateLimitOK++
-		case RateLimitWarning:
-			output.Summary.RateLimitWarn++
-		case RateLimitLimited:
-			output.Summary.RateLimited++
+		restartOut, restartErr := GetRestartPane(restartOpts)
+		if restartErr != nil || len(restartOut.Failed) > 0 {
+			failed = append(failed, paneIdx)
+		} else {
+			restarted = append(restarted, paneIdx)
 		}
 	}
 
-	return output, nil
+	return BuildAutoRestartStuckOutput(opts.Session, stuckPanes, restarted, failed, opts.Threshold, false), nil
 }
 
-// getAgentOAuthHealth determines OAuth and rate limit status for a single agent
-func getAgentOAuthHealth(session string, pane tmux.Pane, agentType string) AgentOAuthHealth {
-	health := AgentOAuthHealth{
-		Pane:            pane.Index,
-		AgentType:       agentType,
-		Provider:        agentTypeToProvider(agentType),
-		OAuthStatus:     OAuthUnknown,
-		RateLimitStatus: RateLimitOK,
-	}
-
-	// Get activity time
-	activityTime, err := tmux.GetPaneActivity(pane.ID)
-	if err == nil {
-		health.LastActivitySec = int(time.Since(activityTime).Seconds())
-	}
-
-	// Capture recent output for OAuth/error detection
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	output, err := tmux.CapturePaneOutputContext(ctx, pane.ID, 50)
-	if err != nil {
-		return health
-	}
-
-	output = stripANSI(output)
-	outputLower := strings.ToLower(output)
-
-	// Detect OAuth status from output patterns
-	health.OAuthStatus, health.OAuthError = detectOAuthStatus(outputLower)
-
-	// Detect rate limit status
-	health.RateLimitStatus, health.RateLimitCount = detectRateLimitStatusFromOutput(outputLower)
-
-	// Check cooldown from backoff manager
-	manager := GetBackoffManager(session)
-	remaining := manager.GetBackoffRemaining(pane.ID)
-	if remaining > 0 {
-		health.CooldownRemaining = int(remaining.Seconds())
-		health.RateLimitStatus = RateLimitLimited
-	}
-
-	// Count rate limits from backoff manager if we have data
-	if backoff := manager.GetBackoff(pane.ID); backoff != nil {
-		if backoff.TotalRateLimits > health.RateLimitCount {
-			health.RateLimitCount = backoff.TotalRateLimits
-		}
-	}
-
-	// Count errors in output
-	health.ErrorCount = countErrorsInOutput(outputLower)
-
-	// If rate limit count >= 3, upgrade to warning
-	if health.RateLimitStatus == RateLimitOK && health.RateLimitCount >= 3 {
-		health.RateLimitStatus = RateLimitWarning
-	}
-
-	return health
-}
-
-// agentTypeToProvider maps agent type to provider name
-func agentTypeToProvider(agentType string) string {
-	switch agentType {
-	case "claude", "cc":
-		return "anthropic"
-	case "codex", "cod":
-		return "openai"
-	case "gemini", "gmi":
-		return "google"
-	default:
-		return "unknown"
-	}
-}
-
-// detectOAuthStatus detects OAuth status from pane output
-func detectOAuthStatus(outputLower string) (OAuthStatus, string) {
-	// Check for explicit authentication errors
-	authErrorPatterns := []struct {
-		pattern string
-		status  OAuthStatus
-		message string
-	}{
-		{"authentication failed", OAuthError, "authentication failed"},
-		{"authentication error", OAuthError, "authentication error"},
-		{"invalid api key", OAuthError, "invalid API key"},
-		{"api key not found", OAuthError, "API key not found"},
-		{"unauthorized", OAuthError, "unauthorized"},
-		{"401", OAuthError, "HTTP 401"},
-		{"token expired", OAuthExpired, "token expired"},
-		{"session expired", OAuthExpired, "session expired"},
-		{"please log in", OAuthExpired, "login required"},
-		{"needs reauth", OAuthExpired, "needs reauthentication"},
-		{"refresh token", OAuthExpired, "refresh token issue"},
-	}
-
-	for _, p := range authErrorPatterns {
-		if strings.Contains(outputLower, p.pattern) {
-			return p.status, p.message
-		}
-	}
-
-	// If we see normal activity indicators, OAuth is likely valid
-	validIndicators := []string{
-		"thinking", "working", "reading", "writing",
-		"searching", "executing", "analyzing",
-	}
-	for _, ind := range validIndicators {
-		if strings.Contains(outputLower, ind) {
-			return OAuthValid, ""
-		}
-	}
-
-	return OAuthUnknown, ""
-}
-
-// detectRateLimitStatusFromOutput detects rate limit status from output
-func detectRateLimitStatusFromOutput(outputLower string) (RateLimitStatus, int) {
-	rateLimitPatterns := []string{
-		"rate limit", "ratelimit", "rate-limit",
-		"429", "too many requests", "quota exceeded",
-		"try again", "retry after", "backoff",
-	}
-
-	count := 0
-	for _, p := range rateLimitPatterns {
-		if strings.Contains(outputLower, p) {
-			count++
-		}
-	}
-
-	if count >= 3 {
-		return RateLimitLimited, count
-	}
-	if count >= 1 {
-		return RateLimitWarning, count
-	}
-	return RateLimitOK, 0
-}
-
-// countErrorsInOutput counts error patterns in output
-func countErrorsInOutput(outputLower string) int {
-	errorPatterns := []string{
-		"error", "failed", "exception", "panic",
-		"timeout", "connection refused",
-	}
-
-	count := 0
-	for _, p := range errorPatterns {
-		if strings.Contains(outputLower, p) {
-			count++
-		}
-	}
-	return count
-}
-
-// PrintHealthOAuth outputs per-agent OAuth and rate limit status for a session.
-// This is a thin wrapper around GetHealthOAuth() for CLI output.
-func PrintHealthOAuth(session string) error {
-	output, err := GetHealthOAuth(session)
+// PrintAutoRestartStuck outputs the auto-restart-stuck result as JSON.
+// This is a thin wrapper around GetAutoRestartStuck() for CLI output.
+func PrintAutoRestartStuck(opts AutoRestartStuckOptions) error {
+	output, err := GetAutoRestartStuck(opts)
 	if err != nil {
 		return err
 	}
 	return encodeJSON(output)
+}
+
+// ParseStuckThreshold parses a duration string for the stuck threshold.
+// Accepts formats like "5m", "10m", "300s", "1h".
+// Returns DefaultStuckThreshold if the input is empty.
+func ParseStuckThreshold(s string) (time.Duration, error) {
+	if s == "" {
+		return DefaultStuckThreshold, nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid threshold %q: %w (use e.g. 5m, 10m, 300s)", s, err)
+	}
+	if d < 30*time.Second {
+		return 0, fmt.Errorf("threshold %v is too short (minimum 30s)", d)
+	}
+	return d, nil
 }

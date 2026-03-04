@@ -33,6 +33,10 @@ dashboard_debug.txt
 # Debug output files
 internal/cli/outputs/
 
+# Local scratch SQLite DBs (never tracked)
+storage.sqlite3
+storage.sqlite3-*
+
 # bv (beads viewer) local config and caches
 .bv/
 *.out
@@ -46,6 +50,12 @@ internal/cli/outputs/
 *.bak
 *.incomplete
 *.jsonl.lock
+
+# Go build temp directories
+.tmp-go/
+
+# Coverage reports
+cli_coverage.txt
 
 # Screenshots
 Snipping_*.png
@@ -61,3 +71,12 @@ test_screenshot.png
 
 # E2E runtime lockfiles
 e2e/*.lock
+
+# Go test coverage profiles
+*.cover
+
+# E2E test log files
+scripts/test-label-e2e-*.log
+
+# Agent coordination config
+.agent-mail.yaml

@@ -1,75 +1,88 @@
-## RULE 0 - THE FUNDAMENTAL OVERRIDE PEROGATIVE
+# AGENTS.md — ntm
+
+> Guidelines for AI coding agents working in this Go codebase.
+
+---
+
+## RULE 0 - THE FUNDAMENTAL OVERRIDE PREROGATIVE
 
 If I tell you to do something, even if it goes against what follows below, YOU MUST LISTEN TO ME. I AM IN CHARGE, NOT YOU.
 
 ---
 
-RULE 1 – ABSOLUTE (DO NOT EVER VIOLATE THIS)
+## RULE NUMBER 1: NO FILE DELETION
 
-You may NOT delete any file or directory unless I explicitly give the exact command **in this session**.
+**YOU ARE NEVER ALLOWED TO DELETE A FILE WITHOUT EXPRESS PERMISSION.** Even a new file that you yourself created, such as a test code file. You have a horrible track record of deleting critically important files or otherwise throwing away tons of expensive work. As a result, you have permanently lost any and all rights to determine that a file or folder should be deleted.
 
-- This includes files you just created (tests, tmp files, scripts, etc.).
-- You do not get to decide that something is "safe" to remove.
-- If you think something should be removed, stop and ask. You must receive clear written approval **before** any deletion command is even proposed.
-
-Treat "never delete files without permission" as a hard invariant.
+**YOU MUST ALWAYS ASK AND RECEIVE CLEAR, WRITTEN PERMISSION BEFORE EVER DELETING A FILE OR FOLDER OF ANY KIND.**
 
 ---
 
-### IRREVERSIBLE GIT & FILESYSTEM ACTIONS
+## Irreversible Git & Filesystem Actions — DO NOT EVER BREAK GLASS
 
-Absolutely forbidden unless I give the **exact command and explicit approval** in the same message:
-
-- `git reset --hard`
-- `git clean -fd`
-- `rm -rf`
-- Any command that can delete or overwrite code/data
-
-Rules:
-
-1. If you are not 100% sure what a command will delete, do not propose or run it. Ask first.
-2. Prefer safe tools: `git status`, `git diff`, `git stash`, copying to backups, etc.
-3. After approval, restate the command verbatim, list what it will affect, and wait for confirmation.
-4. When a destructive command is run, record in your response:
-   - The exact user text authorizing it
-   - The command run
-   - When you ran it
-
-If that audit trail is missing, then you must act as if the operation never happened.
+1. **Absolutely forbidden commands:** `git reset --hard`, `git clean -fd`, `rm -rf`, or any command that can delete or overwrite code/data must never be run unless the user explicitly provides the exact command and states, in the same message, that they understand and want the irreversible consequences.
+2. **No guessing:** If there is any uncertainty about what a command might delete or overwrite, stop immediately and ask the user for specific approval. "I think it's safe" is never acceptable.
+3. **Safer alternatives first:** When cleanup or rollbacks are needed, request permission to use non-destructive options (`git status`, `git diff`, `git stash`, copying to backups) before ever considering a destructive command.
+4. **Mandatory explicit plan:** Even after explicit user authorization, restate the command verbatim, list exactly what will be affected, and wait for a confirmation that your understanding is correct. Only then may you execute it—if anything remains ambiguous, refuse and escalate.
+5. **Document the confirmation:** When running any approved destructive command, record (in the session notes / final response) the exact user text that authorized it, the command actually run, and the execution time. If that record is absent, the operation did not happen.
 
 ---
 
-#### Go Toolchain
+## Git Branch: ONLY Use `main`, NEVER `master`
 
-- Use **go** for everything. This is a pure Go project.
-- ❌ Never introduce non-Go tooling for building or testing.
+**The default branch is `main`. The `master` branch exists only for legacy URL compatibility.**
 
-- Lockfiles: `go.mod` and `go.sum` only.
-- Target **Go 1.25+** (as specified in go.mod).
-- Run tests with `go test ./...`
-- Build with `go build ./cmd/ntm`
-- Format with `gofmt` or `goimports`
+- **All work happens on `main`** — commits, PRs, feature branches all merge to `main`
+- **Never reference `master` in code or docs** — if you see `master` anywhere, it's a bug that needs fixing
+- **The `master` branch must stay synchronized with `main`** — after pushing to `main`, also push to `master`:
+  ```bash
+  git push origin main:master
+  ```
 
----
-
-### Code Editing Discipline
-
-- Do **not** run scripts that bulk-modify code (codemods, invented one-off scripts, giant `sed`/regex refactors).
-- Large mechanical changes: break into smaller, explicit edits and review diffs.
-- Subtle/complex changes: edit by hand, file-by-file, with careful reasoning.
+**If you see `master` referenced anywhere:**
+1. Update it to `main`
+2. Ensure `master` is synchronized: `git push origin main:master`
 
 ---
 
-### Backwards Compatibility & File Sprawl
+## Toolchain: Go
 
-We optimize for a clean architecture now, not backwards compatibility.
+We only use **Go** in this project. This is a pure Go project — never introduce non-Go tooling for building or testing.
 
-- No "compat shims" or "v2" file clones.
-- When changing behavior, migrate callers and remove old code **inside the same file**.
-- New files are only for genuinely new domains that don't fit existing modules.
-- The bar for adding files is very high.
+- **Version:** Go 1.25+ (as specified in `go.mod`)
+- **Lockfiles:** `go.mod` and `go.sum` only
+- **Build:** `go build ./cmd/ntm`
+- **Format:** `gofmt` or `goimports`
+- **Unsafe code:** Not applicable (Go is memory-safe by design)
 
----
+### Key Dependencies
+
+| Package | Purpose |
+|---------|---------|
+| `spf13/cobra` | CLI command framework |
+| `charmbracelet/bubbletea` | Terminal UI framework |
+| `charmbracelet/bubbles` | TUI component library |
+| `charmbracelet/lipgloss` | Terminal styling |
+| `charmbracelet/glamour` | Markdown rendering |
+| `mattn/go-sqlite3` | SQLite database driver |
+| `go-chi/chi/v5` | HTTP router |
+| `gorilla/websocket` | WebSocket support |
+| `fsnotify/fsnotify` | File system event watching |
+| `chromedp/chromedp` | Chrome DevTools Protocol |
+| `shirou/gopsutil/v4` | System process utilities |
+| `sergi/go-diff` | Text diffing |
+| `BurntSushi/toml` | TOML configuration parsing |
+| `muesli/termenv` | Terminal environment detection |
+
+### Build & Release
+
+```makefile
+# Build for current platform
+go build -trimpath -ldflags "-s -w" -o ntm ./cmd/ntm
+
+# Cross-compile (darwin/linux, amd64/arm64)
+make build-all
+```
 
 ### Logging & Console Output
 
@@ -80,17 +93,171 @@ We optimize for a clean architecture now, not backwards compatibility.
 
 ---
 
-### Third-Party Libraries
+## Code Editing Discipline
 
-When unsure of an API, look up current docs (late-2025) rather than guessing.
+### No Script-Based Changes
+
+**NEVER** run a script that processes/changes code files in this repo. Brittle regex-based transformations create far more problems than they solve.
+
+- **Always make code changes manually**, even when there are many instances
+- For many simple changes: use parallel subagents
+- For subtle/complex changes: do them methodically yourself
+
+### No File Proliferation
+
+If you want to change something or add a feature, **revise existing code files in place**.
+
+**NEVER** create variations like:
+- `manager_v2.go`
+- `session_improved.go`
+- `robot_enhanced.go`
+
+New files are reserved for **genuinely new functionality** that makes zero sense to include in any existing file. The bar for creating new files is **incredibly high**.
 
 ---
+
+## Backwards Compatibility
+
+We do not care about backwards compatibility—we're in early development with no users. We want to do things the **RIGHT** way with **NO TECH DEBT**.
+
+- Never create "compatibility shims"
+- Never create wrapper functions for deprecated APIs
+- Just fix the code directly
+
+---
+
+## Compiler Checks (CRITICAL)
+
+**After any substantive code changes, you MUST verify no errors were introduced:**
+
+```bash
+# Build the binary
+go build ./cmd/ntm
+
+# Run tests (fast, skips E2E)
+go test -short ./...
+
+# Run linter (if available)
+golangci-lint run
+
+# Verify formatting
+gofmt -l .
+goimports -l .
+```
+
+If you see errors, **carefully understand and resolve each issue**. Read sufficient context to fix them the RIGHT way.
+
+---
+
+## Testing
+
+### Testing Policy
+
+Tests live alongside the implementation in `_test.go` files within each package. Tests must cover:
+- Happy path
+- Edge cases (empty input, max values, boundary conditions)
+- Error conditions
+
+E2E tests live in the `e2e/` directory and require running agents.
+
+### Running Tests
+
+```bash
+# Run all tests (fast, skips E2E)
+go test -short ./...
+
+# Run all tests including E2E (requires agents)
+go test -v ./...
+
+# Run E2E tests only
+go test -v ./e2e/...
+
+# Run tests with coverage
+go test -v -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out -o coverage.html
+
+# Run specific package tests
+go test -v ./internal/robot/...
+go test -v ./internal/session/...
+go test -v ./internal/tmux/...
+
+# Validate upgrade asset naming contract
+go test -v -run TestUpgradeAsset ./internal/cli/
+```
+
+---
+
+## Third-Party Library Usage
+
+If you aren't 100% sure how to use a third-party library, **SEARCH ONLINE** to find the latest documentation and current best practices.
+
+---
+
+## ntm — This Project
+
+**This is the project you're working on.** ntm (Named Tmux Manager) is a tmux session manager with built-in multi-agent orchestration, robot-mode JSON API, and a TUI dashboard.
+
+### What It Does
+
+Manages named tmux sessions with agent-aware panes, providing a JSON API (`--robot-*` flags) for AI agents to spawn, inspect, coordinate, and control sessions. Includes a TUI dashboard, CASS integration, and multi-agent ensemble orchestration.
+
+### Project Structure
+
+```
+ntm/
+├── cmd/ntm/                # Binary entry point
+├── internal/
+│   ├── cli/                # Cobra command definitions, version, upgrade
+│   ├── robot/              # Robot-mode JSON API (--robot-* flags)
+│   ├── session/            # Named session lifecycle management
+│   ├── tmux/               # Tmux process interaction layer
+│   ├── tui/                # Bubbletea TUI dashboard
+│   ├── agent/              # Agent type detection and metadata
+│   ├── agentmail/          # MCP Agent Mail integration
+│   ├── ensemble/           # Multi-agent ensemble orchestration
+│   ├── swarm/              # Swarm coordination
+│   ├── coordinator/        # Agent coordination logic
+│   ├── assign/             # Task assignment engine
+│   ├── scheduler/          # Task scheduling
+│   ├── pipeline/           # Execution pipeline
+│   ├── context/            # Context window tracking
+│   ├── checkpoint/         # Session checkpoint/restore
+│   ├── state/              # Persistent state management
+│   ├── config/             # Configuration loading (TOML/YAML)
+│   ├── scanner/            # Agent session scanning
+│   ├── events/             # Event system
+│   ├── alerts/             # Alert generation
+│   ├── metrics/            # Metrics collection
+│   ├── health/             # Health checks
+│   ├── hooks/              # Lifecycle hooks
+│   ├── handoff/            # Agent handoff protocol
+│   ├── output/             # Output formatting
+│   ├── palette/            # Color palette management
+│   ├── serve/              # HTTP/WebSocket server
+│   ├── bv/                 # bv (graph triage) integration
+│   ├── cass/               # CASS (cross-agent search) integration
+│   ├── cm/                 # cass-memory integration
+│   ├── git/                # Git operations
+│   ├── audit/              # Audit logging
+│   ├── auth/               # Authentication
+│   ├── scoring/            # Agent scoring
+│   ├── watcher/            # File/process watching
+│   ├── webhook/            # Webhook dispatch
+│   ├── workflow/           # Workflow definitions
+│   ├── worktrees/          # Git worktree management
+│   ├── tools/              # Tool registry
+│   ├── tracker/            # Progress tracking
+│   ├── util/               # Shared utilities
+│   └── ...                 # Additional internal packages
+├── e2e/                    # End-to-end tests
+├── docs/                   # Documentation
+└── Makefile                # Build targets
+```
 
 ### Robot Mode API Design
 
 NTM provides a JSON API for AI agents via `--robot-*` flags. When working on or using this API:
 
-- **Design principles** are documented in `docs/robot-api-design.md` — read it first
 - **Key patterns**:
   - Global commands: bool flags (`--robot-status`)
   - Session-scoped: `=SESSION` syntax (`--robot-send=myproject`)
@@ -98,241 +265,6 @@ NTM provides a JSON API for AI agents via `--robot-*` flags. When working on or 
 - **Deprecation**: Old prefixed flags (e.g., `--cass-limit`) remain for backward compatibility but canonical unprefixed forms are preferred
 - **Quick reference**: `ntm --robot-help`
 - **Machine-readable schema**: `ntm --robot-capabilities`
-
----
-
-## MCP Agent Mail — Multi-Agent Coordination
-
-Agent Mail is already available as an MCP server; do not treat it as a CLI you must shell out to. MCP Agent Mail *should* be available to you as an MCP server; if it's not, then flag to the user. They might need to start Agent Mail using the `am` alias or by running `cd "<directory_where_they_installed_agent_mail>/mcp_agent_mail" && bash scripts/run_server_with_token.sh` if the alias isn't available or isn't working.
-
-What Agent Mail gives:
-
-- Identities, inbox/outbox, searchable threads.
-- Advisory file reservations (leases) to avoid agents clobbering each other.
-- Persistent artifacts in git (human-auditable).
-
-Core patterns:
-
-1. **Same repo**
-   - Register identity:
-     - `ensure_project` then `register_agent` with the repo's absolute path as `project_key`.
-   - Reserve files before editing:
-     - `file_reservation_paths(project_key, agent_name, ["internal/**"], ttl_seconds=3600, exclusive=true)`.
-   - Communicate:
-     - `send_message(..., thread_id="FEAT-123")`.
-     - `fetch_inbox`, then `acknowledge_message`.
-   - Fast reads:
-     - `resource://inbox/{Agent}?project=<abs-path>&limit=20`.
-     - `resource://thread/{id}?project=<abs-path>&include_bodies=true`.
-   - Optional:
-     - Set `AGENT_NAME` so the pre-commit guard can block conflicting commits.
-     - `WORKTREES_ENABLED=1` and `AGENT_MAIL_GUARD_MODE=warn` during trials.
-     - Check hooks with `mcp-agent-mail guard status .` and identity with `mcp-agent-mail mail status .`.
-
-2. **Multiple repos in one product**
-   - Option A: Same `project_key` for all; use specific reservations (`frontend/**`, `backend/**`).
-   - Option B: Different projects linked via:
-     - `macro_contact_handshake` or `request_contact` / `respond_contact`.
-     - Use a shared `thread_id` (e.g., ticket key) for cross-repo threads.
-
-Macros vs granular:
-
-- Prefer macros when speed is more important than fine-grained control:
-  - `macro_start_session`, `macro_prepare_thread`, `macro_file_reservation_cycle`, `macro_contact_handshake`.
-- Use granular tools when you need explicit behavior.
-
-Product bus:
-
-- Create/ensure product: `mcp-agent-mail products ensure MyProduct --name "My Product"`.
-- Link repo: `mcp-agent-mail products link MyProduct .`.
-- Inspect: `mcp-agent-mail products status MyProduct`.
-- Search: `mcp-agent-mail products search MyProduct "br-123 OR \"release plan\"" --limit 50`.
-- Product inbox: `mcp-agent-mail products inbox MyProduct YourAgent --limit 50 --urgent-only --include-bodies`.
-- Summaries: `mcp-agent-mail products summarize-thread MyProduct "br-123" --per-thread-limit 100 --no-llm`.
-
-Server-side tools (for orchestrators) include:
-
-- `ensure_product(product_key|name)`
-- `products_link(product_key, project_key)`
-- `resource://product/{key}`
-- `search_messages_product(product_key, query, limit=20)`
-
-Common pitfalls:
-
-- "from_agent not registered" → call `register_agent` with correct `project_key`.
-- `FILE_RESERVATION_CONFLICT` → adjust patterns, wait for expiry, or use non-exclusive reservation.
-- Auth issues with JWT+JWKS → bearer token with `kid` matching server JWKS; static bearer only when JWT disabled.
-
----
-
-## Issue Tracking with br (beads_rust)
-
-All issue tracking goes through **br**. No other TODO systems.
-
-**Note:** `br` (beads_rust) is non-invasive and never executes git commands directly. You must manually run git operations after `br sync --flush-only`.
-
-Key invariants:
-
-- `.beads/` is authoritative state and **must always be committed** with code changes.
-- Do not edit `.beads/*.jsonl` directly; only via `br`.
-
-### Basics
-
-Check ready work:
-
-```bash
-br ready --json
-```
-
-Create issues:
-
-```bash
-br create "Issue title" -t bug|feature|task -p 0-4 --json
-br create "Issue title" -p 1 --deps discovered-from:br-123 --json
-```
-
-Update:
-
-```bash
-br update br-42 --status in_progress --json
-br update br-42 --priority 1 --json
-```
-
-Complete:
-
-```bash
-br close br-42 --reason "Completed" --json
-```
-
-Types:
-
-- `bug`, `feature`, `task`, `epic`, `chore`
-
-Priorities:
-
-- `0` critical (security, data loss, broken builds)
-- `1` high
-- `2` medium (default)
-- `3` low
-- `4` backlog
-
-Agent workflow:
-
-1. `br ready` to find unblocked work.
-2. Claim: `br update <id> --status in_progress`.
-3. Implement + test.
-4. If you discover new work, create a new bead with `discovered-from:<parent-id>`.
-5. Close when done.
-6. Commit `.beads/` in the same commit as code changes.
-
-Sync workflow:
-
-- Run `br sync --flush-only` to export to JSONL (does NOT run git commands).
-- Then manually run: `git add .beads/ && git commit -m "Update beads" && git push`
-
-Never:
-
-- Use markdown TODO lists.
-- Use other trackers.
-- Duplicate tracking.
-
----
-
-### Using bv as an AI sidecar
-
-bv is a graph-aware triage engine for Beads projects (.beads/beads.jsonl). Instead of parsing JSONL or hallucinating graph traversal, use robot flags for deterministic, dependency-aware outputs with precomputed metrics (PageRank, betweenness, critical path, cycles, HITS, eigenvector, k-core).
-
-**Scope boundary:** bv handles *what to work on* (triage, priority, planning). For agent-to-agent coordination (messaging, work claiming, file reservations), use MCP Agent Mail, which should be available to you as an MCP server (if it's not, then flag to the user; they might need to start Agent Mail using the `am` alias or by running `cd "<directory_where_they_installed_agent_mail>/mcp_agent_mail" && bash scripts/run_server_with_token.sh` if the alias isn't available or isn't working.
-
-**⚠️ CRITICAL: Use ONLY `--robot-*` flags. Bare `bv` launches an interactive TUI that blocks your session.**
-
-#### The Workflow: Start With Triage
-
-**`bv --robot-triage` is your single entry point.** It returns everything you need in one call:
-- `quick_ref`: at-a-glance counts + top 3 picks
-- `recommendations`: ranked actionable items with scores, reasons, unblock info
-- `quick_wins`: low-effort high-impact items
-- `blockers_to_clear`: items that unblock the most downstream work
-- `project_health`: status/type/priority distributions, graph metrics
-- `commands`: copy-paste shell commands for next steps
-
-```bash
-bv --robot-triage        # THE MEGA-COMMAND: start here
-bv --robot-next          # Minimal: just the single top pick + claim command
-```
-
-#### Other bv Commands
-
-**Planning:**
-| Command | Returns |
-|---------|---------|
-| `--robot-plan` | Parallel execution tracks with `unblocks` lists |
-| `--robot-priority` | Priority misalignment detection with confidence |
-
-**Graph Analysis:**
-| Command | Returns |
-|---------|---------|
-| `--robot-insights` | Full metrics: PageRank, betweenness, HITS (hubs/authorities), eigenvector, critical path, cycles, k-core, articulation points, slack |
-| `--robot-label-health` | Per-label health: `health_level` (healthy\|warning\|critical), `velocity_score`, `staleness`, `blocked_count` |
-| `--robot-label-flow` | Cross-label dependency: `flow_matrix`, `dependencies`, `bottleneck_labels` |
-| `--robot-label-attention [--attention-limit=N]` | Attention-ranked labels by: (pagerank × staleness × block_impact) / velocity |
-
-**History & Change Tracking:**
-| Command | Returns |
-|---------|---------|
-| `--robot-history` | Bead-to-commit correlations: `stats`, `histories` (per-bead events/commits/milestones), `commit_index` |
-| `--robot-diff --diff-since <ref>` | Changes since ref: new/closed/modified issues, cycles introduced/resolved |
-
-**Other Commands:**
-| Command | Returns |
-|---------|---------|
-| `--robot-burndown <sprint>` | Sprint burndown, scope changes, at-risk items |
-| `--robot-forecast <id\|all>` | ETA predictions with dependency-aware scheduling |
-| `--robot-alerts` | Stale issues, blocking cascades, priority mismatches |
-| `--robot-suggest` | Hygiene: duplicates, missing deps, label suggestions, cycle breaks |
-| `--robot-graph [--graph-format=json\|dot\|mermaid]` | Dependency graph export |
-| `--export-graph <file.html>` | Self-contained interactive HTML visualization |
-
-#### Scoping & Filtering
-
-```bash
-bv --robot-plan --label backend              # Scope to label's subgraph
-bv --robot-insights --as-of HEAD~30          # Historical point-in-time
-bv --recipe actionable --robot-plan          # Pre-filter: ready to work (no blockers)
-bv --recipe high-impact --robot-triage       # Pre-filter: top PageRank scores
-bv --robot-triage --robot-triage-by-track    # Group by parallel work streams
-bv --robot-triage --robot-triage-by-label    # Group by domain
-```
-
-#### Understanding Robot Output
-
-**All robot JSON includes:**
-- `data_hash` — Fingerprint of source beads.jsonl (verify consistency across calls)
-- `status` — Per-metric state: `computed|approx|timeout|skipped` + elapsed ms
-- `as_of` / `as_of_commit` — Present when using `--as-of`; contains ref and resolved SHA
-
-**Two-phase analysis:**
-- **Phase 1 (instant):** degree, topo sort, density — always available immediately
-- **Phase 2 (async, 500ms timeout):** PageRank, betweenness, HITS, eigenvector, cycles — check `status` flags
-
-**For large graphs (>500 nodes):** Some metrics may be approximated or skipped. Always check `status`.
-
-#### jq Quick Reference
-
-```bash
-bv --robot-triage | jq '.quick_ref'                        # At-a-glance summary
-bv --robot-triage | jq '.recommendations[0]'               # Top recommendation
-bv --robot-plan | jq '.plan.summary.highest_impact'        # Best unblock target
-bv --robot-insights | jq '.status'                         # Check metric readiness
-bv --robot-insights | jq '.Cycles'                         # Circular deps (must fix!)
-bv --robot-label-health | jq '.results.labels[] | select(.health_level == "critical")'
-```
-
-**Performance:** Phase 1 instant, Phase 2 async (500ms timeout). Prefer `--robot-plan` over `--robot-insights` when speed matters. Results cached by data hash.
-
-Use bv instead of parsing beads.jsonl—it computes PageRank, critical paths, cycles, and parallel tracks deterministically.
-
----
 
 ### Robot Command Exit Codes
 
@@ -344,98 +276,24 @@ All `--robot-*` commands follow a consistent exit code convention:
 | 1 | Error | `{"success": false, "error_code": "...", ...}` | Handle error, maybe retry |
 | 2 | Unavailable | `{"success": false, "error_code": "NOT_IMPLEMENTED", ...}` | Skip gracefully, log for awareness |
 
-Example handling:
-
-```python
-result = subprocess.run(["ntm", "--robot-tail=myproj"], capture_output=True)
-data = json.loads(result.stdout)
-
-if result.returncode == 0:
-    # Success - process response
-    process_agents(data["panes"])
-elif result.returncode == 2:
-    # Unavailable - feature not implemented yet
-    logging.info(f"Feature {data.get('feature')} not available")
-else:  # returncode == 1
-    # Error - handle or propagate
-    raise RuntimeError(f"{data['error_code']}: {data['error']}")
-```
-
 Common error codes: `SESSION_NOT_FOUND`, `PANE_NOT_FOUND`, `INVALID_FLAG`, `TIMEOUT`, `INTERNAL_ERROR`, `NOT_IMPLEMENTED`.
-
----
 
 ### JSON Field Semantics
 
 Robot command outputs follow consistent semantics for absent, null, and empty fields:
 
 **Always Present (Required Fields)**
-
-These fields are ALWAYS present in successful responses:
 - `success`: boolean - Whether the operation succeeded
 - `timestamp`: RFC3339 string - When the response was generated
 - Critical arrays like `sessions`, `panes`, `targets`, `agents` - Always present, empty array `[]` if none found
 
-**Absent Fields**
+**Absent Fields** — Fields may be absent when they don't apply to this response type (e.g., `_agent_hints` absent when no hints are relevant, `dry_run` absent when not in preview mode).
 
-Fields may be absent from JSON when:
-- The field doesn't apply to this response type
-- Example: `_agent_hints` absent when no hints are relevant
-- Example: `dry_run` absent when not in preview mode
+**Empty Arrays vs Absent** — Empty arrays indicate "checked, found nothing" (distinct from "didn't check"). Critical arrays are never absent.
 
-```json
-// Normal response - no dry_run field
-{"success": true, "targets": ["1", "2"]}
+**Optional Fields (omitempty)** — Only present when they have meaningful values: `error`, `error_code`, `hint`, `variant`, `preset_used`, `_agent_hints`, `warnings`, `notes`.
 
-// Dry-run response - dry_run field present
-{"success": true, "dry_run": true, "would_send_to": ["1", "2"]}
-```
-
-**Empty Arrays vs Absent**
-
-Empty arrays indicate "checked, found nothing" - distinct from "didn't check":
-
-```json
-// Checked, found no agents
-{"agents": []}
-
-// Checked, found no errors
-{"failed": []}
-```
-
-Critical arrays are never absent - they're always present even if empty. This allows safe iteration without null checks.
-
-**Optional Fields (omitempty)**
-
-These fields are only present when they have meaningful values:
-- `error`, `error_code`, `hint` - Only on error responses
-- `variant` - Only if agent has a model variant
-- `preset_used` - Only if a preset was used
-- `_agent_hints` - Only when hints are available
-- `warnings`, `notes` - Only when there are warnings/notes
-
-**Null Fields**
-
-Go doesn't typically emit `null` for missing values. Fields are either present with a value or absent entirely. The only exception is pointer types where the underlying value couldn't be determined.
-
-**Parsing Guidance**
-
-```python
-# Safe array iteration (always present)
-for agent in data.get("agents", []):
-    process(agent)
-
-# Check optional fields
-if "_agent_hints" in data:
-    hints = data["_agent_hints"]
-
-# Check error state
-if not data["success"]:
-    code = data.get("error_code", "UNKNOWN")
-    msg = data.get("error", "No error message")
-```
-
----
+**Null Fields** — Go doesn't typically emit `null` for missing values. Fields are either present with a value or absent entirely.
 
 ### Robot Flag Quick Reference
 
@@ -486,56 +344,391 @@ if not data["success"]:
 
 ---
 
-### Morph Warp Grep — AI-Powered Code Search
+## MCP Agent Mail — Multi-Agent Coordination
 
-Use `mcp__morph-mcp__warp_grep` for "how does X work?" discovery across the codebase.
+A mail-like layer that lets coding agents coordinate asynchronously via MCP tools and resources. Provides identities, inbox/outbox, searchable threads, and advisory file reservations with human-auditable artifacts in Git.
 
-When to use:
+Agent Mail is already available as an MCP server; do not treat it as a CLI you must shell out to. MCP Agent Mail *should* be available to you as an MCP server; if it's not, then flag to the user. They might need to start Agent Mail using the `am` alias or by running `cd "<directory_where_they_installed_agent_mail>/mcp_agent_mail" && bash scripts/run_server_with_token.sh` if the alias isn't available or isn't working.
 
-- You don't know where something lives.
-- You want data flow across multiple files (API → service → schema → types).
-- You want all touchpoints of a cross-cutting concern (e.g., robot mode, tmux integration).
+### Why It's Useful
 
-Example:
+- **Prevents conflicts:** Explicit file reservations (leases) for files/globs
+- **Token-efficient:** Messages stored in per-project archive, not in context
+- **Quick reads:** `resource://inbox/...`, `resource://thread/...`
+
+### Same Repository Workflow
+
+1. **Register identity:**
+   ```
+   ensure_project(project_key=<abs-path>)
+   register_agent(project_key, program, model)
+   ```
+
+2. **Reserve files before editing:**
+   ```
+   file_reservation_paths(project_key, agent_name, ["internal/**"], ttl_seconds=3600, exclusive=true)
+   ```
+
+3. **Communicate with threads:**
+   ```
+   send_message(..., thread_id="FEAT-123")
+   fetch_inbox(project_key, agent_name)
+   acknowledge_message(project_key, agent_name, message_id)
+   ```
+
+4. **Quick reads:**
+   ```
+   resource://inbox/{Agent}?project=<abs-path>&limit=20
+   resource://thread/{id}?project=<abs-path>&include_bodies=true
+   ```
+
+5. **Optional guard configuration:**
+   - Set `AGENT_NAME` so the pre-commit guard can block conflicting commits.
+   - `WORKTREES_ENABLED=1` and `AGENT_MAIL_GUARD_MODE=warn` during trials.
+   - Check hooks with `mcp-agent-mail guard status .` and identity with `mcp-agent-mail mail status .`.
+
+### Multiple Repos in One Product
+
+- Option A: Same `project_key` for all; use specific reservations (`frontend/**`, `backend/**`).
+- Option B: Different projects linked via `macro_contact_handshake` or `request_contact` / `respond_contact`. Use a shared `thread_id` (e.g., ticket key) for cross-repo threads.
+
+### Product Bus
+
+```bash
+# Create/ensure product
+mcp-agent-mail products ensure MyProduct --name "My Product"
+# Link repo
+mcp-agent-mail products link MyProduct .
+# Inspect
+mcp-agent-mail products status MyProduct
+# Search
+mcp-agent-mail products search MyProduct "br-123 OR \"release plan\"" --limit 50
+# Product inbox
+mcp-agent-mail products inbox MyProduct YourAgent --limit 50 --urgent-only --include-bodies
+# Summaries
+mcp-agent-mail products summarize-thread MyProduct "br-123" --per-thread-limit 100 --no-llm
+```
+
+Server-side tools (for orchestrators) include: `ensure_product(product_key|name)`, `products_link(product_key, project_key)`, `resource://product/{key}`, `search_messages_product(product_key, query, limit=20)`.
+
+### Macros vs Granular Tools
+
+- **Prefer macros for speed:** `macro_start_session`, `macro_prepare_thread`, `macro_file_reservation_cycle`, `macro_contact_handshake`
+- **Use granular tools for control:** `register_agent`, `file_reservation_paths`, `send_message`, `fetch_inbox`, `acknowledge_message`
+
+### Common Pitfalls
+
+- `"from_agent not registered"`: Always `register_agent` in the correct `project_key` first
+- `"FILE_RESERVATION_CONFLICT"`: Adjust patterns, wait for expiry, or use non-exclusive reservation
+- **Auth errors:** If JWT+JWKS enabled, include bearer token with matching `kid`; static bearer only when JWT disabled
+
+---
+
+## Beads (br) — Dependency-Aware Issue Tracking
+
+Beads provides a lightweight, dependency-aware issue database and CLI (`br` - beads_rust) for selecting "ready work," setting priorities, and tracking status. It complements MCP Agent Mail's messaging and file reservations.
+
+**Important:** `br` is non-invasive—it NEVER runs git commands automatically. You must manually commit changes after `br sync --flush-only`.
+
+### Conventions
+
+- **Single source of truth:** Beads for task status/priority/dependencies; Agent Mail for conversation and audit
+- **Shared identifiers:** Use Beads issue ID (e.g., `br-123`) as Mail `thread_id` and prefix subjects with `[br-123]`
+- **Reservations:** When starting a task, call `file_reservation_paths()` with the issue ID in `reason`
+- `.beads/` is authoritative state and **must always be committed** with code changes
+- Do not edit `.beads/*.jsonl` directly; only via `br`
+
+### Typical Agent Flow
+
+1. **Pick ready work (Beads):**
+   ```bash
+   br ready --json  # Choose highest priority, no blockers
+   ```
+
+2. **Reserve edit surface (Mail):**
+   ```
+   file_reservation_paths(project_key, agent_name, ["internal/**"], ttl_seconds=3600, exclusive=true, reason="br-123")
+   ```
+
+3. **Announce start (Mail):**
+   ```
+   send_message(..., thread_id="br-123", subject="[br-123] Start: <title>", ack_required=true)
+   ```
+
+4. **Work and update:** Reply in-thread with progress
+
+5. **Complete and release:**
+   ```bash
+   br close br-42 --reason "Completed"
+   br sync --flush-only  # Export to JSONL (no git operations)
+   ```
+   ```
+   release_file_reservations(project_key, agent_name, paths=["internal/**"])
+   ```
+   Final Mail reply: `[br-123] Completed` with summary
+
+### Issue Types & Priorities
+
+| Priority | Meaning |
+|----------|---------|
+| `0` | Critical (security, data loss, broken builds) |
+| `1` | High |
+| `2` | Medium (default) |
+| `3` | Low |
+| `4` | Backlog |
+
+Types: `bug`, `feature`, `task`, `epic`, `chore`
+
+### Mapping Cheat Sheet
+
+| Concept | Value |
+|---------|-------|
+| Mail `thread_id` | `br-###` |
+| Mail subject | `[br-###] ...` |
+| File reservation `reason` | `br-###` |
+| Commit messages | Include `br-###` for traceability |
+
+---
+
+## bv — Graph-Aware Triage Engine
+
+bv is a graph-aware triage engine for Beads projects (`.beads/beads.jsonl`). It computes PageRank, betweenness, critical path, cycles, HITS, eigenvector, and k-core metrics deterministically.
+
+**Scope boundary:** bv handles *what to work on* (triage, priority, planning). For agent-to-agent coordination (messaging, work claiming, file reservations), use MCP Agent Mail.
+
+**CRITICAL: Use ONLY `--robot-*` flags. Bare `bv` launches an interactive TUI that blocks your session.**
+
+### The Workflow: Start With Triage
+
+**`bv --robot-triage` is your single entry point.** It returns:
+- `quick_ref`: at-a-glance counts + top 3 picks
+- `recommendations`: ranked actionable items with scores, reasons, unblock info
+- `quick_wins`: low-effort high-impact items
+- `blockers_to_clear`: items that unblock the most downstream work
+- `project_health`: status/type/priority distributions, graph metrics
+- `commands`: copy-paste shell commands for next steps
+
+```bash
+bv --robot-triage        # THE MEGA-COMMAND: start here
+bv --robot-next          # Minimal: just the single top pick + claim command
+```
+
+### Command Reference
+
+**Planning:**
+| Command | Returns |
+|---------|---------|
+| `--robot-plan` | Parallel execution tracks with `unblocks` lists |
+| `--robot-priority` | Priority misalignment detection with confidence |
+
+**Graph Analysis:**
+| Command | Returns |
+|---------|---------|
+| `--robot-insights` | Full metrics: PageRank, betweenness, HITS, eigenvector, critical path, cycles, k-core, articulation points, slack |
+| `--robot-label-health` | Per-label health: `health_level`, `velocity_score`, `staleness`, `blocked_count` |
+| `--robot-label-flow` | Cross-label dependency: `flow_matrix`, `dependencies`, `bottleneck_labels` |
+| `--robot-label-attention [--attention-limit=N]` | Attention-ranked labels |
+
+**History & Change Tracking:**
+| Command | Returns |
+|---------|---------|
+| `--robot-history` | Bead-to-commit correlations |
+| `--robot-diff --diff-since <ref>` | Changes since ref: new/closed/modified issues, cycles |
+
+**Other:**
+| Command | Returns |
+|---------|---------|
+| `--robot-burndown <sprint>` | Sprint burndown, scope changes, at-risk items |
+| `--robot-forecast <id\|all>` | ETA predictions with dependency-aware scheduling |
+| `--robot-alerts` | Stale issues, blocking cascades, priority mismatches |
+| `--robot-suggest` | Hygiene: duplicates, missing deps, label suggestions |
+| `--robot-graph [--graph-format=json\|dot\|mermaid]` | Dependency graph export |
+| `--export-graph <file.html>` | Interactive HTML visualization |
+
+### Scoping & Filtering
+
+```bash
+bv --robot-plan --label backend              # Scope to label's subgraph
+bv --robot-insights --as-of HEAD~30          # Historical point-in-time
+bv --recipe actionable --robot-plan          # Pre-filter: ready to work
+bv --recipe high-impact --robot-triage       # Pre-filter: top PageRank
+bv --robot-triage --robot-triage-by-track    # Group by parallel work streams
+bv --robot-triage --robot-triage-by-label    # Group by domain
+```
+
+### Understanding Robot Output
+
+**All robot JSON includes:**
+- `data_hash` — Fingerprint of source beads.jsonl
+- `status` — Per-metric state: `computed|approx|timeout|skipped` + elapsed ms
+- `as_of` / `as_of_commit` — Present when using `--as-of`
+
+**Two-phase analysis:**
+- **Phase 1 (instant):** degree, topo sort, density
+- **Phase 2 (async, 500ms timeout):** PageRank, betweenness, HITS, eigenvector, cycles
+
+### jq Quick Reference
+
+```bash
+bv --robot-triage | jq '.quick_ref'                        # At-a-glance summary
+bv --robot-triage | jq '.recommendations[0]'               # Top recommendation
+bv --robot-plan | jq '.plan.summary.highest_impact'        # Best unblock target
+bv --robot-insights | jq '.status'                         # Check metric readiness
+bv --robot-insights | jq '.Cycles'                         # Circular deps (must fix!)
+bv --robot-label-health | jq '.results.labels[] | select(.health_level == "critical")'
+```
+
+---
+
+## UBS — Ultimate Bug Scanner
+
+**Golden Rule:** `ubs <changed-files>` before every commit. Exit 0 = safe. Exit >0 = fix & re-run.
+
+### Commands
+
+```bash
+ubs file.go file2.go                        # Specific files (< 1s) — USE THIS
+ubs $(git diff --name-only --cached)        # Staged files — before commit
+ubs --only=go internal/                     # Language filter (3-5x faster)
+ubs --ci --fail-on-warning .                # CI mode — before PR
+ubs .                                       # Whole project (ignores things like .venv and node_modules automatically)
+```
+
+### Output Format
+
+```
+Warning  Category (N errors)
+    file.go:42:5 - Issue description
+    Suggested fix
+Exit code: 1
+```
+
+Parse: `file:line:col` -> location | Suggested fix -> how to fix | Exit 0/1 -> pass/fail
+
+### Fix Workflow
+
+1. Read finding -> category + fix suggestion
+2. Navigate `file:line:col` -> view context
+3. Verify real issue (not false positive)
+4. Fix root cause (not symptom)
+5. Re-run `ubs <file>` -> exit 0
+6. Commit
+
+### Bug Severity
+
+- **Critical (always fix):** Nil pointer dereference, race conditions, goroutine leaks, unchecked errors
+- **Important (production):** Type narrowing, division-by-zero, resource leaks, unbounded allocations
+- **Contextual (judgment):** TODO/FIXME, fmt.Println debug statements
+
+---
+
+## RCH — Remote Compilation Helper
+
+RCH offloads `go build`, `go test`, `golangci-lint`, and other compilation commands to a fleet of 8 remote Contabo VPS workers instead of building locally. This prevents compilation storms from overwhelming csd when many agents run simultaneously.
+
+**RCH is installed at `~/.local/bin/rch` and is hooked into Claude Code's PreToolUse automatically.** Most of the time you don't need to do anything if you are Claude Code — builds are intercepted and offloaded transparently.
+
+To manually offload a build:
+```bash
+rch exec -- go build ./cmd/ntm
+rch exec -- go test ./...
+rch exec -- golangci-lint run
+```
+
+Quick commands:
+```bash
+rch doctor                    # Health check
+rch workers probe --all       # Test connectivity to all 8 workers
+rch status                    # Overview of current state
+rch queue                     # See active/waiting builds
+```
+
+If rch or its workers are unavailable, it fails open — builds run locally as normal.
+
+**Note for Codex/GPT-5.2:** Codex does not have the automatic PreToolUse hook, but you can (and should) still manually offload compute-intensive compilation commands using `rch exec -- <command>`. This avoids local resource contention when multiple agents are building simultaneously.
+
+---
+
+## ast-grep vs ripgrep
+
+**Use `ast-grep` when structure matters.** It parses code and matches AST nodes, ignoring comments/strings, and can **safely rewrite** code.
+
+- Refactors/codemods: rename APIs, change import forms
+- Policy checks: enforce patterns across a repo
+- Editor/automation: LSP mode, `--json` output
+
+**Use `ripgrep` when text is enough.** Fastest way to grep literals/regex.
+
+- Recon: find strings, TODOs, log lines, config values
+- Pre-filter: narrow candidate files before ast-grep
+
+### Rule of Thumb
+
+- Need correctness or **applying changes** -> `ast-grep`
+- Need raw speed or **hunting text** -> `rg`
+- Often combine: `rg` to shortlist files, then `ast-grep` to match/modify
+
+### Go Examples
+
+```bash
+# Find all fmt.Println statements
+ast-grep run -l Go -p 'fmt.Println($$$)'
+
+# Find all error returns without wrapping
+ast-grep run -l Go -p 'return err'
+
+# Quick textual hunt
+rg -n 'func.*LoadConfig' -t go
+
+# Combine speed + precision
+rg -l -t go 'sync.Mutex' | xargs ast-grep run -l Go -p 'mu.Lock()'
+```
+
+---
+
+## Morph Warp Grep — AI-Powered Code Search
+
+**Use `mcp__morph-mcp__warp_grep` for exploratory "how does X work?" questions.** An AI agent expands your query, greps the codebase, reads relevant files, and returns precise line ranges with full context.
+
+**Use `ripgrep` for targeted searches.** When you know exactly what you're looking for.
+
+**Use `ast-grep` for structural patterns.** When you need AST precision for matching/rewriting.
+
+### When to Use What
+
+| Scenario | Tool | Why |
+|----------|------|-----|
+| "How does robot mode spawn sessions?" | `warp_grep` | Exploratory; don't know where to start |
+| "Where is the tmux integration?" | `warp_grep` | Need to understand architecture |
+| "Find all uses of `SendKeys`" | `ripgrep` | Targeted literal search |
+| "Find files with `fmt.Println`" | `ripgrep` | Simple pattern |
+| "Replace all `var` with `const`" | `ast-grep` | Structural refactor |
+
+### warp_grep Usage
 
 ```
 mcp__morph-mcp__warp_grep(
-  repoPath: "/Users/jemanuel/projects/ntm",
+  repoPath: "/dp/ntm",
   query: "How does robot mode spawn sessions?"
 )
 ```
 
-Warp Grep:
+Returns structured results with file paths, line ranges, and extracted code snippets.
 
-- Expands a natural-language query to multiple search patterns.
-- Runs targeted greps, reads code, follows imports, then returns concise snippets with line numbers.
-- Reduces token usage by returning only relevant slices, not entire files.
+### Anti-Patterns
 
-When **not** to use Warp Grep:
-
-- You already know the function/identifier name; use `rg`.
-- You know the exact file; just open it.
-- You only need a yes/no existence check.
-
-Comparison:
-
-| Scenario | Tool |
-| ---------------------------------- | ---------- |
-| "How is robot mode implemented?" | warp_grep |
-| "Where is `SendKeys` defined?" | `rg` |
-| "Replace `var` with `const`" | `ast-grep` |
+- **Don't** use `warp_grep` to find a specific function name -> use `ripgrep`
+- **Don't** use `ripgrep` to understand "how does X work" -> wastes time with manual reads
+- **Don't** use `ripgrep` for codemods -> risks collateral edits
 
 ---
 
-### cass — Cross-Agent Search
+## cass — Cross-Agent Search
 
 `cass` indexes prior agent conversations (Claude Code, Codex, Cursor, Gemini, ChatGPT, etc.) so we can reuse solved problems.
 
 Rules:
-
 - Never run bare `cass` (TUI). Always use `--robot` or `--json`.
-
-Examples:
 
 ```bash
 cass health
@@ -547,7 +740,6 @@ cass robot-docs guide
 ```
 
 Tips:
-
 - Use `--fields minimal` for lean output.
 - Filter by agent with `--agent`.
 - Use `--days N` to limit to recent history.
@@ -560,7 +752,7 @@ Treat cass as a way to avoid re-solving problems other agents already handled.
 
 ## Memory System: cass-memory
 
-The Cass Memory System (cm) is a tool for giving agents an effective memory based on the ability to quickly search across previous coding agent sessions across an array of different coding agent tools (e.g., Claude Code, Codex, Gemini-CLI, Cursor, etc) and projects (and even across multiple machines, optionally) and then reflect on what they find and learn in new sessions to draw out useful lessons and takeaways; these lessons are then stored and can be queried and retrieved later, much like how human memory works.
+The Cass Memory System (cm) is a tool for giving agents an effective memory based on the ability to quickly search across previous coding agent sessions across an array of different coding agent tools (e.g., Claude Code, Codex, Gemini-CLI, Cursor, etc.) and projects (and even across multiple machines, optionally) and then reflect on what they find and learn in new sessions to draw out useful lessons and takeaways; these lessons are then stored and can be queried and retrieved later, much like how human memory works.
 
 The `cm onboard` command guides you through analyzing historical sessions and extracting valuable rules.
 
@@ -616,112 +808,31 @@ This returns:
 
 stdout = data only, stderr = diagnostics. Exit 0 = success.
 
----
-
-## UBS Quick Reference for AI Agents
-
-UBS stands for "Ultimate Bug Scanner": **The AI Coding Agent's Secret Weapon: Flagging Likely Bugs for Fixing Early On**
-
-**Golden Rule:** `ubs <changed-files>` before every commit. Exit 0 = safe. Exit >0 = fix & re-run.
-
-**Commands:**
-```bash
-ubs file.go file2.go                        # Specific files (< 1s) — USE THIS
-ubs $(git diff --name-only --cached)        # Staged files — before commit
-ubs --only=go internal/                     # Language filter (3-5x faster)
-ubs --ci --fail-on-warning .                # CI mode — before PR
-ubs --help                                  # Full command reference
-ubs sessions --entries 1                    # Tail the latest install session log
-ubs .                                       # Whole project (ignores things like .venv and node_modules automatically)
-```
-
-**Output Format:**
-```
-⚠️  Category (N errors)
-    file.go:42:5 – Issue description
-    💡 Suggested fix
-Exit code: 1
-```
-Parse: `file:line:col` → location | 💡 → how to fix | Exit 0/1 → pass/fail
-
-**Fix Workflow:**
-1. Read finding → category + fix suggestion
-2. Navigate `file:line:col` → view context
-3. Verify real issue (not false positive)
-4. Fix root cause (not symptom)
-5. Re-run `ubs <file>` → exit 0
-6. Commit
-
-**Speed Critical:** Scope to changed files. `ubs internal/cli/send.go` (< 1s) vs `ubs .` (30s). Never full scan for small edits.
-
-**Bug Severity:**
-- **Critical** (always fix): Nil pointer dereference, race conditions, goroutine leaks, unchecked errors
-- **Important** (production): Type narrowing, division-by-zero, resource leaks, unbounded allocations
-- **Contextual** (judgment): TODO/FIXME, fmt.Println debug statements
-
-**Anti-Patterns:**
-- Do not ignore findings - Investigate each
-- Do not full scan per edit - Scope to file
-- Do not fix symptom (`if x != nil { x.Y() }`) - Fix root cause (ensure x is never nil at callsite)
-
----
-
-## ast-grep vs ripgrep
-
-**Use `ast-grep` when structure matters.** It parses code and matches AST nodes, ignoring comments/strings, and can **safely rewrite** code.
-
-- Refactors/codemods: rename APIs, change patterns
-- Policy checks: enforce patterns across a repo
-
-**Use `ripgrep` when text is enough.** Fastest way to grep literals/regex.
-
-- Recon: find strings, TODOs, log lines, config values
-- Pre-filter: narrow candidate files before ast-grep
-
-### Rule of Thumb
-
-- Need correctness or **applying changes** -> `ast-grep`
-- Need raw speed or **hunting text** -> `rg`
-- Often combine: `rg` to shortlist files, then `ast-grep` to match/modify
-
-### Go Examples
-
-```bash
-# Find all fmt.Println statements
-ast-grep run -l Go -p 'fmt.Println($$$)'
-
-# Find all error returns without wrapping
-ast-grep run -l Go -p 'return err'
-
-# Quick textual hunt
-rg -n 'func.*LoadConfig' -t go
-
-# Combine speed + precision
-rg -l -t go 'sync.Mutex' | xargs ast-grep run -l Go -p 'mu.Lock()'
-```
-
 <!-- bv-agent-instructions-v1 -->
 
 ---
 
 ## Beads Workflow Integration
 
-This project uses [beads_rust](https://github.com/Dicklesworthstone/beads_rust) for issue tracking. Issues are stored in `.beads/` and tracked in git.
+This project uses [beads_rust](https://github.com/Dicklesworthstone/beads_rust) (`br`) for issue tracking. Issues are stored in `.beads/` and tracked in git.
 
-**Note:** `br` (beads_rust) is non-invasive and never executes git commands directly. You must manually run git operations after `br sync --flush-only`.
+**Important:** `br` is non-invasive—it NEVER executes git commands. After `br sync --flush-only`, you must manually run `git add .beads/ && git commit`.
 
 ### Essential Commands
 
 ```bash
-# CLI commands for agents
+# View issues (launches TUI - avoid in automated sessions)
+bv
+
+# CLI commands for agents (use these instead)
 br ready              # Show issues ready to work (no blockers)
 br list --status=open # All open issues
 br show <id>          # Full issue details with dependencies
 br create --title="..." --type=task --priority=2
 br update <id> --status=in_progress
-br close <id> --reason="Completed"
+br close <id> --reason "Completed"
 br close <id1> <id2>  # Close multiple issues at once
-br sync --flush-only  # Export to JSONL (does NOT run git commands)
+br sync --flush-only  # Export to JSONL (NO git operations)
 ```
 
 ### Workflow Pattern
@@ -730,7 +841,7 @@ br sync --flush-only  # Export to JSONL (does NOT run git commands)
 2. **Claim**: Use `br update <id> --status=in_progress`
 3. **Work**: Implement the task
 4. **Complete**: Use `br close <id>`
-5. **Sync**: Always run `br sync --flush-only` then manually: `git add .beads/ && git commit -m "Update beads" && git push`
+5. **Sync**: Run `br sync --flush-only` then manually commit
 
 ### Key Concepts
 
@@ -738,35 +849,40 @@ br sync --flush-only  # Export to JSONL (does NOT run git commands)
 - **Priority**: P0=critical, P1=high, P2=medium, P3=low, P4=backlog (use numbers, not words)
 - **Types**: task, bug, feature, epic, question, docs
 
-<!-- end-bv-agent-instructions -->
+### Session Protocol
 
----
+**Before ending any session, run this checklist:**
+
+```bash
+git status              # Check what changed
+git add <files>         # Stage code changes
+br sync --flush-only    # Export beads to JSONL
+git add .beads/         # Stage beads changes
+git commit -m "..."     # Commit everything together
+git push                # Push to remote
+```
+
+### Best Practices
+
+- Check `br ready` at session start to find available work
+- Update status as you work (in_progress -> closed)
+- Create new issues with `br create` when you discover tasks
+- Use descriptive titles and set appropriate priority/type
+- Always `br sync --flush-only && git add .beads/` before ending session
+
+<!-- end-bv-agent-instructions -->
 
 ## Landing the Plane (Session Completion)
 
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+**When ending a work session**, you MUST complete ALL steps below.
 
 **MANDATORY WORKFLOW:**
 
 1. **File issues for remaining work** - Create issues for anything that needs follow-up
 2. **Run quality gates** (if code changed) - Tests, linters, builds
 3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   br sync --flush-only  # Export to JSONL (does NOT run git commands)
-   git add .beads/ && git commit -m "Update beads" && git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
-
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
+4. **Sync beads** - `br sync --flush-only` to export to JSONL
+5. **Hand off** - Provide context for next session
 
 ---
 
@@ -784,7 +900,7 @@ Next steps (pick one)
 1. Decide how to handle the unrelated modified files above so we can resume cleanly.
 ```
 
-NEVER EVER DO THAT AGAIN. The answer is literally ALWAYS the same: those are changes created by the potentially dozen of other agents working on the project at the same time. This is not only a common occurence, it happens multiple times PER MINUTE. The way to deal with it is simple: you NEVER, under ANY CIRCUMSTANCE, stash, revert, overwrite, or otherwise disturb in ANY way the work of other agents. Just treat those changes identically to changes that you yourself made. Just fool yourself into thinking YOU made the changes and simply don't recall it for some reason.
+NEVER EVER DO THAT AGAIN. The answer is literally ALWAYS the same: those are changes created by the potentially dozen of other agents working on the project at the same time. This is not only a common occurrence, it happens multiple times PER MINUTE. The way to deal with it is simple: you NEVER, under ANY CIRCUMSTANCE, stash, revert, overwrite, or otherwise disturb in ANY way the work of other agents. Just treat those changes identically to changes that you yourself made. Just fool yourself into thinking YOU made the changes and simply don't recall it for some reason.
 
 ---
 

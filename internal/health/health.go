@@ -2,14 +2,16 @@
 package health
 
 import (
+	"context"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/shahbajlive/ntm/internal/ratelimit"
-	"github.com/shahbajlive/ntm/internal/status"
-	"github.com/shahbajlive/ntm/internal/tmux"
+	"github.com/Dicklesworthstone/ntm/internal/process"
+	"github.com/Dicklesworthstone/ntm/internal/ratelimit"
+	"github.com/Dicklesworthstone/ntm/internal/status"
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
 // Status represents the overall health status of an agent
@@ -82,6 +84,7 @@ type AgentHealth struct {
 	RateLimited   bool          `json:"rate_limited"`   // True if agent hit rate limit
 	WaitSeconds   int           `json:"wait_seconds"`   // Suggested wait time (if rate limited)
 	Progress      *Progress     `json:"progress"`       // Detected work progress
+	ShellPID      int           `json:"shell_pid"`      // Shell PID from tmux pane
 }
 
 // SessionHealth contains health information for an entire session
@@ -103,12 +106,12 @@ type HealthSummary struct {
 }
 
 // CheckSession performs health checks on all agents in a session
-func CheckSession(session string) (*SessionHealth, error) {
+func CheckSession(ctx context.Context, session string) (*SessionHealth, error) {
 	if !tmux.SessionExists(session) {
 		return nil, &SessionNotFoundError{Session: session}
 	}
 
-	panesWithActivity, err := tmux.GetPanesWithActivity(session)
+	panesWithActivity, err := tmux.GetPanesWithActivityContext(ctx, session)
 	if err != nil {
 		return nil, err
 	}
@@ -130,8 +133,12 @@ func CheckSession(session string) (*SessionHealth, error) {
 		go func(pa tmux.PaneActivity) {
 			defer wg.Done()
 
-			sem <- struct{}{} // Acquire token
-			agentHealth := checkAgent(pa)
+			select {
+			case sem <- struct{}{}: // Acquire token
+			case <-ctx.Done():
+				return
+			}
+			agentHealth := checkAgent(ctx, pa)
 			<-sem // Release token
 
 			mu.Lock()
@@ -160,11 +167,15 @@ func CheckSession(session string) (*SessionHealth, error) {
 	}
 	wg.Wait()
 
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
 	return health, nil
 }
 
 // checkAgent performs health checks on a single agent pane
-func checkAgent(pa tmux.PaneActivity) AgentHealth {
+func checkAgent(ctx context.Context, pa tmux.PaneActivity) AgentHealth {
 	agent := AgentHealth{
 		Pane:          pa.Pane.Index,
 		PaneID:        pa.Pane.ID,
@@ -182,7 +193,7 @@ func checkAgent(pa tmux.PaneActivity) AgentHealth {
 	}
 
 	// Capture pane output for analysis
-	output, err := tmux.CapturePaneOutput(pa.Pane.ID, 50)
+	output, err := tmux.CapturePaneOutputContext(ctx, pa.Pane.ID, 50)
 	if err != nil {
 		agent.ProcessStatus = ProcessUnknown
 		agent.Status = StatusUnknown
@@ -210,8 +221,8 @@ func checkAgent(pa tmux.PaneActivity) AgentHealth {
 	// Determine activity level
 	agent.Activity = detectActivity(output, pa.LastActivity, string(pa.Pane.Type))
 
-	// Determine process status
-	agent.ProcessStatus = detectProcessStatus(output, pa.Pane.Command)
+	// Determine process status using PID-based check (preferred) with text fallback
+	agent.ProcessStatus = detectProcessStatus(output, pa.Pane.Command, pa.Pane.PID)
 
 	// Detect work progress
 	agent.Progress = detectProgress(output, agent.Activity, agent.Issues)
@@ -449,9 +460,26 @@ func detectActivity(output string, lastActivity time.Time, agentType string) Act
 	return ActivityStale
 }
 
-// detectProcessStatus determines if the agent process is running
-func detectProcessStatus(output string, command string) ProcessStatus {
-	// Check for exit indicators in output
+// detectProcessStatus determines if the agent process is running.
+//
+// When shellPID > 0 it uses PID-based liveness as the primary signal:
+// the shell's child process (the agent) is checked via /proc. This avoids
+// false positives from AI agents that routinely print strings like
+// "exit status" or "connection closed" in their normal output.
+//
+// Text-pattern matching is only used as a fallback when no PID is available
+// (e.g. in tests or when tmux doesn't report a PID).
+func detectProcessStatus(output string, command string, shellPID int) ProcessStatus {
+	// Primary: PID-based liveness check (reliable, no false positives).
+	if shellPID > 0 {
+		if process.HasChildAlive(shellPID) {
+			return ProcessRunning
+		}
+		// Shell has no living child -- the agent process has exited.
+		return ProcessExited
+	}
+
+	// Fallback: text-based detection when PID is unavailable.
 	exitPatterns := []string{
 		"exit status", "exited with", "process exited",
 		"connection closed", "session ended",

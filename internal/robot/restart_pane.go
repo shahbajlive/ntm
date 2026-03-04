@@ -5,24 +5,27 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
-	"github.com/shahbajlive/ntm/internal/tmux"
+	"github.com/Dicklesworthstone/ntm/internal/process"
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
 // RestartPaneOutput is the structured output for --robot-restart-pane
 type RestartPaneOutput struct {
 	RobotResponse
-	Session      string         `json:"session"`
-	RestartedAt  time.Time      `json:"restarted_at"`
-	Restarted    []string       `json:"restarted"`
-	Failed       []RestartError `json:"failed"`
-	DryRun       bool           `json:"dry_run,omitempty"`
-	WouldAffect  []string       `json:"would_affect,omitempty"`
-	BeadAssigned string         `json:"bead_assigned,omitempty"` // Bead ID if --bead was used
-	PromptSent   bool           `json:"prompt_sent,omitempty"`   // True if prompt was sent to pane(s)
-	PromptError  string         `json:"prompt_error,omitempty"`  // Non-fatal prompt send error
+	Session      string          `json:"session"`
+	RestartedAt  time.Time       `json:"restarted_at"`
+	Restarted    []string        `json:"restarted"`
+	Failed       []RestartError  `json:"failed"`
+	DryRun       bool            `json:"dry_run,omitempty"`
+	WouldAffect  []string        `json:"would_affect,omitempty"`
+	BeadAssigned string          `json:"bead_assigned,omitempty"` // Bead ID if --bead was used
+	PromptSent   bool            `json:"prompt_sent,omitempty"`   // True if prompt was sent to pane(s)
+	PromptError  string          `json:"prompt_error,omitempty"`  // Non-fatal prompt send error
+	ProcessAlive map[string]bool `json:"process_alive,omitempty"` // Post-restart liveness per pane
 }
 
 // RestartError represents a failed restart attempt
@@ -160,7 +163,8 @@ func GetRestartPane(opts RestartPaneOptions) (*RestartPaneOutput, error) {
 		return output, nil
 	}
 
-	// Restart targets
+	// Restart targets — track pane IDs for post-restart liveness check
+	restartedPaneIDs := make(map[string]string) // paneKey -> pane.ID
 	for _, pane := range targetPanes {
 		paneKey := fmt.Sprintf("%d", pane.Index)
 
@@ -173,6 +177,30 @@ func GetRestartPane(opts RestartPaneOptions) (*RestartPaneOutput, error) {
 			})
 		} else {
 			output.Restarted = append(output.Restarted, paneKey)
+			restartedPaneIDs[paneKey] = pane.ID
+		}
+	}
+
+	// Post-restart liveness check: verify each restarted pane has a running child process
+	if len(output.Restarted) > 0 {
+		time.Sleep(750 * time.Millisecond)
+		output.ProcessAlive = make(map[string]bool, len(output.Restarted))
+		for _, paneKey := range output.Restarted {
+			paneID := restartedPaneIDs[paneKey]
+			alive := false
+			// Query the fresh pane_pid from tmux (respawn assigns a new shell PID)
+			pidStr, err := tmux.DefaultClient.Run("display-message", "-t", paneID, "-p", "#{pane_pid}")
+			if err == nil {
+				pidStr = strings.TrimSpace(pidStr)
+				if newPID, convErr := strconv.Atoi(pidStr); convErr == nil && newPID > 0 {
+					alive = process.HasChildAlive(newPID)
+					if !alive {
+						// The shell itself may be the process (no child yet); check shell liveness
+						alive = process.IsAlive(newPID)
+					}
+				}
+			}
+			output.ProcessAlive[paneKey] = alive
 		}
 	}
 

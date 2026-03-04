@@ -393,7 +393,7 @@ func (e *Executor) executeWorkflow(ctx context.Context, workflow *Workflow) erro
 				}
 
 				switch onError {
-				case ErrorActionFail:
+				case ErrorActionFail, ErrorActionFailFast:
 					return fmt.Errorf("step %s failed: %s", stepID, result.Error.Message)
 				case ErrorActionContinue:
 					// Continue to next step, dependents will be skipped
@@ -735,8 +735,8 @@ func (e *Executor) executeParallel(ctx context.Context, step *Step, workflow *Wo
 				}
 				e.stateMu.Lock()
 				e.state.Steps[ps.ID] = results[idx]
-				e.stateMu.Unlock()
 				e.state.UpdatedAt = time.Now()
+				e.stateMu.Unlock()
 				e.persistState()
 				mu.Unlock()
 				return
@@ -752,8 +752,8 @@ func (e *Executor) executeParallel(ctx context.Context, step *Step, workflow *Wo
 			results[idx] = pResult
 			e.stateMu.Lock()
 			e.state.Steps[ps.ID] = pResult
-			e.stateMu.Unlock()
 			e.state.UpdatedAt = time.Now()
+			e.stateMu.Unlock()
 			e.persistState()
 
 			// Handle fail_fast: cancel remaining steps on first error
@@ -1550,9 +1550,9 @@ func (e *Executor) snapshotState() *ExecutionState {
 		return nil
 	}
 
+	e.stateMu.RLock()
 	snapshot := *e.state
 
-	e.stateMu.RLock()
 	if e.state.Steps != nil {
 		snapshot.Steps = make(map[string]StepResult, len(e.state.Steps))
 		for key, value := range e.state.Steps {

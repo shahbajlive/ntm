@@ -30,15 +30,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shahbajlive/ntm/internal/agentmail"
-	"github.com/shahbajlive/ntm/internal/config"
-	"github.com/shahbajlive/ntm/internal/ensemble"
-	"github.com/shahbajlive/ntm/internal/events"
-	"github.com/shahbajlive/ntm/internal/kernel"
-	"github.com/shahbajlive/ntm/internal/metrics"
-	"github.com/shahbajlive/ntm/internal/robot"
-	"github.com/shahbajlive/ntm/internal/state"
-	"github.com/shahbajlive/ntm/internal/tmux"
+	"github.com/Dicklesworthstone/ntm/internal/agentmail"
+	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/Dicklesworthstone/ntm/internal/ensemble"
+	"github.com/Dicklesworthstone/ntm/internal/events"
+	"github.com/Dicklesworthstone/ntm/internal/kernel"
+	"github.com/Dicklesworthstone/ntm/internal/metrics"
+	"github.com/Dicklesworthstone/ntm/internal/redaction"
+	"github.com/Dicklesworthstone/ntm/internal/robot"
+	"github.com/Dicklesworthstone/ntm/internal/state"
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/gorilla/websocket"
@@ -80,6 +81,9 @@ type Server struct {
 	mailClient *agentmail.Client
 	projectDir string
 	mu         sync.Mutex
+
+	// Redaction configuration for REST API
+	redactionCfg *RedactionConfig
 }
 
 // AuthMode configures authentication for the server.
@@ -412,18 +416,21 @@ type WSClient struct {
 	topics     map[string]struct{}
 	topicsMu   sync.RWMutex
 	authClaims map[string]interface{}
+	closeOnce  sync.Once
 }
 
 // WSHub manages WebSocket connections and topic routing.
 type WSHub struct {
-	clients    map[*WSClient]struct{}
-	clientsMu  sync.RWMutex
-	register   chan *WSClient
-	unregister chan *WSClient
-	broadcast  chan *WSEvent
-	seq        int64
-	seqMu      sync.Mutex
-	done       chan struct{}
+	clients      map[*WSClient]struct{}
+	clientsMu    sync.RWMutex
+	register     chan *WSClient
+	unregister   chan *WSClient
+	broadcast    chan *WSEvent
+	seq          int64
+	seqMu        sync.Mutex
+	done         chan struct{}
+	redactionCfg *RedactionConfig
+	redactionMu  sync.RWMutex
 }
 
 // NewWSHub creates a new WebSocket hub.
@@ -478,6 +485,16 @@ func (h *WSHub) nextSeq() int64 {
 // broadcastEvent sends an event to all subscribed clients.
 func (h *WSHub) broadcastEvent(event *WSEvent) {
 	event.Seq = h.nextSeq()
+
+	// Apply redaction if configured
+	h.redactionMu.RLock()
+	cfg := h.redactionCfg
+	h.redactionMu.RUnlock()
+
+	if cfg != nil && cfg.Enabled && cfg.Config.Mode != redaction.ModeOff {
+		event.Data = redactWSEventData(event.Data, cfg.Config)
+	}
+
 	data, err := json.Marshal(event)
 	if err != nil {
 		log.Printf("ws marshal error: %v", err)
@@ -499,6 +516,33 @@ func (h *WSHub) broadcastEvent(event *WSEvent) {
 	}
 }
 
+// redactWSEventData recursively redacts sensitive content in event data.
+func redactWSEventData(data interface{}, cfg redaction.Config) interface{} {
+	if cfg.Mode == redaction.ModeOff {
+		return data
+	}
+
+	switch v := data.(type) {
+	case string:
+		result := redaction.ScanAndRedact(v, cfg)
+		return result.Output
+	case map[string]interface{}:
+		redacted := make(map[string]interface{}, len(v))
+		for key, val := range v {
+			redacted[key] = redactWSEventData(val, cfg)
+		}
+		return redacted
+	case []interface{}:
+		redacted := make([]interface{}, len(v))
+		for i, val := range v {
+			redacted[i] = redactWSEventData(val, cfg)
+		}
+		return redacted
+	default:
+		return data
+	}
+}
+
 // Publish publishes an event to a topic.
 func (h *WSHub) Publish(topic, eventType string, data interface{}) {
 	event := &WSEvent{
@@ -513,6 +557,20 @@ func (h *WSHub) Publish(topic, eventType string, data interface{}) {
 	default:
 		log.Printf("ws broadcast buffer full, dropping event topic=%s", topic)
 	}
+}
+
+// SetRedactionConfig sets the redaction configuration for WebSocket events.
+func (h *WSHub) SetRedactionConfig(cfg *RedactionConfig) {
+	h.redactionMu.Lock()
+	defer h.redactionMu.Unlock()
+	h.redactionCfg = cfg
+}
+
+// GetRedactionConfig returns the current redaction configuration.
+func (h *WSHub) GetRedactionConfig() *RedactionConfig {
+	h.redactionMu.RLock()
+	defer h.redactionMu.RUnlock()
+	return h.redactionCfg
 }
 
 // ClientCount returns the number of connected clients.
@@ -739,7 +797,8 @@ func (s *Server) buildRouter() chi.Router {
 	r.Use(s.loggingMiddlewareFunc)
 	r.Use(s.corsMiddlewareFunc)
 	r.Use(s.authMiddlewareFunc)
-	r.Use(s.rbacMiddleware) // Extract role from auth claims
+	r.Use(s.rbacMiddleware)      // Extract role from auth claims
+	r.Use(s.redactionMiddleware) // Redact sensitive content in requests/responses
 
 	// Health check (no versioning)
 	r.Get("/health", s.handleHealth)
@@ -1168,7 +1227,7 @@ func (s *Server) idempotencyMiddleware(next http.Handler) http.Handler {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("X-Idempotent-Replay", "true")
 			w.WriteHeader(status)
-			w.Write(cached)
+			_, _ = w.Write(cached) // Best-effort: client may have disconnected
 			return
 		}
 
@@ -1593,8 +1652,10 @@ func (s *Server) handleEventStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Send initial connection event
-	fmt.Fprintf(w, "event: connected\ndata: {\"status\":\"connected\",\"time\":\"%s\"}\n\n",
-		time.Now().UTC().Format(time.RFC3339))
+	if _, err := fmt.Fprintf(w, "event: connected\ndata: {\"status\":\"connected\",\"time\":\"%s\"}\n\n",
+		time.Now().UTC().Format(time.RFC3339)); err != nil {
+		return
+	}
 	flusher.Flush()
 
 	// Stream events
@@ -1612,7 +1673,9 @@ func (s *Server) handleEventStream(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				continue
 			}
-			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.EventType(), data)
+			if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.EventType(), data); err != nil {
+				return // Client disconnected
+			}
 			flusher.Flush()
 		}
 	}
@@ -2965,6 +3028,7 @@ type AgentSpawnRequest struct {
 	GmiCount  int    `json:"gmi_count,omitempty"`
 	Preset    string `json:"preset,omitempty"`
 	WaitReady bool   `json:"wait_ready,omitempty"`
+	Label     string `json:"label,omitempty"` // Goal label for multi-session support
 }
 
 // handleAgentSpawnV1 handles POST /api/v1/sessions/{sessionId}/agents/spawn.
@@ -2991,6 +3055,7 @@ func (s *Server) handleAgentSpawnV1(w http.ResponseWriter, r *http.Request) {
 
 	opts := robot.SpawnOptions{
 		Session:   sessionID,
+		Label:     req.Label,
 		CCCount:   req.CCCount,
 		CodCount:  req.CodCount,
 		GmiCount:  req.GmiCount,
@@ -4316,6 +4381,11 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 
 // executeJob runs a job asynchronously.
 func (s *Server) executeJob(jobID string, req CreateJobRequest) {
+	defer func() {
+		if r := recover(); r != nil {
+			s.jobStore.Update(jobID, JobStatusFailed, 0, nil, fmt.Sprintf("panic: %v", r))
+		}
+	}()
 	s.jobStore.Update(jobID, JobStatusRunning, 0, nil, "")
 
 	// Simulate job execution - in production, this would dispatch to actual handlers
@@ -4489,7 +4559,7 @@ var authContextKey = ctxKeyAuth{}
 func (c *WSClient) readPump() {
 	defer func() {
 		c.hub.unregister <- c
-		c.conn.Close()
+		c.closeOnce.Do(func() { c.conn.Close() })
 	}()
 
 	c.conn.SetReadLimit(wsMaxMessageSize)
@@ -4517,7 +4587,7 @@ func (c *WSClient) writePump() {
 	ticker := time.NewTicker(wsPingPeriod)
 	defer func() {
 		ticker.Stop()
-		c.conn.Close()
+		c.closeOnce.Do(func() { c.conn.Close() })
 	}()
 
 	for {
@@ -4534,13 +4604,19 @@ func (c *WSClient) writePump() {
 			if err != nil {
 				return
 			}
-			w.Write(message)
+			if _, err := w.Write(message); err != nil {
+				return
+			}
 
 			// Drain queued messages
 			n := len(c.send)
 			for i := 0; i < n; i++ {
-				w.Write([]byte{'\n'})
-				w.Write(<-c.send)
+				if _, err := w.Write([]byte{'\n'}); err != nil {
+					return
+				}
+				if _, err := w.Write(<-c.send); err != nil {
+					return
+				}
 			}
 
 			if err := w.Close(); err != nil {

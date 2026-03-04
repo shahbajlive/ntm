@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Dicklesworthstone/ntm/internal/util"
 )
 
 func TestNewArchiver(t *testing.T) {
@@ -333,15 +335,17 @@ func TestExpandPath(t *testing.T) {
 		input string
 		want  string
 	}{
+		{"~", home},
 		{"~/test", filepath.Join(home, "test")},
+		{"~\\test", filepath.Join(home, "test")},
 		{"/absolute/path", "/absolute/path"},
 		{"relative/path", "relative/path"},
 	}
 
 	for _, tc := range tests {
-		got := expandPath(tc.input)
+		got := util.ExpandPath(tc.input)
 		if got != tc.want {
-			t.Errorf("expandPath(%q) = %q, want %q", tc.input, got, tc.want)
+			t.Errorf("ExpandPath(%q) = %q, want %q", tc.input, got, tc.want)
 		}
 	}
 }
@@ -1056,18 +1060,18 @@ func TestStartsWithLines_EdgeCases(t *testing.T) {
 
 func TestExpandPath_NoHome(t *testing.T) {
 	// Test with path that doesn't start with ~
-	result := expandPath("/absolute/path")
+	result := util.ExpandPath("/absolute/path")
 	if result != "/absolute/path" {
-		t.Errorf("expandPath(/absolute/path) = %q, want /absolute/path", result)
+		t.Errorf("ExpandPath(/absolute/path) = %q, want /absolute/path", result)
 	}
 
-	result = expandPath("relative/path")
+	result = util.ExpandPath("relative/path")
 	if result != "relative/path" {
-		t.Errorf("expandPath(relative/path) = %q, want relative/path", result)
+		t.Errorf("ExpandPath(relative/path) = %q, want relative/path", result)
 	}
 
-	result = expandPath("")
+	result = util.ExpandPath("")
 	if result != "" {
-		t.Errorf("expandPath('') = %q, want ''", result)
+		t.Errorf("ExpandPath('') = %q, want ''", result)
 	}
 }

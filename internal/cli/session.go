@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -15,17 +16,19 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/shahbajlive/ntm/internal/assignment"
-	"github.com/shahbajlive/ntm/internal/cli/suggestions"
-	"github.com/shahbajlive/ntm/internal/handoff"
-	"github.com/shahbajlive/ntm/internal/kernel"
-	"github.com/shahbajlive/ntm/internal/output"
-	"github.com/shahbajlive/ntm/internal/status"
-	"github.com/shahbajlive/ntm/internal/tmux"
-	"github.com/shahbajlive/ntm/internal/tokens"
-	"github.com/shahbajlive/ntm/internal/tui/icons"
-	"github.com/shahbajlive/ntm/internal/tui/layout"
-	"github.com/shahbajlive/ntm/internal/tui/theme"
+	"github.com/Dicklesworthstone/ntm/internal/assignment"
+	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/Dicklesworthstone/ntm/internal/cli/suggestions"
+	"github.com/Dicklesworthstone/ntm/internal/handoff"
+	"github.com/Dicklesworthstone/ntm/internal/kernel"
+	"github.com/Dicklesworthstone/ntm/internal/output"
+	sessionPkg "github.com/Dicklesworthstone/ntm/internal/session"
+	"github.com/Dicklesworthstone/ntm/internal/status"
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/Dicklesworthstone/ntm/internal/tokens"
+	"github.com/Dicklesworthstone/ntm/internal/tui/icons"
+	"github.com/Dicklesworthstone/ntm/internal/tui/layout"
+	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
 )
 
 // statusOptions holds configuration for the status command
@@ -42,7 +45,8 @@ type statusOptions struct {
 
 // SessionListInput is the kernel input for sessions.list.
 type SessionListInput struct {
-	Tags []string `json:"tags,omitempty"`
+	Tags    []string `json:"tags,omitempty"`
+	Project string   `json:"project,omitempty"` // Filter by base project name (bd-3cu02.14)
 }
 
 // SessionStatusInput is the kernel input for sessions.status.
@@ -118,7 +122,7 @@ func init() {
 				opts = *value
 			}
 		}
-		return buildSessionListResponse(opts.Tags)
+		return buildSessionListResponse(opts.Tags, opts.Project)
 	})
 
 	kernel.MustRegister(kernel.Command{
@@ -300,8 +304,21 @@ func runAttach(session string) error {
 		return tmux.AttachOrSwitch(session)
 	}
 
-	if IsJSONOutput() {
-		return output.PrintJSON(output.NewError(fmt.Sprintf("session '%s' does not exist", session)))
+	sessionList, err := tmux.ListSessions()
+	if err != nil {
+		return err
+	}
+
+	// Prefix resolution (exact match is preferred inside resolver).
+	if resolved, _, err := sessionPkg.ResolveExplicitSessionName(session, sessionList, true); err == nil {
+		session = resolved
+		updateSessionActivity(session)
+		return tmux.AttachOrSwitch(session)
+	} else {
+		var re *sessionPkg.ResolveExplicitSessionNameError
+		if errors.As(err, &re) && re.Kind == sessionPkg.ResolveExplicitSessionNameErrorAmbiguous {
+			return err
+		}
 	}
 
 	fmt.Printf("Session '%s' does not exist.\n\n", session)
@@ -320,20 +337,26 @@ func runAttach(session string) error {
 
 func newListCmd() *cobra.Command {
 	var tags []string
+	var project string
 	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls", "l"},
 		Short:   "List all tmux sessions",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runList(tags)
+			return runList(tags, project)
 		},
 	}
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "filter sessions by agent tag (shows session if any agent matches)")
+	cmd.Flags().StringVarP(&project, "project", "p", "", "filter by base project name (shows all labeled sessions for the project)")
 	return cmd
 }
 
-func runList(tags []string) error {
-	result, err := kernel.Run(context.Background(), "sessions.list", SessionListInput{Tags: tags})
+func runList(tags []string, project ...string) error {
+	input := SessionListInput{Tags: tags}
+	if len(project) > 0 {
+		input.Project = project[0]
+	}
+	result, err := kernel.Run(context.Background(), "sessions.list", input)
 	if err != nil {
 		if IsJSONOutput() {
 			_ = output.PrintJSON(output.NewError(err.Error()))
@@ -360,9 +383,22 @@ func runList(tags []string) error {
 	width, _, _ := term.GetSize(int(os.Stdout.Fd()))
 	isWide := width >= 100
 
+	// Check if any sessions have labels (bd-3cu02.6)
+	hasLabels := false
+	for _, s := range resp.Sessions {
+		if s.Label != "" {
+			hasLabels = true
+			break
+		}
+	}
+
 	if isWide {
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-		fmt.Fprintln(w, "SESSION\tWINDOWS\tSTATE\tAGENTS")
+		if hasLabels {
+			fmt.Fprintln(w, "SESSION\tPROJECT\tLABEL\tWINDOWS\tSTATE\tAGENTS")
+		} else {
+			fmt.Fprintln(w, "SESSION\tWINDOWS\tSTATE\tAGENTS")
+		}
 
 		for _, s := range resp.Sessions {
 			attached := "detached"
@@ -400,7 +436,15 @@ func runList(tags []string) error {
 				}
 			}
 
-			fmt.Fprintf(w, "%s\t%d\t%s\t%s\n", s.Name, s.Windows, attached, agents)
+			if hasLabels {
+				labelDisplay := "-"
+				if s.Label != "" {
+					labelDisplay = s.Label
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\t%s\n", s.Name, s.BaseProject, labelDisplay, s.Windows, attached, agents)
+			} else {
+				fmt.Fprintf(w, "%s\t%d\t%s\t%s\n", s.Name, s.Windows, attached, agents)
+			}
 		}
 		w.Flush()
 	} else {
@@ -431,7 +475,7 @@ func coerceSessionListResponse(result any) (output.ListResponse, error) {
 	}
 }
 
-func buildSessionListResponse(tags []string) (output.ListResponse, error) {
+func buildSessionListResponse(tags []string, project string) (output.ListResponse, error) {
 	if err := tmux.EnsureInstalled(); err != nil {
 		return output.ListResponse{}, err
 	}
@@ -467,10 +511,24 @@ func buildSessionListResponse(tags []string) (output.ListResponse, error) {
 		sessions = filtered
 	}
 
+	// Filter sessions by base project name (bd-3cu02.14)
+	if project != "" {
+		var filtered []tmux.Session
+		for _, s := range sessions {
+			if config.SessionBase(s.Name) == project {
+				filtered = append(filtered, s)
+			}
+		}
+		sessions = filtered
+	}
+
 	items := make([]output.SessionListItem, len(sessions))
 	for i, s := range sessions {
+		base, label := config.ParseSessionLabel(s.Name)
 		item := output.SessionListItem{
 			Name:             s.Name,
+			BaseProject:      base,
+			Label:            label,
 			Windows:          s.Windows,
 			Attached:         s.Attached,
 			WorkingDirectory: s.Directory,
@@ -514,6 +572,20 @@ func buildSessionListResponse(tags []string) (output.ListResponse, error) {
 		}
 		items[i] = item
 	}
+
+	// Sort by base project, then unlabeled first, then label alphabetically (bd-3cu02.6)
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].BaseProject != items[j].BaseProject {
+			return items[i].BaseProject < items[j].BaseProject
+		}
+		if items[i].Label == "" {
+			return true
+		}
+		if items[j].Label == "" {
+			return false
+		}
+		return items[i].Label < items[j].Label
+	})
 
 	return output.ListResponse{
 		TimestampedResponse: output.NewTimestamped(),
@@ -902,6 +974,17 @@ func runStatusOnce(w io.Writer, session string, opts statusOptions) error {
 
 	if err := tmux.EnsureInstalled(); err != nil {
 		return outputError(err)
+	}
+
+	{
+		res, err := ResolveSession(session, w)
+		if err != nil {
+			return outputError(err)
+		}
+		if res.Session == "" {
+			return outputError(fmt.Errorf("session is required"))
+		}
+		session = res.Session
 	}
 
 	if !tmux.SessionExists(session) {
@@ -1445,6 +1528,7 @@ func runStatusWatch(w io.Writer, session string, opts statusOptions) error {
 	// Handle Ctrl+C
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
 	go func() {
 		<-sigChan
 		fmt.Print("\033[?25h") // Show cursor

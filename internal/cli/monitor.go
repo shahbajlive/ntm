@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -13,13 +14,15 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/shahbajlive/ntm/internal/archive"
-	"github.com/shahbajlive/ntm/internal/config"
-	"github.com/shahbajlive/ntm/internal/plugins"
-	"github.com/shahbajlive/ntm/internal/resilience"
-	"github.com/shahbajlive/ntm/internal/summary"
-	"github.com/shahbajlive/ntm/internal/supervisor"
-	"github.com/shahbajlive/ntm/internal/tmux"
+	"github.com/Dicklesworthstone/ntm/internal/archive"
+	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/Dicklesworthstone/ntm/internal/events"
+	"github.com/Dicklesworthstone/ntm/internal/plugins"
+	"github.com/Dicklesworthstone/ntm/internal/resilience"
+	"github.com/Dicklesworthstone/ntm/internal/summary"
+	"github.com/Dicklesworthstone/ntm/internal/supervisor"
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/Dicklesworthstone/ntm/internal/webhook"
 )
 
 func newMonitorCmd() *cobra.Command {
@@ -45,8 +48,30 @@ func runMonitor(session string) error {
 	if !tmux.SessionExists(session) {
 		// If session is gone, clean up and exit
 		fmt.Fprintf(os.Stderr, "Session '%s' missing on monitor start (%s)\n", session, detectSessionTerminationCause(session))
+		events.DefaultEmitter().Emit(events.NewWebhookEvent(
+			events.WebhookSessionEnded,
+			session,
+			"",
+			"",
+			fmt.Sprintf("Session %s ended before monitor start", session),
+			map[string]string{
+				"project_dir": manifest.ProjectDir,
+			},
+		))
 		_ = resilience.DeleteManifest(session)
 		return nil
+	}
+
+	// Enable project webhooks (if configured) for this session so monitor-driven
+	// agent lifecycle events (crash/restart/rate_limit, etc) can fan out.
+	if cfg != nil {
+		redactCfg := cfg.Redaction.ToRedactionLibConfig()
+		bridge, err := webhook.StartBridgeFromProjectConfig(manifest.ProjectDir, session, events.DefaultBus, &redactCfg)
+		if err != nil {
+			slog.Default().Debug("webhook bridge init failed", "session", session, "error", err)
+		} else if bridge != nil {
+			defer bridge.Close()
+		}
 	}
 
 	// Initialize Supervisor
@@ -85,7 +110,7 @@ func runMonitor(session string) error {
 
 	// Register agents
 	for _, agent := range manifest.Agents {
-		monitor.RegisterAgent(agent.PaneID, agent.PaneIndex, agent.Type, agent.Model, agent.Command)
+		monitor.RegisterAgent(agent.PaneID, agent.PaneIndex, 0, agent.Type, agent.Model, agent.Command)
 	}
 
 	// Start monitoring
@@ -112,6 +137,7 @@ func runMonitor(session string) error {
 	// Wait for termination signal or session end
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
 
 	// Poll for session existence periodically to exit if session is killed
 	ticker := time.NewTicker(5 * time.Second)
@@ -135,6 +161,16 @@ func runMonitor(session string) error {
 		case <-ticker.C:
 			if !tmux.SessionExists(session) {
 				fmt.Printf("Session ended unexpectedly, stopping monitor (%s)\n", detectSessionTerminationCause(session))
+				events.DefaultEmitter().Emit(events.NewWebhookEvent(
+					events.WebhookSessionEnded,
+					session,
+					"",
+					"",
+					fmt.Sprintf("Session %s ended", session),
+					map[string]string{
+						"project_dir": manifest.ProjectDir,
+					},
+				))
 				monitor.Stop()
 				generateEndSessionSummary(session, lastOutputs, manifest)
 				_ = resilience.DeleteManifest(session)

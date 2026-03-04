@@ -8,18 +8,20 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/reflow/wordwrap"
 
-	"github.com/shahbajlive/ntm/internal/config"
-	"github.com/shahbajlive/ntm/internal/history"
-	"github.com/shahbajlive/ntm/internal/tmux"
-	"github.com/shahbajlive/ntm/internal/tui/components"
-	"github.com/shahbajlive/ntm/internal/tui/icons"
-	"github.com/shahbajlive/ntm/internal/tui/layout"
-	"github.com/shahbajlive/ntm/internal/tui/styles"
-	"github.com/shahbajlive/ntm/internal/tui/theme"
+	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/Dicklesworthstone/ntm/internal/history"
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/Dicklesworthstone/ntm/internal/tools"
+	"github.com/Dicklesworthstone/ntm/internal/tui/components"
+	"github.com/Dicklesworthstone/ntm/internal/tui/icons"
+	"github.com/Dicklesworthstone/ntm/internal/tui/layout"
+	"github.com/Dicklesworthstone/ntm/internal/tui/styles"
+	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
 )
 
 // AnimationTickMsg is used to trigger animation updates
@@ -32,6 +34,8 @@ const (
 	PhaseCommand Phase = iota
 	PhaseTarget
 	PhaseConfirm
+	PhaseXFSearch
+	PhaseXFResults
 )
 
 // Target represents the send target
@@ -113,6 +117,13 @@ type Model struct {
 	// This is needed because items are grouped by category, so visual order differs from slice order.
 	visualOrder []int
 
+	// XF search state
+	xfQuery     textinput.Model
+	xfResults   []tools.XFSearchResult
+	xfCursor    int
+	xfSearching bool
+	xfErr       error
+
 	// Theme and styles
 	theme  theme.Theme
 	styles theme.Styles
@@ -124,18 +135,28 @@ type Model struct {
 
 	// Layout tier (narrow/split/wide/ultra)
 	tier layout.Tier
+
+	// Viewport for scrollable command list
+	listViewport viewport.Model
 }
 
 // KeyMap defines the keybindings
 type KeyMap struct {
 	Up             key.Binding
 	Down           key.Binding
+	PageUp         key.Binding
+	PageDown       key.Binding
+	HalfPageUp     key.Binding
+	HalfPageDown   key.Binding
+	Home           key.Binding
+	End            key.Binding
 	Select         key.Binding
 	Back           key.Binding
 	Quit           key.Binding
 	Help           key.Binding
 	TogglePin      key.Binding
 	ToggleFavorite key.Binding
+	XFSearch       key.Binding
 	Target1        key.Binding
 	Target2        key.Binding
 	Target3        key.Binding
@@ -160,6 +181,30 @@ var keys = KeyMap{
 		key.WithKeys("down", "j"),
 		key.WithHelp("↓/j", "down"),
 	),
+	PageUp: key.NewBinding(
+		key.WithKeys("pgup"),
+		key.WithHelp("pgup", "page up"),
+	),
+	PageDown: key.NewBinding(
+		key.WithKeys("pgdown"),
+		key.WithHelp("pgdn", "page down"),
+	),
+	HalfPageUp: key.NewBinding(
+		key.WithKeys("ctrl+u"),
+		key.WithHelp("ctrl+u", "half page up"),
+	),
+	HalfPageDown: key.NewBinding(
+		key.WithKeys("ctrl+d"),
+		key.WithHelp("ctrl+d", "half page down"),
+	),
+	Home: key.NewBinding(
+		key.WithKeys("home", "g"),
+		key.WithHelp("home/g", "top"),
+	),
+	End: key.NewBinding(
+		key.WithKeys("end", "G"),
+		key.WithHelp("end/G", "bottom"),
+	),
 	Select: key.NewBinding(
 		key.WithKeys("enter"),
 		key.WithHelp("enter", "select"),
@@ -183,6 +228,10 @@ var keys = KeyMap{
 	ToggleFavorite: key.NewBinding(
 		key.WithKeys("ctrl+f"),
 		key.WithHelp("ctrl+f", "favorite"),
+	),
+	XFSearch: key.NewBinding(
+		key.WithKeys("ctrl+k"),
+		key.WithHelp("ctrl+k", "xf search"),
 	),
 	Target1: key.NewBinding(key.WithKeys("1")),
 	Target2: key.NewBinding(key.WithKeys("2")),
@@ -228,19 +277,24 @@ func NewWithOptions(session string, commands []config.PaletteCmd, opts Options) 
 	s := theme.NewStyles(t)
 	ic := icons.Current()
 
+	// Initialize viewport for scrollable command list
+	vp := viewport.New(80, 10) // Will be resized on WindowSizeMsg
+	vp.Style = lipgloss.NewStyle()
+
 	m := Model{
-		session:     session,
-		commands:    commands,
-		filtered:    commands,
-		filter:      ti,
-		phase:       PhaseCommand,
-		width:       80,
-		height:      24,
-		showPreview: true,
-		theme:       t,
-		styles:      s,
-		icons:       ic,
-		tier:        layout.TierForWidth(80),
+		session:      session,
+		commands:     commands,
+		filtered:     commands,
+		filter:       ti,
+		phase:        PhaseCommand,
+		width:        80,
+		height:       24,
+		showPreview:  true,
+		theme:        t,
+		styles:       s,
+		icons:        ic,
+		tier:         layout.TierForWidth(80),
+		listViewport: vp,
 		headerGradient: []string{
 			string(t.Blue),
 			string(t.Lavender),
@@ -254,6 +308,7 @@ func NewWithOptions(session string, commands []config.PaletteCmd, opts Options) 
 
 	m.paletteState = opts.PaletteState
 	m.paletteStatePath = opts.PaletteStatePath
+	m.xfQuery = initXFQuery(t)
 
 	// Build initial visual order mapping
 	m.buildVisualOrder()
@@ -272,7 +327,9 @@ func (m Model) Init() tea.Cmd {
 }
 
 func (m Model) tick() tea.Cmd {
-	return tea.Tick(time.Millisecond*50, func(t time.Time) tea.Msg {
+	// Use 250ms tick interval to minimize flicker on terminals that
+	// struggle with rapid ANSI color escape re-rendering.
+	return tea.Tick(time.Millisecond*250, func(t time.Time) tea.Msg {
 		return AnimationTickMsg(t)
 	})
 }
@@ -388,6 +445,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.filter.Width < 20 {
 			m.filter.Width = 20
 		}
+		// Update viewport dimensions (list height minus chrome)
+		// Account for header (~4 lines), filter (~3 lines), help bar (~2 lines), borders (~4 lines)
+		// The -2 matches what View() uses for the actual rendered viewport height
+		listBoxHeight := m.height - 14
+		if listBoxHeight < 5 {
+			listBoxHeight = 5
+		}
+		m.listViewport.Width = m.width - 8
+		m.listViewport.Height = listBoxHeight - 2 // Must match View() calculation
 		return m, nil
 
 	case AnimationTickMsg:
@@ -409,6 +475,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.recents = msg.keys
 			m.buildVisualOrder()
+			m.listViewport.GotoTop()
 		}
 		return m, nil
 
@@ -422,6 +489,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.updateFiltered()
 		}
 		return m, nil
+
+	case XFSearchResultsMsg:
+		m.xfSearching = false
+		if msg.Err != nil {
+			m.xfErr = msg.Err
+			return m, nil
+		}
+		m.xfResults = msg.Results
+		m.xfCursor = 0
+		if len(msg.Results) > 0 {
+			m.phase = PhaseXFResults
+		} else {
+			m.xfErr = fmt.Errorf("no results found for %q", msg.Query)
+		}
+		return m, nil
+
+	case tea.MouseMsg:
+		// Handle mouse wheel scrolling in command phase
+		if m.phase == PhaseCommand && !m.showHelp {
+			var cmd tea.Cmd
+			m.listViewport, cmd = m.listViewport.Update(msg)
+			return m, cmd
+		}
 
 	case tea.KeyMsg:
 		// Help overlay: Esc or ?/F1 closes it; otherwise ignore input.
@@ -442,6 +532,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateCommandPhase(msg)
 		case PhaseTarget:
 			return m.updateTargetPhase(msg)
+		case PhaseXFSearch:
+			return m.updateXFSearchPhase(msg)
+		case PhaseXFResults:
+			return m.updateXFResultsPhase(msg)
 		}
 	}
 
@@ -450,6 +544,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.filter, cmd = m.filter.Update(msg)
 		m.updateFiltered()
+		return m, cmd
+	}
+
+	// Update xf query input
+	if m.phase == PhaseXFSearch {
+		var cmd tea.Cmd
+		m.xfQuery, cmd = m.xfQuery.Update(msg)
 		return m, cmd
 	}
 
@@ -470,6 +571,7 @@ func (m *Model) updateCommandPhase(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.visualOrder) > 0 {
 			if pos := m.cursorVisualPos(); pos > 0 {
 				m.cursor = m.visualOrder[pos-1]
+				m.ensureCursorVisible()
 			}
 		}
 
@@ -477,7 +579,87 @@ func (m *Model) updateCommandPhase(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.visualOrder) > 0 {
 			if pos := m.cursorVisualPos(); pos < len(m.visualOrder)-1 {
 				m.cursor = m.visualOrder[pos+1]
+				m.ensureCursorVisible()
 			}
+		}
+
+	case key.Matches(msg, keys.PageUp):
+		// Move cursor up by approximately one page worth of items
+		if len(m.visualOrder) > 0 {
+			pos := m.cursorVisualPos()
+			// Estimate items per page (viewport height minus some header overhead)
+			itemsPerPage := m.listViewport.Height - 4
+			if itemsPerPage < 3 {
+				itemsPerPage = 3
+			}
+			newPos := pos - itemsPerPage
+			if newPos < 0 {
+				newPos = 0
+			}
+			m.cursor = m.visualOrder[newPos]
+			m.ensureCursorVisible()
+		}
+
+	case key.Matches(msg, keys.PageDown):
+		// Move cursor down by approximately one page worth of items
+		if len(m.visualOrder) > 0 {
+			pos := m.cursorVisualPos()
+			itemsPerPage := m.listViewport.Height - 4
+			if itemsPerPage < 3 {
+				itemsPerPage = 3
+			}
+			newPos := pos + itemsPerPage
+			if newPos >= len(m.visualOrder) {
+				newPos = len(m.visualOrder) - 1
+			}
+			m.cursor = m.visualOrder[newPos]
+			m.ensureCursorVisible()
+		}
+
+	case key.Matches(msg, keys.HalfPageUp):
+		// Move cursor up by half a page worth of items
+		if len(m.visualOrder) > 0 {
+			pos := m.cursorVisualPos()
+			itemsPerHalfPage := (m.listViewport.Height - 4) / 2
+			if itemsPerHalfPage < 2 {
+				itemsPerHalfPage = 2
+			}
+			newPos := pos - itemsPerHalfPage
+			if newPos < 0 {
+				newPos = 0
+			}
+			m.cursor = m.visualOrder[newPos]
+			m.ensureCursorVisible()
+		}
+
+	case key.Matches(msg, keys.HalfPageDown):
+		// Move cursor down by half a page worth of items
+		if len(m.visualOrder) > 0 {
+			pos := m.cursorVisualPos()
+			itemsPerHalfPage := (m.listViewport.Height - 4) / 2
+			if itemsPerHalfPage < 2 {
+				itemsPerHalfPage = 2
+			}
+			newPos := pos + itemsPerHalfPage
+			if newPos >= len(m.visualOrder) {
+				newPos = len(m.visualOrder) - 1
+			}
+			m.cursor = m.visualOrder[newPos]
+			m.ensureCursorVisible()
+		}
+
+	case key.Matches(msg, keys.Home):
+		// Jump to first item
+		if len(m.visualOrder) > 0 {
+			m.cursor = m.visualOrder[0]
+			m.listViewport.GotoTop()
+		}
+
+	case key.Matches(msg, keys.End):
+		// Jump to last item
+		if len(m.visualOrder) > 0 {
+			m.cursor = m.visualOrder[len(m.visualOrder)-1]
+			m.listViewport.GotoBottom()
 		}
 
 	case key.Matches(msg, keys.TogglePin):
@@ -509,8 +691,17 @@ func (m *Model) updateCommandPhase(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case key.Matches(msg, keys.XFSearch):
+		m.enterXFSearch()
+		return *m, nil
+
 	case key.Matches(msg, keys.Select):
 		if len(m.filtered) > 0 {
+			cmd := m.filtered[m.cursor]
+			if cmd.Key == "xf-search" {
+				m.enterXFSearch()
+				return *m, nil
+			}
 			m.selected = &m.filtered[m.cursor]
 			m.phase = PhaseTarget
 		}
@@ -657,6 +848,126 @@ func (m Model) cursorVisualPos() int {
 	return 0
 }
 
+// visualPosToLineNum converts a visual position (index in visualOrder) to an
+// approximate line number in the rendered list, accounting for section headers
+// and blank lines between sections.
+func (m *Model) visualPosToLineNum(pos int) int {
+	if pos < 0 || len(m.visualOrder) == 0 {
+		return 0
+	}
+	if pos >= len(m.visualOrder) {
+		pos = len(m.visualOrder) - 1
+	}
+
+	// Count how many items are in pinned and recents sections
+	pinnedCount := 0
+	recentsCount := 0
+
+	idxByKey := make(map[string]int, len(m.filtered))
+	for i, cmd := range m.filtered {
+		if cmd.Key != "" {
+			idxByKey[cmd.Key] = i
+		}
+	}
+
+	used := make(map[int]bool)
+	for _, k := range m.paletteState.Pinned {
+		if idx, ok := idxByKey[k]; ok && !used[idx] {
+			used[idx] = true
+			pinnedCount++
+		}
+	}
+	for _, k := range m.recents {
+		if idx, ok := idxByKey[k]; ok && !used[idx] {
+			used[idx] = true
+			recentsCount++
+		}
+	}
+
+	// Calculate which section the position falls into and the line offset
+	lineNum := 0
+	itemsBeforePos := 0
+
+	// Pinned section: header + items + blank
+	if pinnedCount > 0 {
+		lineNum++ // header
+		if pos < pinnedCount {
+			return lineNum + pos
+		}
+		lineNum += pinnedCount + 1 // items + blank
+		itemsBeforePos = pinnedCount
+	}
+
+	// Recents section: header + items + blank
+	if recentsCount > 0 {
+		lineNum++ // header
+		if pos < itemsBeforePos+recentsCount {
+			return lineNum + (pos - itemsBeforePos)
+		}
+		lineNum += recentsCount + 1 // items + blank
+		itemsBeforePos += recentsCount
+	}
+
+	// Category sections: exact iteration mirroring the actual render structure.
+	// Each category has 1 header line + N items + 1 blank separator line.
+	if pos >= itemsBeforePos {
+		// Rebuild category order exactly as buildVisualOrder / renderCommandList do.
+		catItems := make(map[string][]int)
+		catOrder := []string{}
+		for i, cmd := range m.filtered {
+			if used[i] {
+				continue
+			}
+			cat := cmd.Category
+			if cat == "" {
+				cat = "General"
+			}
+			if _, exists := catItems[cat]; !exists {
+				catOrder = append(catOrder, cat)
+			}
+			catItems[cat] = append(catItems[cat], i)
+		}
+
+		for _, cat := range catOrder {
+			count := len(catItems[cat])
+			lineNum++ // category header
+			if pos < itemsBeforePos+count {
+				return lineNum + (pos - itemsBeforePos)
+			}
+			lineNum += count + 1 // items + blank separator
+			itemsBeforePos += count
+		}
+	}
+
+	return lineNum
+}
+
+// ensureCursorVisible scrolls the viewport if necessary to keep the cursor visible.
+func (m *Model) ensureCursorVisible() {
+	pos := m.cursorVisualPos()
+	linePos := m.visualPosToLineNum(pos)
+
+	// If cursor is above the visible area, scroll up.
+	// Assign YOffset directly rather than calling SetYOffset: SetYOffset clamps to
+	// maxYOffset() = max(0, len(lines)-Height), but lines is nil here because
+	// SetContent only runs inside View() which is a value receiver (its mutations
+	// are discarded). Assigning directly lets the next View() call re-clamp safely.
+	if linePos < m.listViewport.YOffset {
+		m.listViewport.YOffset = linePos
+	}
+
+	// If cursor is below the visible area, scroll down.
+	// Leave a small margin at the bottom.
+	visibleBottom := m.listViewport.YOffset + m.listViewport.Height - 2
+	if linePos > visibleBottom {
+		newOffset := linePos - m.listViewport.Height + 3
+		if newOffset < 0 {
+			newOffset = 0
+		}
+		m.listViewport.YOffset = newOffset
+	}
+}
+
 // buildVisualOrder creates a mapping from visual position to filtered index.
 // Items are grouped by category, so the visual order differs from the slice order.
 func (m *Model) buildVisualOrder() {
@@ -744,7 +1055,9 @@ func (m *Model) send() (tea.Model, tea.Cmd) {
 		}
 
 		if shouldSend {
-			if err := tmux.PasteKeys(p.ID, prompt, true); err != nil {
+			// Use agent-aware send method which handles Codex/Gemini multi-line quirks
+			// by using buffer-based paste instead of send-keys when content has newlines
+			if err := tmux.SendKeysForAgent(p.ID, prompt, true, p.Type); err != nil {
 				m.err = err
 				m.recordHistory(targetPanes, start, err)
 				return *m, tea.Quit
@@ -860,6 +1173,10 @@ func (m Model) View() string {
 		return m.viewCommandPhase()
 	case PhaseTarget:
 		return m.viewTargetPhase()
+	case PhaseXFSearch:
+		return m.viewXFSearchPhase()
+	case PhaseXFResults:
+		return m.viewXFResultsPhase()
 	}
 
 	return ""
@@ -989,12 +1306,36 @@ func (m Model) viewCommandPhase() string {
 	// ═══════════════════════════════════════════════════════════════
 	listContent := m.renderCommandList(listWidth - 4)
 
-	// List box with subtle glow
+	// Calculate list box height
+	listBoxHeight := m.height - 14
+	if listBoxHeight < 5 {
+		listBoxHeight = 5
+	}
+
+	// Update viewport content and dimensions for scrolling
+	m.listViewport.Width = listWidth - 6 // Account for borders and padding
+	m.listViewport.Height = listBoxHeight - 2
+	m.listViewport.SetContent(listContent)
+
+	// Render scroll indicator if content overflows
+	scrollIndicator := ""
+	if m.listViewport.TotalLineCount() > m.listViewport.Height {
+		pct := m.listViewport.ScrollPercent() * 100
+		scrollStyle := lipgloss.NewStyle().Foreground(t.Overlay)
+		if pct < 1 {
+			scrollIndicator = scrollStyle.Render(" ↓ scroll")
+		} else if pct > 99 {
+			scrollIndicator = scrollStyle.Render(" ↑ scroll")
+		} else {
+			scrollIndicator = scrollStyle.Render(fmt.Sprintf(" %.0f%%", pct))
+		}
+	}
+
+	// List box with subtle glow - use viewport content
 	listBox := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(t.Surface2).
-		Width(listWidth-2).
-		Height(m.height-14).
+		Width(listWidth - 2).
 		Padding(1, 1)
 
 	var columns string
@@ -1007,19 +1348,19 @@ func (m Model) viewCommandPhase() string {
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(t.Blue).
 			Width(previewWidth-2).
-			Height(m.height-14).
+			Height(listBoxHeight).
 			Padding(1, 1)
 
 		// Join columns horizontally
 		columns = lipgloss.JoinHorizontal(
 			lipgloss.Top,
-			listBox.Render(listContent),
+			listBox.Render(m.listViewport.View()+scrollIndicator),
 			"  ",
 			previewBox.Render(previewContent),
 		)
 	} else {
 		// Narrow display: list only (preview shown on selection)
-		columns = listBox.Render(listContent)
+		columns = listBox.Render(m.listViewport.View() + scrollIndicator)
 	}
 
 	b.WriteString(columns + "\n\n")
@@ -1458,6 +1799,14 @@ func (m Model) renderHelpBar() string {
 		{"1-9", "quick select"},
 		{"Enter", "select"},
 		{"Esc", "back"},
+	}
+
+	// Show scroll hint if there are more items than visible
+	if m.tier >= layout.TierSplit && m.listViewport.TotalLineCount() > m.listViewport.Height {
+		items = append(items, struct {
+			key  string
+			desc string
+		}{"pgup/dn", "scroll"})
 	}
 
 	if m.tier >= layout.TierWide {

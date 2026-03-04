@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -18,24 +20,28 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/shahbajlive/ntm/internal/bv"
-	"github.com/shahbajlive/ntm/internal/cass"
-	"github.com/shahbajlive/ntm/internal/checkpoint"
-	"github.com/shahbajlive/ntm/internal/events"
-	"github.com/shahbajlive/ntm/internal/history"
-	"github.com/shahbajlive/ntm/internal/hooks"
-	"github.com/shahbajlive/ntm/internal/integrations/dcg"
-	"github.com/shahbajlive/ntm/internal/kernel"
-	"github.com/shahbajlive/ntm/internal/output"
-	"github.com/shahbajlive/ntm/internal/prompt"
-	"github.com/shahbajlive/ntm/internal/robot"
-	sessionPkg "github.com/shahbajlive/ntm/internal/session"
-	"github.com/shahbajlive/ntm/internal/state"
-	"github.com/shahbajlive/ntm/internal/summary"
-	"github.com/shahbajlive/ntm/internal/templates"
-	"github.com/shahbajlive/ntm/internal/tmux"
-	"github.com/shahbajlive/ntm/internal/tools"
-	"github.com/shahbajlive/ntm/internal/tui/theme"
+	"github.com/Dicklesworthstone/ntm/internal/audit"
+	"github.com/Dicklesworthstone/ntm/internal/bv"
+	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/Dicklesworthstone/ntm/internal/cass"
+	"github.com/Dicklesworthstone/ntm/internal/checkpoint"
+	"github.com/Dicklesworthstone/ntm/internal/events"
+	"github.com/Dicklesworthstone/ntm/internal/history"
+	"github.com/Dicklesworthstone/ntm/internal/hooks"
+	"github.com/Dicklesworthstone/ntm/internal/integrations/dcg"
+	"github.com/Dicklesworthstone/ntm/internal/kernel"
+	"github.com/Dicklesworthstone/ntm/internal/output"
+	"github.com/Dicklesworthstone/ntm/internal/prompt"
+	"github.com/Dicklesworthstone/ntm/internal/redaction"
+	"github.com/Dicklesworthstone/ntm/internal/robot"
+	sessionPkg "github.com/Dicklesworthstone/ntm/internal/session"
+	"github.com/Dicklesworthstone/ntm/internal/state"
+	"github.com/Dicklesworthstone/ntm/internal/summary"
+	"github.com/Dicklesworthstone/ntm/internal/templates"
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/Dicklesworthstone/ntm/internal/tools"
+	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
+	"github.com/Dicklesworthstone/ntm/internal/webhook"
 )
 
 // SendResult is the JSON output for the send command.
@@ -43,6 +49,12 @@ type SendResult struct {
 	Success       bool               `json:"success"`
 	Session       string             `json:"session"`
 	PromptPreview string             `json:"prompt_preview,omitempty"`
+	Redaction     *RedactionSummary  `json:"redaction,omitempty"`
+	Warnings      []string           `json:"warnings,omitempty"`
+	Blocked       bool               `json:"blocked,omitempty"`
+	ErrorCode     string             `json:"error_code,omitempty"`
+	Randomized    bool               `json:"randomized,omitempty"`
+	SeedUsed      int64              `json:"seed_used,omitempty"`
 	Targets       []int              `json:"targets"`
 	Delivered     int                `json:"delivered"`
 	Failed        int                `json:"failed"`
@@ -56,12 +68,17 @@ type SendDryRunEntry struct {
 	Prompt        string `json:"prompt"`
 	PromptPreview string `json:"prompt_preview,omitempty"`
 	Source        string `json:"source,omitempty"`
+	Priority      int    `json:"priority,omitempty"` // -1 omitted; 0..4 = P0..P4
 }
 
 type SendDryRunResult struct {
 	Success   bool               `json:"success"`
 	DryRun    bool               `json:"dry_run"`
 	Session   string             `json:"session"`
+	Redaction *RedactionSummary  `json:"redaction,omitempty"`
+	Warnings  []string           `json:"warnings,omitempty"`
+	Blocked   bool               `json:"blocked,omitempty"`
+	ErrorCode string             `json:"error_code,omitempty"`
 	Total     int                `json:"total"`
 	WouldSend []SendDryRunEntry  `json:"would_send"`
 	RoutedTo  *SendRoutingResult `json:"routed_to,omitempty"`
@@ -196,6 +213,7 @@ type SendOptions struct {
 	Session        string
 	Prompt         string
 	PromptSource   string
+	BasePrompt     string // Prepended to all prompts (bd-3ejl)
 	Targets        SendTargets
 	TargetAll      bool
 	SkipFirst      bool
@@ -205,6 +223,9 @@ type SendOptions struct {
 	TemplateName   string
 	Tags           []string
 	DryRun         bool
+	Randomize      bool  // Randomize send order for individualized prompts
+	Seed           int64 // Deterministic seed (only used when Randomize=true)
+	PriorityOrder  bool  // Sort batch prompts by priority (P0 first)
 
 	// Smart routing options
 	SmartRoute    bool   // Use smart routing to select best agent
@@ -359,6 +380,80 @@ func intsToStrings(ints []int) []string {
 	return out
 }
 
+// shuffledPermutation returns a Fisher-Yates permutation of [0..n) using a deterministic PRNG.
+// If seed is 0, it uses a time-based seed and returns the chosen seed via seedUsed.
+func shuffledPermutation(n int, seed int64) (seedUsed int64, perm []int) {
+	perm = make([]int, n)
+	for i := 0; i < n; i++ {
+		perm[i] = i
+	}
+	if n <= 1 {
+		if seed == 0 {
+			return time.Now().UnixNano(), perm
+		}
+		return seed, perm
+	}
+
+	seedUsed = seed
+	if seedUsed == 0 {
+		seedUsed = time.Now().UnixNano()
+	}
+
+	// xorshift64 (deterministic, stable across Go versions)
+	var x uint64 = uint64(seedUsed)
+	if x == 0 {
+		x = 0x9e3779b97f4a7c15
+	}
+	next := func() uint64 {
+		x ^= x << 13
+		x ^= x >> 7
+		x ^= x << 17
+		return x
+	}
+
+	for i := n - 1; i > 0; i-- {
+		j := int(next() % uint64(i+1))
+		perm[i], perm[j] = perm[j], perm[i]
+	}
+
+	return seedUsed, perm
+}
+
+func permutePanes(panes []tmux.Pane, perm []int) []tmux.Pane {
+	if len(panes) != len(perm) {
+		return panes
+	}
+	out := make([]tmux.Pane, 0, len(panes))
+	for _, idx := range perm {
+		if idx < 0 || idx >= len(panes) {
+			continue
+		}
+		out = append(out, panes[idx])
+	}
+	// If perm was malformed, fall back to original ordering.
+	if len(out) != len(panes) {
+		return panes
+	}
+	return out
+}
+
+func permuteBatchPrompts(prompts []BatchPrompt, perm []int) []BatchPrompt {
+	if len(prompts) != len(perm) {
+		return prompts
+	}
+	out := make([]BatchPrompt, 0, len(prompts))
+	for _, idx := range perm {
+		if idx < 0 || idx >= len(prompts) {
+			continue
+		}
+		out = append(out, prompts[idx])
+	}
+	if len(out) != len(prompts) {
+		return prompts
+	}
+	return out
+}
+
 func newSendCmd() *cobra.Command {
 	var targets SendTargets
 	var targetAll, skipFirst bool
@@ -381,6 +476,11 @@ func newSendCmd() *cobra.Command {
 	var distributeStrategy string
 	var distributeLimit int
 	var distributeAuto bool
+	var randomize bool
+	var seed int64
+	var priorityOrder bool
+	var basePrompt string
+	var basePromptFile string
 
 	// Batch mode variables
 	var batchFile string
@@ -389,6 +489,9 @@ func newSendCmd() *cobra.Command {
 	var batchStopOnErr bool
 	var batchBroadcast bool
 	var batchAgentIndex int
+
+	// Project filter (bd-3cu02.14)
+	var projectFilter string
 
 	cmd := &cobra.Command{
 		Use:   "send <session> [prompt]",
@@ -445,16 +548,42 @@ func newSendCmd() *cobra.Command {
 		  ntm send myproject -t fix --var issue="null pointer" --file src/app.go  # Template with vars
 		  ntm send myproject --smart "fix auth bug"             # Auto-select best agent
 		  ntm send myproject --smart --route=affinity "auth"    # Use affinity strategy`,
-		Args: cobra.MinimumNArgs(1),
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Handle --project mode: broadcast to all matching sessions (bd-3cu02.14)
+			if projectFilter != "" {
+				if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+					// Check if first arg looks like a session name (no spaces, no special chars)
+					// If it could be a session name, error out
+					if !strings.Contains(args[0], " ") {
+						return fmt.Errorf("cannot use --project with a specific session name; use just --project or just a session name")
+					}
+				}
+				return runSendProject(cmd, projectFilter, args, targets, targetAll, skipFirst, paneIndex, tags, noHooks, dryRun)
+			}
+
+			if len(args) == 0 {
+				return fmt.Errorf("session name required (or use --project)")
+			}
 			session := args[0]
+
+			// Resolve base prompt: flag > file > config (bd-3ejl)
+			var cfgBasePrompt, cfgBasePromptFile string
+			if cfg != nil {
+				cfgBasePrompt = cfg.Send.BasePrompt
+				cfgBasePromptFile = cfg.Send.BasePromptFile
+			}
+			resolvedBasePrompt, err := resolveBasePrompt(basePrompt, basePromptFile, cfgBasePrompt, cfgBasePromptFile)
+			if err != nil {
+				return err
+			}
 
 			// Handle --distribute mode: auto-distribute work from bv triage
 			if distribute {
 				if dryRun && distributeAuto {
 					return fmt.Errorf("cannot use --dry-run with --dist-auto")
 				}
-				return runDistributeMode(session, distributeStrategy, distributeLimit, distributeAuto, dryRun)
+				return runDistributeMode(session, distributeStrategy, distributeLimit, distributeAuto, dryRun, randomize, seed)
 			}
 
 			// Handle --batch mode: send multiple prompts from file
@@ -469,6 +598,7 @@ func newSendCmd() *cobra.Command {
 				}
 				batchOpts := SendOptions{
 					Session:         session,
+					BasePrompt:      resolvedBasePrompt,
 					Targets:         targets,
 					TargetAll:       targetAll,
 					SkipFirst:       skipFirst,
@@ -487,6 +617,9 @@ func newSendCmd() *cobra.Command {
 					BatchStopOnErr:  batchStopOnErr,
 					BatchBroadcast:  batchBroadcast,
 					BatchAgentIndex: batchAgentIndex,
+					Randomize:       randomize,
+					Seed:            seed,
+					PriorityOrder:   priorityOrder,
 				}
 				return runSendBatch(batchOpts)
 			}
@@ -506,6 +639,7 @@ func newSendCmd() *cobra.Command {
 
 			opts := SendOptions{
 				Session:        session,
+				BasePrompt:     resolvedBasePrompt,
 				Targets:        targets,
 				TargetAll:      targetAll,
 				SkipFirst:      skipFirst,
@@ -520,6 +654,8 @@ func newSendCmd() *cobra.Command {
 				CassCheckDays:  cassCheckDays,
 				NoHooks:        noHooks,
 				DryRun:         dryRun,
+				Randomize:      randomize,
+				Seed:           seed,
 			}
 
 			// Handle template-based prompts
@@ -595,6 +731,17 @@ func newSendCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noHooks, "no-hooks", false, "Disable command hooks")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview what would be sent without sending")
 
+	// Randomization flags
+	cmd.Flags().BoolVar(&randomize, "randomize", false, "Randomize send order for individualized prompts (reduces thundering herd)")
+	cmd.Flags().Int64Var(&seed, "seed", 0, "Deterministic seed for --randomize (0 = time-based)")
+
+	// Priority ordering flag (bd-2wzs)
+	cmd.Flags().BoolVar(&priorityOrder, "priority-order", false, "Sort batch prompts by priority (P0 first, annotate with '# priority: N')")
+
+	// Base prompt flags (bd-3ejl) - prepend common instructions to all prompts
+	cmd.Flags().StringVar(&basePrompt, "base-prompt", "", "Text to prepend to all prompts")
+	cmd.Flags().StringVar(&basePromptFile, "base-prompt-file", "", "File whose contents are prepended to all prompts")
+
 	// Batch mode flags - send multiple prompts from file
 	cmd.Flags().StringVar(&batchFile, "batch", "", "Read prompts from file (one per line or --- separated)")
 	cmd.Flags().StringVar(&batchDelay, "delay", "", "Delay between prompts (e.g., 5s, 100ms)")
@@ -603,11 +750,76 @@ func newSendCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&batchBroadcast, "broadcast", false, "Send same prompt to all agents simultaneously")
 	cmd.Flags().IntVar(&batchAgentIndex, "agent", -1, "Send to specific agent index only (-1 = round-robin)")
 
+	// Project filter (bd-3cu02.14)
+	cmd.Flags().StringVar(&projectFilter, "project", "", "broadcast to all sessions for a base project name")
+
 	cmd.ValidArgsFunction = completeSessionArgs
 	_ = cmd.RegisterFlagCompletionFunc("pane", completePaneIndexes)
 	_ = cmd.RegisterFlagCompletionFunc("panes", completePaneIndexes)
 
 	return cmd
+}
+
+// runSendProject broadcasts a prompt to all sessions matching a base project (bd-3cu02.14).
+func runSendProject(cmd *cobra.Command, project string, args []string, targets SendTargets, targetAll, skipFirst bool, paneIndex int, tags []string, noHooks, dryRun bool) error {
+	if err := tmux.EnsureInstalled(); err != nil {
+		return err
+	}
+
+	sessions, err := tmux.ListSessions()
+	if err != nil {
+		return err
+	}
+
+	var matching []tmux.Session
+	for _, s := range sessions {
+		if config.SessionBase(s.Name) == project {
+			matching = append(matching, s)
+		}
+	}
+
+	if len(matching) == 0 {
+		return fmt.Errorf("no sessions found for project %q", project)
+	}
+
+	// Build prompt from remaining args
+	promptText := strings.Join(args, " ")
+	if strings.TrimSpace(promptText) == "" {
+		return fmt.Errorf("prompt text required")
+	}
+
+	var names []string
+	for _, s := range matching {
+		names = append(names, s.Name)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Sending to %d session(s): %s\n", len(matching), strings.Join(names, ", "))
+
+	var sendErrors []string
+	delivered := 0
+	for _, s := range matching {
+		opts := SendOptions{
+			Session:   s.Name,
+			Prompt:    promptText,
+			Targets:   targets,
+			TargetAll: targetAll,
+			SkipFirst: skipFirst,
+			PaneIndex: paneIndex,
+			Tags:      tags,
+			NoHooks:   noHooks,
+			DryRun:    dryRun,
+		}
+		if err := runSendWithTargets(opts); err != nil {
+			sendErrors = append(sendErrors, fmt.Sprintf("%s: %v", s.Name, err))
+		} else {
+			delivered++
+		}
+	}
+
+	if len(sendErrors) > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "Delivered to %d/%d sessions. Errors: %s\n", delivered, len(matching), strings.Join(sendErrors, "; "))
+	}
+
+	return nil
 }
 
 // getPromptContent resolves the prompt content from various sources:
@@ -671,6 +883,48 @@ func stdinHasData() bool {
 	// Check if it's a named pipe (FIFO) or has data waiting
 	// ModeCharDevice is 0 when stdin is redirected/piped
 	return (stat.Mode() & os.ModeCharDevice) == 0
+}
+
+// resolveBasePrompt determines the base prompt from flags and config.
+// Priority: flag > file flag > config string > config file > empty.
+func resolveBasePrompt(flagValue, flagFile, cfgValue, cfgFile string) (string, error) {
+	// Explicit --base-prompt flag takes highest priority
+	if flagValue != "" {
+		return flagValue, nil
+	}
+	// --base-prompt-file flag
+	if flagFile != "" {
+		data, err := os.ReadFile(flagFile)
+		if err != nil {
+			return "", fmt.Errorf("reading --base-prompt-file: %w", err)
+		}
+		return strings.TrimSpace(string(data)), nil
+	}
+	// Config string
+	if cfgValue != "" {
+		return cfgValue, nil
+	}
+	// Config file
+	if cfgFile != "" {
+		data, err := os.ReadFile(cfgFile)
+		if err != nil {
+			return "", fmt.Errorf("reading send.base_prompt_file from config: %w", err)
+		}
+		return strings.TrimSpace(string(data)), nil
+	}
+	return "", nil
+}
+
+// applyBasePrompt prepends a base prompt to a user prompt with a blank-line separator.
+// Returns userPrompt unchanged if basePrompt is empty.
+func applyBasePrompt(basePrompt, userPrompt string) string {
+	if basePrompt == "" {
+		return userPrompt
+	}
+	if userPrompt == "" {
+		return basePrompt
+	}
+	return basePrompt + "\n\n" + userPrompt
 }
 
 // buildPrompt combines prefix, content, and suffix into a single prompt string.
@@ -752,9 +1006,10 @@ func runSendWithTargets(opts SendOptions) error {
 	return runSendInternal(opts)
 }
 
-func runSendInternal(opts SendOptions) error {
+func runSendInternal(opts SendOptions) (err error) {
 	session := opts.Session
-	prompt := opts.Prompt
+	prompt := applyBasePrompt(opts.BasePrompt, opts.Prompt)
+	opts.Prompt = prompt // update opts so downstream sees combined prompt
 	promptSource := opts.PromptSource
 	templateName := opts.TemplateName
 	targets := opts.Targets
@@ -775,6 +1030,97 @@ func runSendInternal(opts SendOptions) error {
 		histErr     error
 		histSuccess bool
 	)
+
+	// Redaction preflight for outbound prompts
+	var (
+		redactionSummary  *RedactionSummary
+		redactionWarnings []string
+		redactionBlocked  bool
+	)
+
+	if cfg != nil {
+		redactCfg := cfg.Redaction.ToRedactionLibConfig()
+		if redactCfg.Mode != redaction.ModeOff {
+			result := redaction.ScanAndRedact(prompt, redactCfg)
+			if len(result.Findings) > 0 {
+				summary := summarizeRedactionResult(result)
+				redactionSummary = &summary
+
+				switch result.Mode {
+				case redaction.ModeWarn:
+					msg := "Warning: potential secrets detected in prompt"
+					if parts := formatRedactionCategoryCounts(summary.Categories); parts != "" {
+						msg = fmt.Sprintf("%s (%s)", msg, parts)
+					}
+					redactionWarnings = append(redactionWarnings, msg)
+					if !jsonOutput {
+						fmt.Fprintln(os.Stderr, msg)
+					}
+				case redaction.ModeRedact:
+					prompt = result.Output
+					opts.Prompt = prompt
+					msg := "Warning: redacted potential secrets in prompt"
+					if parts := formatRedactionCategoryCounts(summary.Categories); parts != "" {
+						msg = fmt.Sprintf("%s (%s)", msg, parts)
+					}
+					redactionWarnings = append(redactionWarnings, msg)
+					if !jsonOutput {
+						fmt.Fprintln(os.Stderr, msg)
+					}
+				case redaction.ModeBlock:
+					// Avoid persisting raw secrets in history/session prompt store by replacing
+					// the in-memory prompt with a redacted preview before returning the error.
+					previewCfg := redactCfg
+					previewCfg.Mode = redaction.ModeRedact
+					previewRes := redaction.ScanAndRedact(prompt, previewCfg)
+					prompt = previewRes.Output
+					opts.Prompt = prompt
+
+					redactionBlocked = true
+					msg := "Blocked: potential secrets detected in prompt (redaction mode: block)"
+					if parts := formatRedactionCategoryCounts(summary.Categories); parts != "" {
+						msg = fmt.Sprintf("%s (%s)", msg, parts)
+					}
+					redactionWarnings = append(redactionWarnings, msg)
+				}
+			}
+		}
+	}
+
+	delivered := 0
+	failed := 0
+	seedUsed := int64(0)
+
+	// Audit: send command start (redacted preview only)
+	_ = audit.LogEvent(session, audit.EventTypeSend, audit.ActorUser, "send", map[string]interface{}{
+		"phase":          "start",
+		"prompt_preview": truncateForPreview(prompt, 80),
+		"prompt_length":  len(prompt),
+		"prompt_source":  promptSource,
+		"template":       templateName,
+		"targets":        buildTargetDescription(targetCC, targetCod, targetGmi, targetAll, skipFirst, paneIndex, tags),
+		"dry_run":        dryRun,
+		"randomize":      opts.Randomize,
+		"seed":           opts.Seed,
+		"correlation_id": auditCorrelationID,
+	}, nil)
+
+	defer func() {
+		payload := map[string]interface{}{
+			"phase":          "finish",
+			"prompt_preview": truncateForPreview(prompt, 80),
+			"prompt_length":  len(prompt),
+			"delivered":      delivered,
+			"failed":         failed,
+			"dry_run":        dryRun,
+			"success":        err == nil,
+			"correlation_id": auditCorrelationID,
+		}
+		if err != nil {
+			payload["error"] = err.Error()
+		}
+		_ = audit.LogEvent(session, audit.EventTypeSend, audit.ActorUser, "send", payload, nil)
+	}()
 
 	// Start time tracking for history
 	start := time.Now()
@@ -808,10 +1154,24 @@ func runSendInternal(opts SendOptions) error {
 	outputError := func(err error) error {
 		histErr = err
 		if jsonOutput {
+			code := ""
+			if redactionBlocked {
+				code = "SENSITIVE_DATA_BLOCKED"
+			}
 			result := SendResult{
 				Success: false,
 				Session: session,
-				Error:   err.Error(),
+				Redaction: func() *RedactionSummary {
+					if redactionSummary == nil {
+						return nil
+					}
+					cp := *redactionSummary
+					return &cp
+				}(),
+				Warnings:  redactionWarnings,
+				Blocked:   redactionBlocked,
+				ErrorCode: code,
+				Error:     err.Error(),
 			}
 			_ = json.NewEncoder(os.Stdout).Encode(result)
 			// Return error to ensure non-zero exit code
@@ -819,6 +1179,10 @@ func runSendInternal(opts SendOptions) error {
 			return err
 		}
 		return err
+	}
+
+	if redactionBlocked {
+		return outputError(redactionBlockedError{summary: *redactionSummary})
 	}
 
 	// Smart routing: select best agent automatically.
@@ -906,6 +1270,18 @@ func runSendInternal(opts SendOptions) error {
 
 	if err := tmux.EnsureInstalled(); err != nil {
 		return outputError(err)
+	}
+
+	{
+		res, err := ResolveSession(session, os.Stdout)
+		if err != nil {
+			return outputError(err)
+		}
+		if res.Session == "" {
+			return outputError(fmt.Errorf("session is required"))
+		}
+		session = res.Session
+		opts.Session = res.Session
 	}
 
 	if !tmux.SessionExists(session) {
@@ -1096,11 +1472,21 @@ func runSendInternal(opts SendOptions) error {
 	}
 
 	// Track results for JSON output
+	if opts.Randomize && len(selectedPanes) > 1 && paneIndex < 0 {
+		var perm []int
+		seedUsed, perm = shuffledPermutation(len(selectedPanes), opts.Seed)
+		selectedPanes = permutePanes(selectedPanes, perm)
+	}
+
 	targetPanes := make([]int, 0, len(selectedPanes))
 	for _, p := range selectedPanes {
 		targetPanes = append(targetPanes, p.Index)
 	}
 	histTargets = targetPanes
+
+	if opts.Randomize && len(targetPanes) > 1 && !jsonOutput {
+		fmt.Fprintf(os.Stderr, "Randomized send order (seed=%d): %v\n", seedUsed, targetPanes)
+	}
 
 	// Apply DCG safety check for non-Claude agents
 	if err := maybeBlockSendWithDCG(prompt, session, selectedPanes); err != nil {
@@ -1113,15 +1499,15 @@ func runSendInternal(opts SendOptions) error {
 			Success:   true,
 			DryRun:    true,
 			Session:   session,
+			Redaction: redactionSummary,
+			Warnings:  redactionWarnings,
+			Blocked:   false,
 			Total:     len(entries),
 			WouldSend: entries,
 			RoutedTo:  opts.routingResult,
 			Message:   "use without --dry-run to execute",
 		})
 	}
-
-	delivered := 0
-	failed := 0
 
 	// If specific pane requested
 	if paneIndex >= 0 {
@@ -1134,6 +1520,10 @@ func runSendInternal(opts SendOptions) error {
 					Success:       false,
 					Session:       session,
 					PromptPreview: truncatePrompt(prompt, 50),
+					Redaction:     redactionSummary,
+					Warnings:      redactionWarnings,
+					Randomized:    opts.Randomize,
+					SeedUsed:      seedUsed,
 					Targets:       targetPanes,
 					Delivered:     delivered,
 					Failed:        failed,
@@ -1152,6 +1542,10 @@ func runSendInternal(opts SendOptions) error {
 				Success:       true,
 				Session:       session,
 				PromptPreview: truncatePrompt(prompt, 50),
+				Redaction:     redactionSummary,
+				Warnings:      redactionWarnings,
+				Randomized:    opts.Randomize,
+				SeedUsed:      seedUsed,
 				Targets:       targetPanes,
 				Delivered:     delivered,
 				Failed:        failed,
@@ -1222,6 +1616,10 @@ func runSendInternal(opts SendOptions) error {
 			Success:       failed == 0,
 			Session:       session,
 			PromptPreview: truncatePrompt(prompt, 50),
+			Redaction:     redactionSummary,
+			Warnings:      redactionWarnings,
+			Randomized:    opts.Randomize,
+			SeedUsed:      seedUsed,
 			Targets:       targetPanes,
 			Delivered:     delivered,
 			Failed:        failed,
@@ -1353,6 +1751,15 @@ func runInterrupt(session string, tags []string) error {
 		return err
 	}
 
+	res, err := ResolveSession(session, os.Stdout)
+	if err != nil {
+		return err
+	}
+	if res.Session == "" {
+		return fmt.Errorf("session is required")
+	}
+	session = res.Session
+
 	if !tmux.SessionExists(session) {
 		return fmt.Errorf("session '%s' not found", session)
 	}
@@ -1437,20 +1844,33 @@ func newKillCmd() *cobra.Command {
 	var tags []string
 	var noHooks bool
 	var summarize bool
+	var project string
 
 	cmd := &cobra.Command{
 		Use:   "kill <session>",
 		Short: "Kill a tmux session",
 		Long: `Kill a tmux session and all its panes.
 
+Use --project to kill all sessions for a base project (requires confirmation).
+
 Examples:
-  ntm kill myproject           # Prompts for confirmation
-  ntm kill myproject --force   # No confirmation
-  ntm kill myproject --tag=ui  # Kill only panes with 'ui' tag
-  ntm kill myproject --summarize # Generate summary before killing`,
-		Args: cobra.ExactArgs(1),
+  ntm kill myproject              # Prompts for confirmation
+  ntm kill myproject --force      # No confirmation
+  ntm kill myproject --tag=ui     # Kill only panes with 'ui' tag
+  ntm kill myproject --summarize  # Generate summary before killing
+  ntm kill --project myproject    # Kill all sessions for the project`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runKill(args[0], force, tags, noHooks, summarize)
+			if project != "" && len(args) > 0 {
+				return fmt.Errorf("cannot use --project with a specific session name")
+			}
+			if project != "" {
+				return runKillProject(cmd.OutOrStdout(), project, force, tags, noHooks, summarize)
+			}
+			if len(args) == 0 {
+				return fmt.Errorf("session name or --project required")
+			}
+			return runKill(cmd.OutOrStdout(), args[0], force, tags, noHooks, summarize)
 		},
 	}
 
@@ -1458,11 +1878,12 @@ Examples:
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "filter panes to kill by tag (if used, only matching panes are killed)")
 	cmd.Flags().BoolVar(&noHooks, "no-hooks", false, "Disable command hooks")
 	cmd.Flags().BoolVar(&summarize, "summarize", false, "Generate session summary before killing")
+	cmd.Flags().StringVarP(&project, "project", "p", "", "kill all sessions for a base project name")
 
 	return cmd
 }
 
-func runKill(session string, force bool, tags []string, noHooks bool, summarize bool) error {
+func runKill(w io.Writer, session string, force bool, tags []string, noHooks bool, summarize bool) (err error) {
 	// Use kernel for JSON output mode
 	if IsJSONOutput() {
 		result, err := kernel.Run(context.Background(), "sessions.kill", SessionKillInput{
@@ -1482,11 +1903,65 @@ func runKill(session string, force bool, tags []string, noHooks bool, summarize 
 		return err
 	}
 
+	res, err := ResolveSession(session, w)
+	if err != nil {
+		return err
+	}
+	if res.Session == "" {
+		return fmt.Errorf("session is required")
+	}
+	session = res.Session
+
 	if !tmux.SessionExists(session) {
 		return fmt.Errorf("session '%s' not found", session)
 	}
 
-	dir := cfg.GetProjectDir(session)
+	var dir string
+	if cfg != nil {
+		dir = cfg.GetProjectDir(session)
+	}
+	auditStart := time.Now()
+	auditAborted := false
+	auditKilled := false
+	auditNoTargets := false
+	auditScope := "session"
+	auditKilledPanes := 0
+	if len(tags) > 0 {
+		auditScope = "tags"
+	}
+	_ = audit.LogEvent(session, audit.EventTypeCommand, audit.ActorUser, "session.kill", map[string]interface{}{
+		"phase":          "start",
+		"session":        session,
+		"force":          force,
+		"tags":           tags,
+		"summarize":      summarize,
+		"scope":          auditScope,
+		"working_dir":    dir,
+		"correlation_id": auditCorrelationID,
+	}, nil)
+	defer func() {
+		success := err == nil && !auditAborted
+		payload := map[string]interface{}{
+			"phase":          "finish",
+			"session":        session,
+			"force":          force,
+			"tags":           tags,
+			"summarize":      summarize,
+			"scope":          auditScope,
+			"killed":         auditKilled,
+			"killed_panes":   auditKilledPanes,
+			"no_targets":     auditNoTargets,
+			"aborted":        auditAborted,
+			"success":        success,
+			"duration_ms":    time.Since(auditStart).Milliseconds(),
+			"working_dir":    dir,
+			"correlation_id": auditCorrelationID,
+		}
+		if err != nil {
+			payload["error"] = err.Error()
+		}
+		_ = audit.LogEvent(session, audit.EventTypeCommand, audit.ActorUser, "session.kill", payload, nil)
+	}()
 
 	// Initialize hook executor
 	var hookExec *hooks.Executor
@@ -1554,11 +2029,13 @@ func runKill(session string, force bool, tags []string, noHooks bool, summarize 
 
 		if len(toKill) == 0 {
 			fmt.Println("No panes found matching tags.")
+			auditNoTargets = true
 			return nil
 		}
 
 		if !force {
 			if !confirm(fmt.Sprintf("Kill %d pane(s) matching tags %v?", len(toKill), tags)) {
+				auditAborted = true
 				fmt.Println("Aborted.")
 				return nil
 			}
@@ -1570,6 +2047,8 @@ func runKill(session string, force bool, tags []string, noHooks bool, summarize 
 			}
 		}
 		addTimelineStopMarkers(session, toKill)
+		auditKilled = true
+		auditKilledPanes = len(toKill)
 		fmt.Printf("Killed %d pane(s)\n", len(toKill))
 		return nil
 	}
@@ -1581,6 +2060,7 @@ func runKill(session string, force bool, tags []string, noHooks bool, summarize 
 		}
 
 		if !confirm(fmt.Sprintf("Kill session '%s' with %d pane(s)?", session, len(panes))) {
+			auditAborted = true
 			fmt.Println("Aborted.")
 			return nil
 		}
@@ -1602,6 +2082,7 @@ func runKill(session string, force bool, tags []string, noHooks bool, summarize 
 	if err := tmux.KillSession(session); err != nil {
 		return err
 	}
+	auditKilled = true
 
 	fmt.Printf("Killed session '%s'\n", session)
 
@@ -1628,10 +2109,59 @@ func runKill(session string, force bool, tags []string, noHooks bool, summarize 
 	return nil
 }
 
+// runKillProject kills all sessions matching a base project name (bd-3cu02.14).
+func runKillProject(w io.Writer, project string, force bool, tags []string, noHooks bool, summarize bool) error {
+	if err := tmux.EnsureInstalled(); err != nil {
+		return err
+	}
+
+	sessions, err := tmux.ListSessions()
+	if err != nil {
+		return err
+	}
+
+	var targets []tmux.Session
+	for _, s := range sessions {
+		if config.SessionBase(s.Name) == project {
+			targets = append(targets, s)
+		}
+	}
+
+	if len(targets) == 0 {
+		return fmt.Errorf("no sessions found for project %q", project)
+	}
+
+	// Show what will be killed and confirm
+	var names []string
+	for _, s := range targets {
+		names = append(names, s.Name)
+	}
+
+	if !force {
+		fmt.Fprintf(w, "Kill %d session(s)? %s\n", len(targets), strings.Join(names, ", "))
+		if !confirm("Proceed?") {
+			fmt.Fprintln(w, "Aborted.")
+			return nil
+		}
+	}
+
+	var killErrors []string
+	for _, s := range targets {
+		if err := runKill(w, s.Name, true, tags, noHooks, summarize); err != nil {
+			killErrors = append(killErrors, fmt.Sprintf("%s: %v", s.Name, err))
+		}
+	}
+
+	if len(killErrors) > 0 {
+		return fmt.Errorf("some sessions failed to kill: %s", strings.Join(killErrors, "; "))
+	}
+	return nil
+}
+
 // buildKillResponse constructs the response for session kill.
 // Used by both kernel handler and direct CLI calls.
 // In JSON/robot mode, force is effectively always true (no interactive confirmation).
-func buildKillResponse(session string, force bool, tags []string, noHooks bool, summarize bool) (*output.KillResponse, error) {
+func buildKillResponse(session string, force bool, tags []string, noHooks bool, summarize bool) (resp *output.KillResponse, err error) {
 	if err := tmux.EnsureInstalled(); err != nil {
 		return nil, err
 	}
@@ -1640,7 +2170,74 @@ func buildKillResponse(session string, force bool, tags []string, noHooks bool, 
 		return nil, fmt.Errorf("session '%s' not found", session)
 	}
 
-	dir := cfg.GetProjectDir(session)
+	dir := ""
+	if cfg != nil {
+		dir = cfg.GetProjectDir(session)
+	}
+	if strings.TrimSpace(dir) == "" {
+		// Best-effort fallback for webhook config resolution and hooks context.
+		if wd, err := os.Getwd(); err == nil {
+			dir = wd
+		}
+	}
+	auditStart := time.Now()
+	auditScope := "session"
+	if len(tags) > 0 {
+		auditScope = "tags"
+	}
+	auditKilled := false
+	auditNoTargets := false
+	auditKilledPanes := 0
+	_ = audit.LogEvent(session, audit.EventTypeCommand, audit.ActorUser, "session.kill", map[string]interface{}{
+		"phase":          "start",
+		"session":        session,
+		"force":          force,
+		"tags":           tags,
+		"summarize":      summarize,
+		"scope":          auditScope,
+		"working_dir":    dir,
+		"correlation_id": auditCorrelationID,
+	}, nil)
+	defer func() {
+		success := err == nil
+		payload := map[string]interface{}{
+			"phase":          "finish",
+			"session":        session,
+			"force":          force,
+			"tags":           tags,
+			"summarize":      summarize,
+			"scope":          auditScope,
+			"killed":         auditKilled,
+			"killed_panes":   auditKilledPanes,
+			"no_targets":     auditNoTargets,
+			"success":        success,
+			"duration_ms":    time.Since(auditStart).Milliseconds(),
+			"working_dir":    dir,
+			"correlation_id": auditCorrelationID,
+		}
+		if err != nil {
+			payload["error"] = err.Error()
+		}
+		_ = audit.LogEvent(session, audit.EventTypeCommand, audit.ActorUser, "session.kill", payload, nil)
+	}()
+
+	// Enable project webhooks (if configured) for this session so kill events can fan out.
+	// Best-effort: failures should not block the kill operation.
+	var (
+		bridge    *webhook.BusBridge
+		bridgeErr error
+	)
+	if cfg != nil {
+		redactCfg := cfg.Redaction.ToRedactionLibConfig()
+		bridge, bridgeErr = webhook.StartBridgeFromProjectConfig(dir, session, events.DefaultBus, &redactCfg)
+	} else {
+		bridge, bridgeErr = webhook.StartBridgeFromProjectConfig(dir, session, events.DefaultBus, nil)
+	}
+	if bridgeErr != nil {
+		slog.Default().Debug("webhook bridge init failed", "session", session, "error", bridgeErr)
+	} else if bridge != nil {
+		defer bridge.Close()
+	}
 
 	// Initialize hook executor
 	var hookExec *hooks.Executor
@@ -1704,20 +2301,37 @@ func buildKillResponse(session string, force bool, tags []string, noHooks bool, 
 		}
 
 		if len(toKill) == 0 {
-			return &output.KillResponse{
+			auditNoTargets = true
+			resp = &output.KillResponse{
 				TimestampedResponse: output.NewTimestamped(),
 				Session:             session,
 				Killed:              false,
 				Message:             "No panes found matching tags",
-			}, nil
+			}
+			return resp, nil
 		}
 
 		for _, p := range toKill {
 			if err := tmux.KillPane(p.ID); err != nil {
 				return nil, fmt.Errorf("killing pane %s: %w", p.ID, err)
 			}
+			events.DefaultEmitter().Emit(events.NewWebhookEvent(
+				events.WebhookAgentStopped,
+				session,
+				p.ID,
+				agentTypeToString(p.Type),
+				"Agent stopped",
+				map[string]string{
+					"project_dir": dir,
+					"pane_index":  fmt.Sprintf("%d", p.Index),
+					"pane_title":  p.Title,
+					"kill_tags":   strings.Join(tags, ","),
+				},
+			))
 		}
 		addTimelineStopMarkers(session, toKill)
+		auditKilled = true
+		auditKilledPanes = len(toKill)
 		message = fmt.Sprintf("Killed %d pane(s) matching tags", len(toKill))
 	} else {
 		panesForStop, err := tmux.GetPanes(session)
@@ -1731,7 +2345,32 @@ func buildKillResponse(session string, force bool, tags []string, noHooks bool, 
 		if err := tmux.KillSession(session); err != nil {
 			return nil, err
 		}
+		auditKilled = true
 		message = fmt.Sprintf("Killed session '%s'", session)
+
+		events.DefaultEmitter().Emit(events.NewWebhookEvent(
+			events.WebhookSessionKilled,
+			session,
+			"",
+			"",
+			message,
+			map[string]string{
+				"project_dir": dir,
+				"force":       boolToStr(force),
+			},
+		))
+		// Alternate/legacy naming used by some configs/docs.
+		events.DefaultEmitter().Emit(events.NewWebhookEvent(
+			events.WebhookSessionEnded,
+			session,
+			"",
+			"",
+			message,
+			map[string]string{
+				"project_dir": dir,
+				"force":       boolToStr(force),
+			},
+		))
 	}
 
 	// Post-kill hooks
@@ -1742,13 +2381,14 @@ func buildKillResponse(session string, force bool, tags []string, noHooks bool, 
 		// Post-kill hook errors are logged but don't fail the response
 	}
 
-	return &output.KillResponse{
+	resp = &output.KillResponse{
 		TimestampedResponse: output.NewTimestamped(),
 		Session:             session,
 		Killed:              true,
 		Message:             message,
 		Summary:             summaryResult,
-	}, nil
+	}
+	return resp, nil
 }
 
 // generateKillSummary generates a session summary for use before killing.
@@ -1783,7 +2423,10 @@ func generateKillSummary(session string) (*summary.SessionSummary, error) {
 	}
 
 	wd, _ := os.Getwd()
-	projectDir := cfg.GetProjectDir(session)
+	var projectDir string
+	if cfg != nil {
+		projectDir = cfg.GetProjectDir(session)
+	}
 	if projectDir == "" {
 		projectDir = wd
 	}
@@ -1883,6 +2526,7 @@ var dcgCommandPrefixes = map[string]struct{}{
 	"chown":     {},
 	"kubectl":   {},
 	"terraform": {},
+	"rch":       {},
 }
 
 func maybeBlockSendWithDCG(prompt, session string, panes []tmux.Pane) error {
@@ -1895,32 +2539,33 @@ func maybeBlockSendWithDCG(prompt, session string, panes []tmux.Pane) error {
 	if !hasNonClaudeTargets(panes) {
 		return nil
 	}
-	command, ok := extractLikelyCommand(prompt)
-	if !ok {
+	commands := extractLikelyCommands(prompt)
+	if len(commands) == 0 {
 		return nil
 	}
 
 	adapter := tools.NewDCGAdapter()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if !adapter.IsAvailable(ctx) {
 		return nil
 	}
 
-	blocked, err := adapter.CheckCommand(ctx, command)
-	if err != nil {
-		return err
+	for _, command := range commands {
+		blocked, err := adapter.CheckCommand(ctx, command)
+		if err != nil {
+			return err
+		}
+		if blocked != nil {
+			logDCGBlocked(command, session, panes, blocked)
+			reason := strings.TrimSpace(blocked.Reason)
+			if reason == "" {
+				reason = "blocked by dcg"
+			}
+			return fmt.Errorf("blocked by dcg: %s", reason)
+		}
 	}
-	if blocked == nil {
-		return nil
-	}
-
-	logDCGBlocked(command, session, panes, blocked)
-	reason := strings.TrimSpace(blocked.Reason)
-	if reason == "" {
-		reason = "blocked by dcg"
-	}
-	return fmt.Errorf("blocked by dcg: %s", reason)
+	return nil
 }
 
 func hasNonClaudeTargets(panes []tmux.Pane) bool {
@@ -1939,17 +2584,18 @@ func isNonClaudeAgent(p tmux.Pane) bool {
 	return p.Type != tmux.AgentClaude
 }
 
-func extractLikelyCommand(prompt string) (string, bool) {
+func extractLikelyCommands(prompt string) []string {
+	var commands []string
 	for _, line := range strings.Split(prompt, "\n") {
 		candidate := normalizeCommandLine(line)
 		if candidate == "" {
 			continue
 		}
 		if looksLikeShellCommand(candidate) {
-			return candidate, true
+			commands = append(commands, candidate)
 		}
 	}
-	return "", false
+	return commands
 }
 
 func normalizeCommandLine(line string) string {
@@ -2005,7 +2651,7 @@ func sendPromptToPane(session string, p tmux.Pane, prompt string) error {
 		}
 		return nil
 	}
-	if err := sendPromptWithDoubleEnter(p.ID, prompt); err != nil {
+	if err := sendPromptWithDoubleEnterForAgent(p.ID, prompt, p.Type); err != nil {
 		return err
 	}
 	addTimelinePromptMarker(session, p, prompt)
@@ -2013,7 +2659,14 @@ func sendPromptToPane(session string, p tmux.Pane, prompt string) error {
 }
 
 func sendPromptWithDoubleEnter(paneID, prompt string) error {
-	if err := tmux.PasteKeys(paneID, prompt, false); err != nil {
+	// Default to AgentUnknown for backward compatibility
+	return sendPromptWithDoubleEnterForAgent(paneID, prompt, tmux.AgentUnknown)
+}
+
+func sendPromptWithDoubleEnterForAgent(paneID, prompt string, agentType tmux.AgentType) error {
+	// Use agent-aware send method which handles Gemini's multi-line quirks
+	// by using buffer-based paste instead of send-keys when content has newlines
+	if err := tmux.SendKeysForAgent(paneID, prompt, false, agentType); err != nil {
 		return err
 	}
 	time.Sleep(agentPromptFirstEnterDelay)
@@ -2161,7 +2814,10 @@ func checkCassDuplicates(session, prompt string, threshold float64, days int) er
 	}
 
 	// Get workspace from session
-	dir := cfg.GetProjectDir(session)
+	var dir string
+	if cfg != nil {
+		dir = cfg.GetProjectDir(session)
+	}
 
 	since := fmt.Sprintf("%dd", days)
 
@@ -2200,20 +2856,44 @@ func checkCassDuplicates(session, prompt string, threshold float64, days int) er
 
 // runDistributeMode implements the --distribute flag behavior.
 // It gets prioritized work from bv triage and distributes tasks to idle agents.
-func runDistributeMode(session, strategy string, limit int, autoExecute bool, dryRun bool) error {
+func runDistributeMode(session, strategy string, limit int, autoExecute bool, dryRun bool, randomize bool, seed int64) error {
 	th := theme.Current()
+
+	outputError := func(err error) error {
+		if jsonOutput {
+			result := map[string]interface{}{
+				"success": false,
+				"session": session,
+				"error":   err.Error(),
+			}
+			_ = json.NewEncoder(os.Stdout).Encode(result)
+		}
+		return err
+	}
 
 	// Check if bv is installed
 	if !bv.IsInstalled() {
-		return fmt.Errorf("bv (beads graph triage) is not installed; cannot use --distribute")
+		return outputError(fmt.Errorf("bv (beads graph triage) is not installed; cannot use --distribute"))
 	}
 
 	// Verify session exists
 	if err := tmux.EnsureInstalled(); err != nil {
-		return err
+		return outputError(err)
 	}
+
+	{
+		res, err := ResolveSession(session, os.Stdout)
+		if err != nil {
+			return outputError(err)
+		}
+		if res.Session == "" {
+			return outputError(fmt.Errorf("session is required"))
+		}
+		session = res.Session
+	}
+
 	if !tmux.SessionExists(session) {
-		return fmt.Errorf("session '%s' not found", session)
+		return outputError(fmt.Errorf("session '%s' not found", session))
 	}
 
 	// Get assignment recommendations using robot module
@@ -2244,6 +2924,29 @@ func runDistributeMode(session, strategy string, limit int, autoExecute bool, dr
 	// Apply limit if specified
 	if limit > 0 && len(recs) > limit {
 		recs = recs[:limit]
+	}
+
+	seedUsed := int64(0)
+	if randomize && len(recs) > 1 {
+		var perm []int
+		seedUsed, perm = shuffledPermutation(len(recs), seed)
+		shuffled := make([]robot.DistributeRecommendation, 0, len(recs))
+		for _, idx := range perm {
+			if idx < 0 || idx >= len(recs) {
+				continue
+			}
+			shuffled = append(shuffled, recs[idx])
+		}
+		if len(shuffled) == len(recs) {
+			recs = shuffled
+		}
+		if !jsonOutput {
+			order := make([]int, 0, len(recs))
+			for _, r := range recs {
+				order = append(order, r.PaneIndex)
+			}
+			fmt.Fprintf(os.Stderr, "Randomized distribute order (seed=%d): %v\n", seedUsed, order)
+		}
 	}
 
 	// Style helpers
@@ -2278,6 +2981,10 @@ func runDistributeMode(session, strategy string, limit int, autoExecute bool, dr
 			"strategy":        strategy,
 			"recommendations": recs,
 			"count":           len(recs),
+		}
+		if randomize {
+			result["randomized"] = true
+			result["seed_used"] = seedUsed
 		}
 		if dryRun {
 			result["dry_run"] = true
@@ -2364,20 +3071,25 @@ func runDistributeMode(session, strategy string, limit int, autoExecute bool, dr
 
 // BatchResult represents the JSON output for batch send operations
 type BatchResult struct {
-	Success   bool                `json:"success"`
-	Session   string              `json:"session"`
-	Total     int                 `json:"batch_total"`
-	Delivered int                 `json:"batch_delivered"`
-	Failed    int                 `json:"batch_failed"`
-	Skipped   int                 `json:"batch_skipped"`
-	Results   []BatchPromptResult `json:"results"`
-	Error     string              `json:"error,omitempty"`
+	Success         bool                `json:"success"`
+	Session         string              `json:"session"`
+	Randomized      bool                `json:"randomized,omitempty"`
+	SeedUsed        int64               `json:"seed_used,omitempty"`
+	PriorityOrdered bool                `json:"priority_ordered,omitempty"`
+	Order           []string            `json:"order,omitempty"` // BatchPrompt.Source in execution order (for debugging/tests)
+	Total           int                 `json:"batch_total"`
+	Delivered       int                 `json:"batch_delivered"`
+	Failed          int                 `json:"batch_failed"`
+	Skipped         int                 `json:"batch_skipped"`
+	Results         []BatchPromptResult `json:"results"`
+	Error           string              `json:"error,omitempty"`
 }
 
 // BatchPromptResult represents the result of sending a single prompt in a batch
 type BatchPromptResult struct {
 	Index         int    `json:"index"`
 	PromptPreview string `json:"prompt_preview"`
+	Priority      int    `json:"priority,omitempty"` // -1 omitted; 0..4 = P0..P4
 	Success       bool   `json:"success"`
 	Targets       []int  `json:"targets,omitempty"`
 	Delivered     int    `json:"delivered"`
@@ -2386,8 +3098,9 @@ type BatchPromptResult struct {
 }
 
 type BatchPrompt struct {
-	Text   string
-	Source string
+	Text     string
+	Source   string
+	Priority int // -1 = unset; 0..4 = P0..P4 (lower = higher priority)
 }
 
 // parseBatchFile reads and parses a batch file into individual prompts.
@@ -2416,13 +3129,15 @@ func parseBatchFile(path string) ([]BatchPrompt, error) {
 		blockStartLine := 0
 
 		flushBlock := func() {
-			cleaned := removeComments(strings.Join(blockLines, "\n"))
+			raw := strings.Join(blockLines, "\n")
+			cleaned := removeComments(raw)
 			if cleaned == "" || blockStartLine == 0 {
 				return
 			}
 			prompts = append(prompts, BatchPrompt{
-				Text:   cleaned,
-				Source: fmt.Sprintf("line:%d", blockStartLine),
+				Text:     cleaned,
+				Source:   fmt.Sprintf("line:%d", blockStartLine),
+				Priority: parsePriorityAnnotation(raw),
 			})
 		}
 
@@ -2442,18 +3157,27 @@ func parseBatchFile(path string) ([]BatchPrompt, error) {
 		}
 		flushBlock()
 	} else {
-		// Simple one-prompt-per-line format
+		// Simple one-prompt-per-line format.
+		// Track last priority annotation so "# priority: N" applies to the next prompt.
+		pendingPriority := -1
 		for i, line := range lines {
 			lineNo := i + 1
 			trimmed := strings.TrimSpace(line)
-			// Skip empty lines and comments
-			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			if trimmed == "" {
+				continue
+			}
+			if strings.HasPrefix(trimmed, "#") {
+				if p := parsePriorityAnnotation(trimmed); p >= 0 {
+					pendingPriority = p
+				}
 				continue
 			}
 			prompts = append(prompts, BatchPrompt{
-				Text:   trimmed,
-				Source: fmt.Sprintf("line:%d", lineNo),
+				Text:     trimmed,
+				Source:   fmt.Sprintf("line:%d", lineNo),
+				Priority: pendingPriority,
 			})
+			pendingPriority = -1
 		}
 	}
 
@@ -2475,6 +3199,48 @@ func removeComments(text string) string {
 	}
 	result := strings.Join(lines, "\n")
 	return strings.TrimSpace(result)
+}
+
+// parsePriorityAnnotation extracts a priority value from a "# priority: N" comment.
+// Returns -1 if no priority annotation is found.
+func parsePriorityAnnotation(text string) int {
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		// Strip leading # and whitespace
+		comment := strings.TrimSpace(strings.TrimPrefix(trimmed, "#"))
+		lower := strings.ToLower(comment)
+		if strings.HasPrefix(lower, "priority:") {
+			valStr := strings.TrimSpace(strings.TrimPrefix(lower, "priority:"))
+			if len(valStr) == 1 && valStr[0] >= '0' && valStr[0] <= '4' {
+				return int(valStr[0] - '0')
+			}
+		}
+	}
+	return -1
+}
+
+// sortBatchByPriority performs a stable sort of batch prompts by priority.
+// Lower priority values sort first (P0 before P1). Prompts without a priority
+// annotation (Priority == -1) sort last.
+func sortBatchByPriority(prompts []BatchPrompt) {
+	sort.SliceStable(prompts, func(i, j int) bool {
+		pi, pj := prompts[i].Priority, prompts[j].Priority
+		// Both unset: preserve order
+		if pi == -1 && pj == -1 {
+			return false
+		}
+		// Unset sorts last
+		if pi == -1 {
+			return false
+		}
+		if pj == -1 {
+			return true
+		}
+		return pi < pj
+	})
 }
 
 // truncateForPreview shortens a string for display/logging
@@ -2569,8 +3335,35 @@ func runSendBatch(opts SendOptions) error {
 		return err
 	}
 
+	// Prepend base prompt to each batch prompt (bd-3ejl)
+	if opts.BasePrompt != "" {
+		for i := range prompts {
+			prompts[i].Text = applyBasePrompt(opts.BasePrompt, prompts[i].Text)
+		}
+	}
+
+	// Sort by priority annotation if --priority-order (bd-2wzs).
+	// Applied before randomization so priority wins.
+	if opts.PriorityOrder {
+		sortBatchByPriority(prompts)
+	}
+
 	jsonOutput := IsJSONOutput()
 	total := len(prompts)
+
+	seedUsed := int64(0)
+	if opts.Randomize && total > 1 {
+		var perm []int
+		seedUsed, perm = shuffledPermutation(total, opts.Seed)
+		prompts = permuteBatchPrompts(prompts, perm)
+		if !jsonOutput {
+			order := make([]string, 0, len(prompts))
+			for _, p := range prompts {
+				order = append(order, p.Source)
+			}
+			fmt.Fprintf(os.Stderr, "Randomized batch order (seed=%d): %v\n", seedUsed, order)
+		}
+	}
 
 	// Get available panes for round-robin targeting
 	panes, err := tmux.GetPanes(opts.Session)
@@ -2618,6 +3411,7 @@ func runSendBatch(opts SendOptions) error {
 					Prompt:        bp.Text,
 					PromptPreview: truncateForPreview(bp.Text, 80),
 					Source:        bp.Source,
+					Priority:      bp.Priority,
 				})
 			}
 		}
@@ -2648,6 +3442,9 @@ func runSendBatch(opts SendOptions) error {
 	if !jsonOutput {
 		fmt.Printf("Batch contains %d prompts\n", total)
 		fmt.Printf("Target agents: %d panes\n", len(agentPanes))
+		if opts.PriorityOrder {
+			fmt.Println("Order: priority (P0 first)")
+		}
 		if opts.BatchDelay > 0 {
 			fmt.Printf("Delay between prompts: %v\n", opts.BatchDelay)
 		}
@@ -2682,6 +3479,7 @@ func runSendBatch(opts SendOptions) error {
 				results = append(results, BatchPromptResult{
 					Index:         j,
 					PromptPreview: truncateForPreview(prompts[j].Text, 60),
+					Priority:      prompts[j].Priority,
 					Skipped:       true,
 				})
 				skipped++
@@ -2694,6 +3492,7 @@ func runSendBatch(opts SendOptions) error {
 		result := BatchPromptResult{
 			Index:         i,
 			PromptPreview: preview,
+			Priority:      bp.Priority,
 		}
 
 		// Handle --confirm-each
@@ -2800,6 +3599,7 @@ func runSendBatch(opts SendOptions) error {
 					results = append(results, BatchPromptResult{
 						Index:         j,
 						PromptPreview: truncateForPreview(prompts[j].Text, 60),
+						Priority:      prompts[j].Priority,
 						Skipped:       true,
 					})
 					skipped++
@@ -2814,8 +3614,21 @@ summary:
 	// Output results
 	if jsonOutput {
 		batchResult := BatchResult{
-			Success:   failed == 0 && !interrupted,
-			Session:   opts.Session,
+			Success:         failed == 0 && !interrupted,
+			Session:         opts.Session,
+			Randomized:      opts.Randomize,
+			SeedUsed:        seedUsed,
+			PriorityOrdered: opts.PriorityOrder,
+			Order: func() []string {
+				if !opts.Randomize {
+					return nil
+				}
+				out := make([]string, 0, len(prompts))
+				for _, p := range prompts {
+					out = append(out, p.Source)
+				}
+				return out
+			}(),
 			Total:     total,
 			Delivered: delivered,
 			Failed:    failed,

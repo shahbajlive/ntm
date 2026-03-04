@@ -166,6 +166,8 @@ type ListResponse struct {
 // SessionListItem is a single session in list output
 type SessionListItem struct {
 	Name             string               `json:"name"`
+	BaseProject      string               `json:"base_project"`
+	Label            string               `json:"label,omitempty"`
 	Windows          int                  `json:"windows"`
 	PaneCount        int                  `json:"pane_count"`
 	Attached         bool                 `json:"attached"`

@@ -598,6 +598,105 @@ func TestCheckpointVerify(t *testing.T) {
 	suite.logger.Log("[E2E-CHECKPOINT] Verify test passed: id=%s is valid", saveResult.ID)
 }
 
+func TestCheckpointCorruptionRecovery(t *testing.T) {
+	SkipIfShort(t)
+	SkipIfNoNTM(t)
+	SkipIfNoTmux(t)
+
+	suite := NewCheckpointTestSuite(t, "checkpoint-corruption-recovery")
+	if err := suite.SetupWithTmuxSession(); err != nil {
+		t.Fatalf("[E2E-CHECKPOINT] Setup failed: %v", err)
+	}
+	defer suite.Cleanup()
+
+	if !suite.HasTmuxSession() {
+		t.Skip("[E2E-CHECKPOINT] Tmux session not available")
+	}
+
+	saveOutput, err := suite.RunCheckpointJSON("save", suite.SessionName())
+	if err != nil {
+		t.Fatalf("[E2E-CHECKPOINT] Save failed: %v", err)
+	}
+
+	var firstCheckpoint CheckpointSaveResult
+	if err := json.Unmarshal(saveOutput, &firstCheckpoint); err != nil {
+		t.Fatalf("[E2E-CHECKPOINT] Failed to parse save JSON: %v", err)
+	}
+
+	saveOutput, err = suite.RunCheckpointJSON("save", suite.SessionName())
+	if err != nil {
+		t.Fatalf("[E2E-CHECKPOINT] Save #2 failed: %v", err)
+	}
+
+	var secondCheckpoint CheckpointSaveResult
+	if err := json.Unmarshal(saveOutput, &secondCheckpoint); err != nil {
+		t.Fatalf("[E2E-CHECKPOINT] Failed to parse save JSON #2: %v", err)
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("[E2E-CHECKPOINT] Failed to resolve home dir: %v", err)
+	}
+
+	metadataPath := filepath.Join(
+		homeDir,
+		".local",
+		"share",
+		"ntm",
+		"checkpoints",
+		suite.SessionName(),
+		firstCheckpoint.ID,
+		"metadata.json",
+	)
+	if err := os.WriteFile(metadataPath, []byte("corrupted"), 0600); err != nil {
+		t.Fatalf("[E2E-CHECKPOINT] Failed to corrupt metadata: %v", err)
+	}
+
+	suite.logger.LogJSON("[E2E-CHECKPOINT] corrupted_checkpoint", map[string]interface{}{
+		"session":    suite.SessionName(),
+		"id":         firstCheckpoint.ID,
+		"meta_path":  metadataPath,
+		"other_id":   secondCheckpoint.ID,
+		"scenario":   "corrupt metadata.json",
+		"checkpoint": "list/show recovery",
+	})
+
+	listOutput, err := suite.RunCheckpointJSON("list", suite.SessionName())
+	if err != nil {
+		t.Fatalf("[E2E-CHECKPOINT] List failed after corruption: %v", err)
+	}
+
+	var listResult CheckpointListResult
+	if err := json.Unmarshal(listOutput, &listResult); err != nil {
+		t.Fatalf("[E2E-CHECKPOINT] Failed to parse list JSON: %v", err)
+	}
+
+	foundCorrupt := false
+	foundSecond := false
+	for _, cp := range listResult.Checkpoints {
+		if cp.ID == firstCheckpoint.ID {
+			foundCorrupt = true
+		}
+		if cp.ID == secondCheckpoint.ID {
+			foundSecond = true
+		}
+	}
+
+	if foundCorrupt {
+		t.Fatalf("[E2E-CHECKPOINT] Corrupted checkpoint %s should be skipped in list output", firstCheckpoint.ID)
+	}
+	if !foundSecond {
+		t.Fatalf("[E2E-CHECKPOINT] Expected valid checkpoint %s to remain in list output", secondCheckpoint.ID)
+	}
+
+	showOutput, err := suite.RunCheckpoint("show", suite.SessionName(), firstCheckpoint.ID)
+	if err == nil {
+		t.Fatalf("[E2E-CHECKPOINT] Expected show to fail on corrupted checkpoint; output: %s", string(showOutput))
+	}
+
+	suite.logger.Log("[E2E-CHECKPOINT] Corruption recovery test passed: list skipped corrupt id=%s", firstCheckpoint.ID)
+}
+
 // TestCheckpointExport tests exporting a checkpoint to archive
 func TestCheckpointExport(t *testing.T) {
 	SkipIfShort(t)

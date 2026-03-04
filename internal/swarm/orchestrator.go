@@ -185,7 +185,11 @@ func (o *SessionOrchestrator) createSession(client *tmux.Client, spec SessionSpe
 		// Split the window to create a new pane
 		paneID, err := client.SplitWindow(spec.Name, paneDir)
 		if err != nil {
-			// Log error but continue with other panes
+			slog.Warn("[SessionOrchestrator] split_window_failed",
+				"session", spec.Name,
+				"pane_index", i,
+				"directory", paneDir,
+				"error", err)
 			continue
 		}
 
@@ -752,4 +756,217 @@ func (o *SwarmOrchestrator) Execute(ctx context.Context, plan *SwarmPlan, prompt
 		"errors", result.ErrorCount)
 
 	return result, nil
+}
+
+// ShutdownConfig configures graceful shutdown behavior.
+type ShutdownConfig struct {
+	// GracefulTimeout is how long to wait for agents to exit gracefully.
+	// Default: 5 seconds
+	GracefulTimeout time.Duration
+
+	// ForceKill forces immediate session destruction without graceful exit.
+	// Default: false
+	ForceKill bool
+}
+
+// DefaultShutdownConfig returns sensible defaults for graceful shutdown.
+func DefaultShutdownConfig() ShutdownConfig {
+	return ShutdownConfig{
+		GracefulTimeout: 5 * time.Second,
+		ForceKill:       false,
+	}
+}
+
+// ShutdownResult contains the result of a graceful shutdown operation.
+type ShutdownResult struct {
+	SessionsDestroyed int           `json:"sessions_destroyed"`
+	PanesKilled       int           `json:"panes_killed"`
+	GracefulExits     int           `json:"graceful_exits"`
+	ForceKills        int           `json:"force_kills"`
+	Duration          time.Duration `json:"duration"`
+	Errors            []error       `json:"-"`
+}
+
+// GracefulShutdown stops all agents and destroys all sessions in a swarm.
+// It first attempts to gracefully exit agents, then force-kills if needed,
+// and finally destroys all tmux sessions.
+func (o *SwarmOrchestrator) GracefulShutdown(ctx context.Context, sessionNames []string, cfg ShutdownConfig) (*ShutdownResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	logger := o.logger()
+	start := time.Now()
+	result := &ShutdownResult{}
+
+	if len(sessionNames) == 0 {
+		return result, nil
+	}
+
+	logger.Info("[SwarmOrchestrator] shutdown_start",
+		"sessions", len(sessionNames),
+		"force", cfg.ForceKill,
+		"timeout", cfg.GracefulTimeout)
+
+	// Get the session orchestrator for session operations
+	sessOrch, ok := o.sessionOrchestrator().(*SessionOrchestrator)
+	if !ok {
+		// If not a concrete SessionOrchestrator, use default
+		sessOrch = NewSessionOrchestrator()
+	}
+
+	client := sessOrch.tmuxClient()
+
+	// Phase 1: Send graceful exit signals to all agents (unless force kill)
+	if cfg.ForceKill {
+		// Count panes that will be force-killed (for stats)
+		for _, sessionName := range sessionNames {
+			if !sessOrch.SessionExists(sessionName) {
+				continue
+			}
+			panes, err := sessOrch.GetSessionPanes(sessionName)
+			if err != nil {
+				continue
+			}
+			for _, pane := range panes {
+				// Skip control panes (same logic as graceful path)
+				if pane.Index == 1 {
+					continue
+				}
+				result.ForceKills++
+				result.PanesKilled++
+			}
+		}
+	} else {
+		for _, sessionName := range sessionNames {
+			if err := ctx.Err(); err != nil {
+				result.Duration = time.Since(start)
+				return result, err
+			}
+
+			if !sessOrch.SessionExists(sessionName) {
+				continue
+			}
+
+			panes, err := sessOrch.GetSessionPanes(sessionName)
+			if err != nil {
+				logger.Warn("[SwarmOrchestrator] get_panes_failed",
+					"session", sessionName,
+					"error", err)
+				continue
+			}
+
+			for _, pane := range panes {
+				// Skip control panes
+				if pane.Index == 1 {
+					continue
+				}
+
+				// Send graceful exit signal based on agent type
+				if err := sendGracefulExit(client, pane); err != nil {
+					logger.Warn("[SwarmOrchestrator] graceful_exit_failed",
+						"pane", pane.ID,
+						"agent", pane.Type,
+						"error", err)
+				} else {
+					result.GracefulExits++
+				}
+				result.PanesKilled++
+			}
+		}
+
+		// Wait for graceful timeout
+		if cfg.GracefulTimeout > 0 && result.GracefulExits > 0 {
+			logger.Info("[SwarmOrchestrator] waiting_for_graceful_exit",
+				"timeout", cfg.GracefulTimeout)
+
+			select {
+			case <-ctx.Done():
+				result.Duration = time.Since(start)
+				return result, ctx.Err()
+			case <-time.After(cfg.GracefulTimeout):
+			}
+		}
+	}
+
+	// Phase 2: Destroy all sessions
+	for _, sessionName := range sessionNames {
+		if err := ctx.Err(); err != nil {
+			result.Duration = time.Since(start)
+			return result, err
+		}
+
+		if !sessOrch.SessionExists(sessionName) {
+			logger.Debug("[SwarmOrchestrator] session_not_found",
+				"session", sessionName)
+			continue
+		}
+
+		if err := sessOrch.DestroySession(sessionName); err != nil {
+			logger.Warn("[SwarmOrchestrator] destroy_session_failed",
+				"session", sessionName,
+				"error", err)
+			result.Errors = append(result.Errors, err)
+		} else {
+			result.SessionsDestroyed++
+			logger.Info("[SwarmOrchestrator] session_destroyed",
+				"session", sessionName)
+		}
+	}
+
+	result.Duration = time.Since(start)
+
+	logger.Info("[SwarmOrchestrator] shutdown_complete",
+		"sessions_destroyed", result.SessionsDestroyed,
+		"panes_killed", result.PanesKilled,
+		"graceful_exits", result.GracefulExits,
+		"force_kills", result.ForceKills,
+		"duration", result.Duration)
+
+	return result, nil
+}
+
+// sendGracefulExit sends the appropriate exit signal for an agent type.
+func sendGracefulExit(client *tmux.Client, pane tmux.Pane) error {
+	agentType := string(pane.Type)
+
+	switch agentType {
+	case "cc", "claude", "claude-code":
+		// Claude: Double Ctrl+C with 100ms gap
+		if err := client.SendKeys(pane.ID, "\x03", false); err != nil {
+			return err
+		}
+		time.Sleep(100 * time.Millisecond)
+		return client.SendKeys(pane.ID, "\x03", false)
+
+	case "cod", "codex":
+		// Codex: /exit command
+		return client.SendKeys(pane.ID, "/exit", true)
+
+	case "gmi", "gemini":
+		// Gemini: Escape then Ctrl+C
+		if err := client.SendKeys(pane.ID, "\x1b", false); err != nil {
+			return err
+		}
+		time.Sleep(50 * time.Millisecond)
+		return client.SendKeys(pane.ID, "\x03", false)
+
+	default:
+		// Default: Ctrl+C
+		return client.SendKeys(pane.ID, "\x03", false)
+	}
+}
+
+// ShutdownFromPlan gracefully shuts down all sessions defined in a swarm plan.
+func (o *SwarmOrchestrator) ShutdownFromPlan(ctx context.Context, plan *SwarmPlan, cfg ShutdownConfig) (*ShutdownResult, error) {
+	if plan == nil {
+		return &ShutdownResult{}, nil
+	}
+
+	sessionNames := make([]string, 0, len(plan.Sessions))
+	for _, sess := range plan.Sessions {
+		sessionNames = append(sessionNames, sess.Name)
+	}
+
+	return o.GracefulShutdown(ctx, sessionNames, cfg)
 }

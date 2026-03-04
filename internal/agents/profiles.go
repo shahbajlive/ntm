@@ -80,7 +80,7 @@ func NewProfileMatcher() *ProfileMatcher {
 func (pm *ProfileMatcher) loadDefaults() {
 	pm.profiles[AgentTypeClaude] = &AgentProfile{
 		Type:          AgentTypeClaude,
-		Model:         "opus-4.5",
+		Model:         "claude-opus-4-6",
 		ContextBudget: 180000,
 		Specializations: []Specialization{
 			SpecComplex,
@@ -100,7 +100,7 @@ func (pm *ProfileMatcher) loadDefaults() {
 
 	pm.profiles[AgentTypeCodex] = &AgentProfile{
 		Type:          AgentTypeCodex,
-		Model:         "gpt-5-codex",
+		Model:         "gpt-5.3-codex",
 		ContextBudget: 120000,
 		Specializations: []Specialization{
 			SpecQuick,
@@ -119,7 +119,7 @@ func (pm *ProfileMatcher) loadDefaults() {
 
 	pm.profiles[AgentTypeGemini] = &AgentProfile{
 		Type:          AgentTypeGemini,
-		Model:         "gemini-ultra",
+		Model:         "gemini-3-pro-preview",
 		ContextBudget: 100000,
 		Specializations: []Specialization{
 			SpecResearch,

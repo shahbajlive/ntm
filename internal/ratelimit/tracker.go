@@ -24,6 +24,11 @@ const (
 	MinDelayOpenAI    = 3 * time.Second
 	MinDelayGoogle    = 2 * time.Second
 
+	// MaxLearnedDelay caps the adaptive delay to prevent overflow.
+	// With delayIncreaseRate=1.5, uncapped growth overflows int64
+	// nanoseconds after ~61 consecutive rate limits (ntm-45).
+	MaxLearnedDelay = 10 * time.Minute
+
 	// Learning parameters
 	delayIncreaseRate       = 1.5 // Increase by 50% on rate limit
 	delayDecreaseRate       = 0.9 // Decrease by 10% on consecutive successes
@@ -132,6 +137,12 @@ func (t *RateLimitTracker) RecordRateLimitWithCooldown(provider, action string, 
     now := time.Now()
     state := t.recordRateLimitLocked(provider, action, now)
 
+    // Cap waitSeconds to prevent absurdly long cooldowns from misparse
+    // (e.g., ParseWaitSeconds extracting a Unix timestamp from output).
+    const maxCooldownSeconds = 600 // 10 minutes
+    if waitSeconds > maxCooldownSeconds {
+        waitSeconds = maxCooldownSeconds
+    }
     cooldown := time.Duration(waitSeconds) * time.Second
     if waitSeconds <= 0 {
         cooldown = state.CurrentDelay
@@ -164,9 +175,13 @@ func (t *RateLimitTracker) recordRateLimitLocked(provider, action string, now ti
     state.TotalRateLimits++
     state.ConsecutiveSuccess = 0 // Reset consecutive successes
 
-    // Increase delay by 50%
-    newDelay := time.Duration(float64(state.CurrentDelay) * delayIncreaseRate)
-    state.CurrentDelay = newDelay
+    // Increase delay by 50%, capping to prevent int64 overflow (ntm-45).
+    newDelayF := float64(state.CurrentDelay) * delayIncreaseRate
+    if newDelayF > float64(MaxLearnedDelay) {
+        state.CurrentDelay = MaxLearnedDelay
+    } else {
+        state.CurrentDelay = time.Duration(newDelayF)
+    }
     return state
 }
 
@@ -333,6 +348,16 @@ func (t *RateLimitTracker) LoadFromDir(dir string) error {
 	defer t.mu.Unlock()
 
 	if pd.State != nil {
+		// Sanitize loaded state: reset corrupted delays and cooldowns
+		// that may have been persisted from a previous overflow bug.
+		for _, ps := range pd.State {
+			if ps.CurrentDelay < 0 || ps.CurrentDelay > time.Hour {
+				ps.CurrentDelay = 0
+			}
+			if !ps.CooldownUntil.IsZero() && ps.CooldownUntil.After(time.Now().Add(time.Hour)) {
+				ps.CooldownUntil = time.Time{}
+			}
+		}
 		t.state = pd.State
 	}
 	if pd.History != nil {
@@ -415,6 +440,7 @@ type RateLimitDetection struct {
     WaitSeconds int
     ExitCode    int
     Source      string // "output" or "exit_code"
+    AgentType   string // Agent type hint (e.g., "cod") when available
 }
 
 const (
@@ -508,4 +534,340 @@ func DetectRateLimit(output string) RateLimitDetection {
     }
 
     return detection
+}
+
+// DetectRateLimitForAgent inspects output for rate limit signals with agent type context.
+// When agentType is "cod", additional Codex-specific patterns are checked.
+func DetectRateLimitForAgent(output string, agentType string) RateLimitDetection {
+    detection := DetectRateLimit(output)
+    detection.AgentType = agentType
+
+    // Already detected by generic logic
+    if detection.RateLimited {
+        return detection
+    }
+
+    // Codex-specific patterns (only check for cod agents)
+    if agentType == "cod" && DetectCodexRateLimit(output) {
+        detection.RateLimited = true
+        detection.Source = detectionSourceOutput
+        return detection
+    }
+
+    return detection
+}
+
+// codexRateLimitPatterns contains patterns specific to Codex CLI rate-limit messages.
+var codexRateLimitPatterns = []*regexp.Regexp{
+    regexp.MustCompile(`(?i)openai.*rate.?limit`),
+    regexp.MustCompile(`(?i)codex.*rate.?limit`),
+    regexp.MustCompile(`(?i)tokens?\s+per\s+min`),
+    regexp.MustCompile(`(?i)requests?\s+per\s+min`),
+    regexp.MustCompile(`(?i)api\.openai\.com.*429`),
+    regexp.MustCompile(`(?i)insufficient_quota`),
+    regexp.MustCompile(`(?i)billing.*limit|limit.*billing`),
+    regexp.MustCompile(`(?i)exceeded.*(?:token|request).*(?:limit|quota)`),
+    regexp.MustCompile(`(?i)(?:token|request).*(?:limit|quota).*exceeded`),
+    regexp.MustCompile(`(?i)please\s+try\s+again`),
+    regexp.MustCompile(`(?i)usage.*(?:cap|limit).*reached`),
+    regexp.MustCompile(`(?i)RateLimitError`),
+}
+
+// DetectCodexRateLimit checks output for Codex-specific rate limit patterns.
+// This is a pure function suitable for unit testing.
+func DetectCodexRateLimit(output string) bool {
+    if output == "" {
+        return false
+    }
+    cleaned := status.StripANSI(output)
+    for _, pat := range codexRateLimitPatterns {
+        if pat.MatchString(cleaned) {
+            return true
+        }
+    }
+    return false
+}
+
+// =============================================================================
+// CodexThrottle: AIMD-based adaptive throttling for Codex launches (bd-3qoly)
+// =============================================================================
+
+// ThrottlePhase describes the current throttle state.
+type ThrottlePhase string
+
+const (
+    // ThrottleNormal means no throttling is active.
+    ThrottleNormal ThrottlePhase = "normal"
+    // ThrottlePaused means new cod launches are paused due to rate limiting.
+    ThrottlePaused ThrottlePhase = "paused"
+    // ThrottleRecovering means throttle is gradually allowing launches again (AIMD additive increase).
+    ThrottleRecovering ThrottlePhase = "recovering"
+)
+
+// AIMD parameters for Codex throttle.
+const (
+    // AIMDMultiplicativeDecrease halves the allowed rate on rate-limit detection.
+    AIMDMultiplicativeDecrease = 0.5
+    // AIMDAdditiveIncrease adds one allowed launch per recovery interval.
+    AIMDAdditiveIncrease = 1
+    // DefaultCooldownWindow is the minimum pause after a rate-limit event.
+    DefaultCooldownWindow = 30 * time.Second
+    // MaxCooldownWindow caps the cooldown to prevent indefinite pausing.
+    MaxCooldownWindow = 5 * time.Minute
+    // RecoveryCheckInterval is how often to re-evaluate recovery during additive increase.
+    RecoveryCheckInterval = 15 * time.Second
+)
+
+// CodexThrottle implements AIMD-based adaptive throttling for Codex (cod) agent launches.
+// It is safe for concurrent use.
+type CodexThrottle struct {
+    mu sync.RWMutex
+
+    phase         ThrottlePhase
+    cooldownUntil time.Time
+    cooldownDur   time.Duration // Current cooldown window (grows on repeated rate limits)
+
+    // AIMD state
+    allowedConcurrent int // Current allowed concurrent cod launches (AIMD window size)
+    maxConcurrent     int // Maximum allowed (ceiling for additive increase)
+
+    // Bookkeeping
+    rateLimitCount   int       // Total rate-limit events observed
+    lastRateLimit    time.Time // When last rate-limit was observed
+    lastRecoveryStep time.Time // When last additive increase happened
+    affectedPanes    []string  // Pane IDs that were rate-limited
+
+    // nowFn allows test time injection.
+    nowFn func() time.Time
+}
+
+// CodexThrottleStatus is a read-only snapshot of the throttle state.
+type CodexThrottleStatus struct {
+    Phase             ThrottlePhase `json:"phase"`
+    CooldownRemaining time.Duration `json:"cooldown_remaining"`
+    AllowedConcurrent int           `json:"allowed_concurrent"`
+    MaxConcurrent     int           `json:"max_concurrent"`
+    RateLimitCount    int           `json:"rate_limit_count"`
+    AffectedPanes     []string      `json:"affected_panes,omitempty"`
+    Guidance          string        `json:"guidance"`
+}
+
+// NewCodexThrottle creates a CodexThrottle with the given max concurrency ceiling.
+func NewCodexThrottle(maxConcurrent int) *CodexThrottle {
+    if maxConcurrent < 1 {
+        maxConcurrent = 3
+    }
+    return &CodexThrottle{
+        phase:             ThrottleNormal,
+        allowedConcurrent: maxConcurrent,
+        maxConcurrent:     maxConcurrent,
+        nowFn:             time.Now,
+    }
+}
+
+// now returns the current time, using the injectable nowFn.
+func (ct *CodexThrottle) now() time.Time {
+    if ct.nowFn != nil {
+        return ct.nowFn()
+    }
+    return time.Now()
+}
+
+// RecordRateLimit is called when a Codex rate-limit event is detected on the given pane.
+// It triggers multiplicative decrease and sets a cooldown window.
+func (ct *CodexThrottle) RecordRateLimit(paneID string, waitSeconds int) {
+    ct.mu.Lock()
+    defer ct.mu.Unlock()
+
+    now := ct.now()
+    ct.rateLimitCount++
+    ct.lastRateLimit = now
+
+    // Track affected pane
+    ct.addAffectedPane(paneID)
+
+    // AIMD multiplicative decrease
+    newAllowed := int(float64(ct.allowedConcurrent) * AIMDMultiplicativeDecrease)
+    if newAllowed < 0 {
+        newAllowed = 0
+    }
+    ct.allowedConcurrent = newAllowed
+
+    // Calculate cooldown window
+    cooldown := DefaultCooldownWindow
+    if waitSeconds > 0 {
+        cooldown = time.Duration(waitSeconds) * time.Second
+    }
+    // Scale up cooldown on repeated rate limits (multiplicative backoff)
+    if ct.rateLimitCount > 1 {
+        cooldown = time.Duration(float64(cooldown) * 1.5)
+    }
+    if cooldown > MaxCooldownWindow {
+        cooldown = MaxCooldownWindow
+    }
+    ct.cooldownDur = cooldown
+
+    cooldownUntil := now.Add(cooldown)
+    if cooldownUntil.After(ct.cooldownUntil) {
+        ct.cooldownUntil = cooldownUntil
+    }
+
+    ct.phase = ThrottlePaused
+}
+
+// addAffectedPane adds a pane ID to the affected list if not already present.
+func (ct *CodexThrottle) addAffectedPane(paneID string) {
+    if paneID == "" {
+        return
+    }
+    for _, p := range ct.affectedPanes {
+        if p == paneID {
+            return
+        }
+    }
+    ct.affectedPanes = append(ct.affectedPanes, paneID)
+}
+
+// MayLaunch reports whether a new cod launch is allowed right now.
+// It also advances the AIMD state (checks cooldown expiry, additive increase).
+func (ct *CodexThrottle) MayLaunch(currentRunning int) bool {
+    ct.mu.Lock()
+    defer ct.mu.Unlock()
+
+    ct.advanceStateLocked()
+
+    switch ct.phase {
+    case ThrottleNormal:
+        return true
+    case ThrottlePaused:
+        return false
+    case ThrottleRecovering:
+        return currentRunning < ct.allowedConcurrent
+    }
+    return true
+}
+
+// advanceStateLocked transitions state based on elapsed time. Caller must hold ct.mu.
+func (ct *CodexThrottle) advanceStateLocked() {
+    now := ct.now()
+
+    if ct.phase == ThrottlePaused {
+        if now.After(ct.cooldownUntil) {
+            // Cooldown expired: enter recovery with additive increase
+            ct.phase = ThrottleRecovering
+            ct.lastRecoveryStep = now
+            // Start recovery with at least 1 allowed concurrent
+            if ct.allowedConcurrent < 1 {
+                ct.allowedConcurrent = 1
+            }
+        }
+        return
+    }
+
+    if ct.phase == ThrottleRecovering {
+        // AIMD additive increase: add 1 per recovery interval
+        if now.Sub(ct.lastRecoveryStep) >= RecoveryCheckInterval {
+            steps := int(now.Sub(ct.lastRecoveryStep) / RecoveryCheckInterval)
+            ct.allowedConcurrent += steps * AIMDAdditiveIncrease
+            if ct.allowedConcurrent >= ct.maxConcurrent {
+                ct.allowedConcurrent = ct.maxConcurrent
+                ct.phase = ThrottleNormal
+                ct.affectedPanes = nil // Clear affected panes on full recovery
+            }
+            ct.lastRecoveryStep = now
+        }
+    }
+}
+
+// RecordSuccess is called when a cod agent completes work successfully.
+// This does NOT advance recovery -- only time does. But it resets the
+// rate-limit counter so that future cooldowns are not over-penalized.
+func (ct *CodexThrottle) RecordSuccess() {
+    ct.mu.Lock()
+    defer ct.mu.Unlock()
+
+    // Reset consecutive penalty count on success so next
+    // rate-limit event does not immediately escalate.
+    ct.rateLimitCount = 0
+}
+
+// Status returns a read-only snapshot of the current throttle state.
+func (ct *CodexThrottle) Status() CodexThrottleStatus {
+    ct.mu.Lock()
+    ct.advanceStateLocked()
+    defer ct.mu.Unlock()
+
+    var remaining time.Duration
+    if ct.phase == ThrottlePaused {
+        remaining = ct.cooldownUntil.Sub(ct.now())
+        if remaining < 0 {
+            remaining = 0
+        }
+    }
+
+    panes := make([]string, len(ct.affectedPanes))
+    copy(panes, ct.affectedPanes)
+
+    return CodexThrottleStatus{
+        Phase:             ct.phase,
+        CooldownRemaining: remaining,
+        AllowedConcurrent: ct.allowedConcurrent,
+        MaxConcurrent:     ct.maxConcurrent,
+        RateLimitCount:    ct.rateLimitCount,
+        AffectedPanes:     panes,
+        Guidance:          ct.guidanceLocked(),
+    }
+}
+
+// guidanceLocked returns human-readable remediation guidance. Caller must hold ct.mu.
+func (ct *CodexThrottle) guidanceLocked() string {
+    switch ct.phase {
+    case ThrottlePaused:
+        remaining := ct.cooldownUntil.Sub(ct.now())
+        if remaining < 0 {
+            remaining = 0
+        }
+        return fmt.Sprintf(
+            "Codex rate-limited: new cod launches paused for %s. "+
+                "Claude and Gemini agents are unaffected. "+
+                "Consider reducing concurrent cod panes or waiting for quota reset.",
+            FormatDelay(remaining),
+        )
+    case ThrottleRecovering:
+        return fmt.Sprintf(
+            "Codex recovering: allowing %d/%d concurrent cod launches. "+
+                "Rate will increase gradually. Other agent types are unaffected.",
+            ct.allowedConcurrent, ct.maxConcurrent,
+        )
+    default:
+        return "Codex throttle inactive: all launches permitted."
+    }
+}
+
+// ClearAffectedPane removes a pane from the affected list (e.g., on pane restart).
+func (ct *CodexThrottle) ClearAffectedPane(paneID string) {
+    ct.mu.Lock()
+    defer ct.mu.Unlock()
+
+    for i, p := range ct.affectedPanes {
+        if p == paneID {
+            ct.affectedPanes = append(ct.affectedPanes[:i], ct.affectedPanes[i+1:]...)
+            return
+        }
+    }
+}
+
+// Reset restores the throttle to a clean normal state.
+func (ct *CodexThrottle) Reset() {
+    ct.mu.Lock()
+    defer ct.mu.Unlock()
+
+    ct.phase = ThrottleNormal
+    ct.cooldownUntil = time.Time{}
+    ct.cooldownDur = 0
+    ct.allowedConcurrent = ct.maxConcurrent
+    ct.rateLimitCount = 0
+    ct.lastRateLimit = time.Time{}
+    ct.lastRecoveryStep = time.Time{}
+    ct.affectedPanes = nil
 }

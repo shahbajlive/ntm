@@ -9,7 +9,88 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Dicklesworthstone/ntm/internal/redaction"
 )
+
+// =============================================================================
+// DefaultImportOptions (bd-9czd7)
+// =============================================================================
+
+func TestDefaultImportOptions(t *testing.T) {
+	t.Parallel()
+	opts := DefaultImportOptions()
+	if !opts.VerifyChecksums {
+		t.Error("VerifyChecksums should default to true")
+	}
+	if opts.AllowOverwrite {
+		t.Error("AllowOverwrite should default to false")
+	}
+	if opts.TargetSession != "" {
+		t.Errorf("TargetSession should be empty, got %q", opts.TargetSession)
+	}
+	if opts.TargetDir != "" {
+		t.Errorf("TargetDir should be empty, got %q", opts.TargetDir)
+	}
+}
+
+// =============================================================================
+// GetRedactionConfig / SetRedactionConfig round-trip (bd-9czd7)
+// =============================================================================
+
+func TestGetRedactionConfig_Default(t *testing.T) {
+	// Save and restore global state
+	SetRedactionConfig(nil)
+	t.Cleanup(func() { SetRedactionConfig(nil) })
+
+	cfg := GetRedactionConfig()
+	if cfg != nil {
+		t.Error("GetRedactionConfig should return nil when not set")
+	}
+}
+
+func TestGetRedactionConfig_SetAndGet(t *testing.T) {
+	SetRedactionConfig(nil)
+	t.Cleanup(func() { SetRedactionConfig(nil) })
+
+	original := &redaction.Config{
+		Mode: redaction.ModeRedact,
+	}
+	SetRedactionConfig(original)
+
+	got := GetRedactionConfig()
+	if got == nil {
+		t.Fatal("GetRedactionConfig returned nil after Set")
+	}
+	if got.Mode != redaction.ModeRedact {
+		t.Errorf("Mode = %v, want ModeRedact", got.Mode)
+	}
+
+	// Verify it returns a copy, not the same pointer
+	got.Mode = redaction.ModeWarn
+	got2 := GetRedactionConfig()
+	if got2.Mode != redaction.ModeRedact {
+		t.Error("GetRedactionConfig should return a copy, not shared state")
+	}
+}
+
+// =============================================================================
+// Storage.GitPatchPath (bd-9czd7)
+// =============================================================================
+
+func TestGitPatchPath(t *testing.T) {
+	t.Parallel()
+	storage := NewStorageWithDir("/base/dir")
+	got := storage.GitPatchPath("my-session", "chk-123")
+	want := filepath.Join("/base/dir", "my-session", "chk-123", GitPatchFile)
+	if got != want {
+		t.Errorf("GitPatchPath = %q, want %q", got, want)
+	}
+}
+
+// =============================================================================
+// Existing tests below
+// =============================================================================
 
 func TestExport_TarGz(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "ntm-export-test")
@@ -162,6 +243,91 @@ func TestExport_Zip(t *testing.T) {
 	if !foundFiles[MetadataFile] {
 		t.Error("Zip missing metadata.json")
 	}
+}
+
+func TestExport_Zip_WithScrollbackAndRedaction(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "ntm-export-zip-redact")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	storage := NewStorageWithDir(tmpDir)
+
+	sessionName := "test-session"
+	checkpointID := "20251210-143052-zip-redact"
+
+	cp := &Checkpoint{
+		Version:     CurrentVersion,
+		ID:          checkpointID,
+		SessionName: sessionName,
+		CreatedAt:   time.Now(),
+		Session: SessionState{
+			Panes: []PaneState{
+				{ID: "%0", Index: 0, ScrollbackFile: "panes/pane__0.txt"},
+			},
+		},
+		PaneCount: 1,
+	}
+
+	if err := storage.Save(cp); err != nil {
+		t.Fatalf("Failed to save checkpoint: %v", err)
+	}
+
+	// Create scrollback file with a secret
+	panesDir := storage.PanesDirPath(sessionName, checkpointID)
+	scrollbackPath := filepath.Join(panesDir, "pane__0.txt")
+	scrollbackContent := "normal output\nAKIAIOSFODNN7EXAMPLE secret in scrollback\nmore output"
+	if err := os.WriteFile(scrollbackPath, []byte(scrollbackContent), 0644); err != nil {
+		t.Fatalf("Failed to create scrollback file: %v", err)
+	}
+
+	// Enable redaction
+	SetRedactionConfig(&redaction.Config{Mode: redaction.ModeRedact})
+	t.Cleanup(func() { SetRedactionConfig(nil) })
+
+	outputPath := filepath.Join(tmpDir, "test-export-redact.zip")
+	opts := DefaultExportOptions()
+	opts.Format = FormatZip
+	opts.RedactSecrets = true
+
+	manifest, err := storage.Export(sessionName, checkpointID, outputPath, opts)
+	if err != nil {
+		t.Fatalf("Export failed: %v", err)
+	}
+
+	if len(manifest.Files) < 2 {
+		t.Errorf("Expected at least 2 files (metadata + scrollback), got %d", len(manifest.Files))
+	}
+
+	// Open zip and check scrollback was redacted
+	r, err := zip.OpenReader(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to open zip: %v", err)
+	}
+	defer r.Close()
+
+	for _, f := range r.File {
+		if f.Name == "panes/pane__0.txt" {
+			rc, err := f.Open()
+			if err != nil {
+				t.Fatalf("Failed to open scrollback in zip: %v", err)
+			}
+			data := make([]byte, 1024)
+			n, _ := rc.Read(data)
+			rc.Close()
+			content := string(data[:n])
+
+			if strings.Contains(content, "AKIAIOSFODNN7EXAMPLE") {
+				t.Error("Expected AWS key to be redacted in exported scrollback")
+			}
+			if !strings.Contains(content, "normal output") {
+				t.Error("Expected normal output to be preserved in exported scrollback")
+			}
+			return
+		}
+	}
+	t.Error("Scrollback file not found in zip archive")
 }
 
 func TestImport_TarGz(t *testing.T) {
@@ -394,30 +560,47 @@ func TestExportImport_RoundTrip(t *testing.T) {
 }
 
 func TestRedactSecrets(t *testing.T) {
+	SetRedactionConfig(&redaction.Config{
+		Mode:      redaction.ModeWarn,
+		Allowlist: []string{`token=NO_REDACT_SECRET_[0-9]+`},
+	})
+	t.Cleanup(func() { SetRedactionConfig(nil) })
+
 	tests := []struct {
 		name       string
 		input      string
 		shouldFind bool // whether we expect to find the original string after redaction
+		category   string
 	}{
 		{
 			name:       "aws key",
 			input:      "AKIAIOSFODNN7EXAMPLE",
 			shouldFind: false,
+			category:   "AWS_ACCESS_KEY",
 		},
 		{
 			name:       "api key pattern",
 			input:      "api_key: myverysecretkeyvalue12345678",
 			shouldFind: false,
+			category:   "GENERIC_API_KEY",
 		},
 		{
 			name:       "bearer token",
-			input:      "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+			input:      "Authorization: Bearer tok_abcdefghijklmnopqrstuvwxyz12345",
 			shouldFind: false,
+			category:   "BEARER_TOKEN",
 		},
 		{
 			name:       "no secrets",
 			input:      "Hello, this is normal text without any secrets",
 			shouldFind: true,
+			category:   "",
+		},
+		{
+			name:       "allowlist bypass",
+			input:      "token=NO_REDACT_SECRET_1234567890",
+			shouldFind: true,
+			category:   "",
 		},
 	}
 
@@ -427,6 +610,9 @@ func TestRedactSecrets(t *testing.T) {
 			found := strings.Contains(string(result), tt.input)
 			if found != tt.shouldFind {
 				t.Errorf("redactSecrets() found original = %v, want %v; result = %q", found, tt.shouldFind, result)
+			}
+			if tt.category != "" && !strings.Contains(string(result), "[REDACTED:"+tt.category+":") {
+				t.Errorf("redactSecrets() missing category placeholder %s; result = %q", tt.category, result)
 			}
 		})
 	}

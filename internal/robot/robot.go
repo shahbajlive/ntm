@@ -13,21 +13,22 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shahbajlive/ntm/internal/agentmail"
-	"github.com/shahbajlive/ntm/internal/alerts"
-	"github.com/shahbajlive/ntm/internal/bv"
-	"github.com/shahbajlive/ntm/internal/cass"
-	"github.com/shahbajlive/ntm/internal/config"
-	ntmctx "github.com/shahbajlive/ntm/internal/context"
-	"github.com/shahbajlive/ntm/internal/git"
-	"github.com/shahbajlive/ntm/internal/handoff"
-	"github.com/shahbajlive/ntm/internal/health"
-	"github.com/shahbajlive/ntm/internal/recipe"
-	"github.com/shahbajlive/ntm/internal/status"
-	swarmlib "github.com/shahbajlive/ntm/internal/swarm"
-	"github.com/shahbajlive/ntm/internal/tmux"
-	"github.com/shahbajlive/ntm/internal/tools"
-	"github.com/shahbajlive/ntm/internal/tracker"
+	"github.com/Dicklesworthstone/ntm/internal/agentmail"
+	"github.com/Dicklesworthstone/ntm/internal/alerts"
+	"github.com/Dicklesworthstone/ntm/internal/bv"
+	"github.com/Dicklesworthstone/ntm/internal/cass"
+	"github.com/Dicklesworthstone/ntm/internal/config"
+	ntmctx "github.com/Dicklesworthstone/ntm/internal/context"
+	"github.com/Dicklesworthstone/ntm/internal/git"
+	"github.com/Dicklesworthstone/ntm/internal/handoff"
+	"github.com/Dicklesworthstone/ntm/internal/health"
+	"github.com/Dicklesworthstone/ntm/internal/recipe"
+	"github.com/Dicklesworthstone/ntm/internal/redaction"
+	"github.com/Dicklesworthstone/ntm/internal/status"
+	swarmlib "github.com/Dicklesworthstone/ntm/internal/swarm"
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/Dicklesworthstone/ntm/internal/tools"
+	"github.com/Dicklesworthstone/ntm/internal/tracker"
 )
 
 // CASSStatusOutput represents the output for --robot-cass-status
@@ -388,6 +389,161 @@ func PrintCASSContext(query string) error {
 }
 
 // ===========================================================================
+// ACFS (Flywheel Setup) Robot Wrappers
+// ===========================================================================
+
+// SetupToolStatus represents a single tool status in setup checks.
+type SetupToolStatus struct {
+	Installed bool   `json:"installed"`
+	Version   string `json:"version,omitempty"`
+	Path      string `json:"path,omitempty"`
+	Hint      string `json:"hint,omitempty"`
+	Required  bool   `json:"required,omitempty"`
+}
+
+// ACFSStatusOutput represents the output for --robot-acfs-status / --robot-setup.
+type ACFSStatusOutput struct {
+	RobotResponse
+	ACFSAvailable bool                       `json:"acfs_available"`
+	ACFSVersion   string                     `json:"acfs_version,omitempty"`
+	ACFSPath      string                     `json:"acfs_path,omitempty"`
+	Tools         map[string]SetupToolStatus `json:"tools"`
+}
+
+type setupToolSpec struct {
+	Key         string
+	Command     string
+	VersionArgs []string
+	Hint        string
+	Required    bool
+}
+
+var setupToolSpecs = []setupToolSpec{
+	{
+		Key:         "tmux",
+		Command:     "tmux",
+		VersionArgs: []string{"-V"},
+		Hint:        "brew install tmux (macOS) / apt install tmux (Linux)",
+		Required:    true,
+	},
+	{
+		Key:         "br",
+		Command:     "br",
+		VersionArgs: []string{"--version"},
+		Hint:        "Install beads_rust (br)",
+	},
+	{
+		Key:         "bv",
+		Command:     "bv",
+		VersionArgs: []string{"--version"},
+		Hint:        "Install beads_viewer (bv)",
+	},
+	{
+		Key:         "cc",
+		Command:     "claude",
+		VersionArgs: []string{"--version"},
+		Hint:        "npm install -g @anthropic-ai/claude-code",
+	},
+	{
+		Key:         "cod",
+		Command:     "codex",
+		VersionArgs: []string{"--version"},
+		Hint:        "npm install -g @openai/codex",
+	},
+	{
+		Key:         "gmi",
+		Command:     "gemini",
+		VersionArgs: []string{"--version"},
+		Hint:        "npm install -g @google/gemini-cli",
+	},
+	{
+		Key:         "git",
+		Command:     "git",
+		VersionArgs: []string{"--version"},
+		Hint:        "brew install git (macOS) / apt install git (Linux)",
+	},
+}
+
+// GetACFSStatus returns ACFS setup status and core tool availability.
+// This function returns the data struct directly, enabling CLI/REST parity.
+func GetACFSStatus() (*ACFSStatusOutput, error) {
+	adapter := tools.NewACFSAdapter()
+
+	output := &ACFSStatusOutput{
+		RobotResponse: NewRobotResponse(true),
+		Tools:         make(map[string]SetupToolStatus, len(setupToolSpecs)),
+	}
+
+	// Collect tool statuses
+	for _, spec := range setupToolSpecs {
+		output.Tools[spec.Key] = buildSetupToolStatus(spec)
+	}
+
+	// Check ACFS availability
+	path, installed := adapter.Detect()
+	output.ACFSAvailable = installed
+	output.ACFSPath = path
+
+	if !installed {
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("acfs not installed"),
+			ErrCodeDependencyMissing,
+			"Install acfs to enable setup status checks",
+		)
+		return output, nil
+	}
+
+	ctx := context.Background()
+	version, err := adapter.Version(ctx)
+	if err == nil {
+		output.ACFSVersion = version.Raw
+	}
+
+	return output, nil
+}
+
+// PrintACFSStatus outputs ACFS status as JSON.
+// This is a thin wrapper around GetACFSStatus() for CLI output.
+func PrintACFSStatus() error {
+	output, err := GetACFSStatus()
+	if err != nil {
+		return err
+	}
+	return encodeJSON(output)
+}
+
+func buildSetupToolStatus(spec setupToolSpec) SetupToolStatus {
+	status := SetupToolStatus{
+		Installed: false,
+		Required:  spec.Required,
+	}
+
+	path, err := exec.LookPath(spec.Command)
+	if err != nil {
+		status.Hint = spec.Hint
+		return status
+	}
+
+	status.Installed = true
+	status.Path = path
+
+	if len(spec.VersionArgs) > 0 {
+		// Some CLIs can hang or take a long time when invoked for version detection.
+		// Keep this check best-effort and bounded so robot mode and tests never stall.
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, spec.Command, spec.VersionArgs...)
+		out, err := cmd.CombinedOutput()
+		if err == nil && ctx.Err() == nil {
+			status.Version = strings.TrimSpace(string(out))
+		}
+	}
+
+	return status
+}
+
+// ===========================================================================
 // JFP (JeffreysPrompts) Robot Wrappers
 // ===========================================================================
 
@@ -455,6 +611,28 @@ type JFPBundlesOutput struct {
 	RobotResponse
 	Count   int             `json:"count"`
 	Bundles json.RawMessage `json:"bundles"`
+}
+
+// JFPInstallOutput represents the output for --robot-jfp-install
+type JFPInstallOutput struct {
+	RobotResponse
+	IDs     []string        `json:"ids"`
+	Project string          `json:"project,omitempty"`
+	Result  json.RawMessage `json:"result,omitempty"`
+}
+
+// JFPExportOutput represents the output for --robot-jfp-export
+type JFPExportOutput struct {
+	RobotResponse
+	IDs    []string        `json:"ids"`
+	Format string          `json:"format,omitempty"`
+	Result json.RawMessage `json:"result,omitempty"`
+}
+
+// JFPUpdateOutput represents the output for --robot-jfp-update
+type JFPUpdateOutput struct {
+	RobotResponse
+	Result json.RawMessage `json:"result,omitempty"`
 }
 
 // GetJFPStatus returns JFP health and status.
@@ -982,6 +1160,188 @@ func PrintJFPBundles() error {
 	return encodeJSON(output)
 }
 
+func parseJFPIDs(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		switch r {
+		case ',', ' ', '\n', '\t':
+			return true
+		default:
+			return false
+		}
+	})
+	ids := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		ids = append(ids, part)
+	}
+	return ids
+}
+
+// GetJFPInstall installs one or more prompts by ID.
+// This function returns the data struct directly, enabling CLI/REST parity.
+func GetJFPInstall(rawIDs, project string) (*JFPInstallOutput, error) {
+	adapter := tools.NewJFPAdapter()
+	ids := parseJFPIDs(rawIDs)
+
+	output := &JFPInstallOutput{
+		RobotResponse: NewRobotResponse(true),
+		IDs:           ids,
+		Project:       project,
+	}
+
+	// Check if jfp is installed
+	_, installed := adapter.Detect()
+	if !installed {
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("jfp not installed"),
+			ErrCodeDependencyMissing,
+			"Install jfp with: npm install -g jeffreysprompts",
+		)
+		return output, nil
+	}
+
+	if len(ids) == 0 {
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("prompt ID is required"),
+			ErrCodeInvalidFlag,
+			"Provide prompt IDs, e.g., --robot-jfp-install=prompt-123",
+		)
+		return output, nil
+	}
+
+	ctx := context.Background()
+	data, err := adapter.Install(ctx, ids, project)
+	if err != nil {
+		output.RobotResponse = NewErrorResponse(
+			err,
+			"INSTALL_FAILED",
+			"Check prompt IDs and try again",
+		)
+		return output, nil
+	}
+
+	output.Result = data
+	return output, nil
+}
+
+// PrintJFPInstall outputs install results as JSON.
+// This is a thin wrapper around GetJFPInstall() for CLI output.
+func PrintJFPInstall(rawIDs, project string) error {
+	output, err := GetJFPInstall(rawIDs, project)
+	if err != nil {
+		return err
+	}
+	return encodeJSON(output)
+}
+
+// GetJFPExport exports one or more prompts by ID.
+// This function returns the data struct directly, enabling CLI/REST parity.
+func GetJFPExport(rawIDs, format string) (*JFPExportOutput, error) {
+	adapter := tools.NewJFPAdapter()
+	ids := parseJFPIDs(rawIDs)
+
+	output := &JFPExportOutput{
+		RobotResponse: NewRobotResponse(true),
+		IDs:           ids,
+		Format:        format,
+	}
+
+	// Check if jfp is installed
+	_, installed := adapter.Detect()
+	if !installed {
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("jfp not installed"),
+			ErrCodeDependencyMissing,
+			"Install jfp with: npm install -g jeffreysprompts",
+		)
+		return output, nil
+	}
+
+	if len(ids) == 0 {
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("prompt ID is required"),
+			ErrCodeInvalidFlag,
+			"Provide prompt IDs, e.g., --robot-jfp-export=prompt-123",
+		)
+		return output, nil
+	}
+
+	ctx := context.Background()
+	data, err := adapter.Export(ctx, ids, format)
+	if err != nil {
+		output.RobotResponse = NewErrorResponse(
+			err,
+			"EXPORT_FAILED",
+			"Check prompt IDs and format, then retry",
+		)
+		return output, nil
+	}
+
+	output.Result = data
+	return output, nil
+}
+
+// PrintJFPExport outputs export results as JSON.
+// This is a thin wrapper around GetJFPExport() for CLI output.
+func PrintJFPExport(rawIDs, format string) error {
+	output, err := GetJFPExport(rawIDs, format)
+	if err != nil {
+		return err
+	}
+	return encodeJSON(output)
+}
+
+// GetJFPUpdate refreshes the local prompt registry/cache.
+// This function returns the data struct directly, enabling CLI/REST parity.
+func GetJFPUpdate() (*JFPUpdateOutput, error) {
+	adapter := tools.NewJFPAdapter()
+
+	output := &JFPUpdateOutput{
+		RobotResponse: NewRobotResponse(true),
+	}
+
+	// Check if jfp is installed
+	_, installed := adapter.Detect()
+	if !installed {
+		output.RobotResponse = NewErrorResponse(
+			fmt.Errorf("jfp not installed"),
+			ErrCodeDependencyMissing,
+			"Install jfp with: npm install -g jeffreysprompts",
+		)
+		return output, nil
+	}
+
+	ctx := context.Background()
+	data, err := adapter.Update(ctx)
+	if err != nil {
+		output.RobotResponse = NewErrorResponse(
+			err,
+			"UPDATE_FAILED",
+			"Run 'jfp update' to refresh the registry",
+		)
+		return output, nil
+	}
+
+	output.Result = data
+	return output, nil
+}
+
+// PrintJFPUpdate outputs update results as JSON.
+// This is a thin wrapper around GetJFPUpdate() for CLI output.
+func PrintJFPUpdate() error {
+	output, err := GetJFPUpdate()
+	if err != nil {
+		return err
+	}
+	return encodeJSON(output)
+}
+
 // ===========================================================================
 // MS (Meta Skill) Robot Wrappers
 // ===========================================================================
@@ -1144,13 +1504,14 @@ var stateTracker = tracker.New()
 
 // SessionInfo contains machine-readable session information
 type SessionInfo struct {
-	Name      string     `json:"name"`
-	Exists    bool       `json:"exists"`
-	Attached  bool       `json:"attached,omitempty"`
-	Windows   int        `json:"windows,omitempty"`
-	Panes     int        `json:"panes,omitempty"`
-	CreatedAt *time.Time `json:"created_at,omitempty"`
-	Agents    []Agent    `json:"agents,omitempty"`
+	Name        string     `json:"name"`
+	Exists      bool       `json:"exists"`
+	Attached    bool       `json:"attached,omitempty"`
+	Windows     int        `json:"windows,omitempty"`
+	Panes       int        `json:"panes,omitempty"`
+	CreatedAt   *time.Time `json:"created_at,omitempty"`
+	Agents      []Agent    `json:"agents,omitempty"`
+	PrivacyMode bool       `json:"privacy_mode,omitempty"` // True if privacy mode is enabled
 }
 
 // Agent represents an AI agent in a session
@@ -1158,6 +1519,7 @@ type Agent struct {
 	Type     string `json:"type"`              // claude, codex, gemini
 	Variant  string `json:"variant,omitempty"` // Model alias or persona name
 	Pane     string `json:"pane"`
+	Name     string `json:"name,omitempty"` // Memorable agent name (e.g., claude-alpha)
 	Window   int    `json:"window"`
 	PaneIdx  int    `json:"pane_idx"`
 	IsActive bool   `json:"is_active"`
@@ -1194,12 +1556,14 @@ type SystemInfo struct {
 type StatusOutput struct {
 	RobotResponse
 	GeneratedAt    time.Time              `json:"generated_at"`
+	SafetyProfile  string                 `json:"safety_profile,omitempty"`
 	System         SystemInfo             `json:"system"`
 	Sessions       []SessionInfo          `json:"sessions"`
 	Pagination     *PaginationInfo        `json:"pagination,omitempty"`
 	AgentHints     *AgentHints            `json:"_agent_hints,omitempty"`
 	Summary        StatusSummary          `json:"summary"`
 	Beads          *bv.BeadsSummary       `json:"beads,omitempty"`
+	Progress       *ProgressSummary       `json:"progress,omitempty"`
 	GraphMetrics   *GraphMetrics          `json:"graph_metrics,omitempty"`
 	AgentMail      *AgentMailSummary      `json:"agent_mail,omitempty"`
 	Handoff        *HandoffSummary        `json:"handoff,omitempty"`
@@ -1341,6 +1705,33 @@ type StatusSummary struct {
 	AiderCount    int `json:"aider_count"`
 }
 
+// ProgressSummary provides bead completion metrics for status and dashboard (bd-1qct).
+type ProgressSummary struct {
+	Assigned        int     `json:"assigned"`         // Beads currently in progress
+	Completed       int     `json:"completed"`        // Beads closed
+	Remaining       int     `json:"remaining"`        // Open + in-progress (not yet closed)
+	Total           int     `json:"total"`            // All beads
+	CompletionRatio float64 `json:"completion_ratio"` // Closed / Total (0.0 to 1.0)
+}
+
+// ComputeProgress derives a ProgressSummary from BeadsSummary counts.
+func ComputeProgress(beads *bv.BeadsSummary) *ProgressSummary {
+	if beads == nil || !beads.Available || beads.Total == 0 {
+		return nil
+	}
+	remaining := beads.Open + beads.InProgress
+	ratio := float64(beads.Closed) / float64(beads.Total)
+	// Round to 4 decimal places for cleaner JSON
+	ratio = float64(int(ratio*10000+0.5)) / 10000
+	return &ProgressSummary{
+		Assigned:        beads.InProgress,
+		Completed:       beads.Closed,
+		Remaining:       remaining,
+		Total:           beads.Total,
+		CompletionRatio: ratio,
+	}
+}
+
 // PlanOutput provides an execution plan for what can be done
 type PlanOutput struct {
 	RobotResponse
@@ -1407,7 +1798,7 @@ Core Commands:
 
 Session Operations:
 -------------------
---robot-spawn=SESSION   Create session with --spawn-cc=N, --spawn-cod=N, --spawn-gmi=N
+--robot-spawn=SESSION   Create session with --spawn-cc=N, --spawn-cod=N, --spawn-gmi=N, --spawn-label=LABEL
 --robot-ensemble-spawn=SESSION  Spawn ensemble with --preset/--modes and --question
 --robot-send=SESSION    Send prompts (--msg="text", --panes=1,2, --type=claude)
 --robot-tail=SESSION    Capture pane output (--lines=50, --panes=1,2)
@@ -1435,9 +1826,18 @@ Analysis & Monitoring:
 Tool Bridges:
 -------------
 --robot-cass-search=QUERY    Search past conversations (--limit=20, --since=7d)
+--robot-acfs-status          Setup status via ACFS (alias: --robot-setup)
+--robot-setup                Alias for --robot-acfs-status
+--robot-giil-fetch=URL       Download image from share URL via giil
 --robot-jfp-search=QUERY     Search prompts library
+--robot-jfp-install=ID       Install prompt(s) (--jfp-project=PATH)
+--robot-jfp-export=ID        Export prompt(s) (--jfp-format=skill|md)
+--robot-jfp-update           Update JFP registry cache
 --robot-ms-search=QUERY      Search Meta Skill catalog
 --robot-ms-show=ID           Show Meta Skill details
+--robot-slb-pending          List pending SLB approval requests
+--robot-slb-approve=ID       Approve SLB request by ID
+--robot-slb-deny=ID          Deny SLB request by ID (--reason="...")
 --robot-tokens               Token usage stats (--days=30, --group-by=agent)
 --robot-history=SESSION      Command history (--last=10)
 
@@ -1509,6 +1909,7 @@ func GetStatusWithOptions(opts PaginationOptions) (*StatusOutput, error) {
 	output := &StatusOutput{
 		RobotResponse: NewRobotResponse(true),
 		GeneratedAt:   time.Now().UTC(),
+		SafetyProfile: cfg.Safety.Profile,
 		System: SystemInfo{
 			Version:   Version,
 			Commit:    Commit,
@@ -1616,6 +2017,7 @@ func GetStatusWithOptions(opts PaginationOptions) (*StatusOutput, error) {
 	// Add beads summary if bv is available
 	if bv.IsInstalled() {
 		output.Beads = bv.GetBeadsSummary(wd, BeadLimit)
+		output.Progress = ComputeProgress(output.Beads)
 		output.GraphMetrics = getGraphMetrics()
 	}
 
@@ -1778,7 +2180,7 @@ func GetMail(opts MailOptions) (*MailOutput, error) {
 	output.Available = true
 
 	// Ensure project exists
-	if _, err := client.EnsureProject(ctx, projectKey); err != nil {
+	if _, err := ensureProjectWithRetry(ctx, client, projectKey); err != nil {
 		output.RobotResponse = NewErrorResponse(
 			fmt.Errorf("ensure_project: %w", err),
 			ErrCodeInternalError,
@@ -2839,6 +3241,12 @@ func determineState(output, agentType string) string {
 	if status.DetectIdleFromOutput(output, shortType) {
 		return "idle"
 	}
+	// Also check the robot pattern library which has richer agent-specific
+	// idle patterns (Claude Code version banner, bypass status, welcome
+	// message, arrow prompt) that the status package doesn't cover.
+	if HasIdlePattern(output, agentType) {
+		return "idle"
+	}
 	// If output is empty and it's a user pane, treat as idle (prompt)
 	if strings.TrimSpace(output) == "" && (agentType == "" || agentType == "user") {
 		return "idle"
@@ -2860,8 +3268,10 @@ func detectState(lines []string, title string) string {
 	// Reconstruct the output from lines
 	output := strings.Join(lines, "\n")
 	agentType := detectAgentType(title)
-	// Translate to short form for status package patterns
-	agentType = translateAgentTypeForStatus(agentType)
+	// Pass the long-form agent type (e.g. "claude") directly to determineState.
+	// determineState handles its own translation to short form ("cc") for the
+	// status package, and uses the long form for HasIdlePattern which matches
+	// against defaultPatterns that use Agent: "claude" (long form).
 	return determineState(output, agentType)
 }
 
@@ -2927,7 +3337,14 @@ func fetchAgentMailData(projectKey string) (*SnapshotAgentMail, []agentmail.Agen
 	defer cancel()
 
 	// Ensure project exists
-	if _, err := client.EnsureProject(ctx, projectKey); err != nil {
+	if _, err := ensureProjectWithRetry(ctx, client, projectKey); err != nil {
+		if isAgentMailDBLockError(err) {
+			return &SnapshotAgentMail{
+				Available: true,
+				Reason:    "temporarily unavailable: Agent Mail resource busy",
+				Project:   projectKey,
+			}, nil, nil
+		}
 		return &SnapshotAgentMail{
 			Available: true,
 			Reason:    fmt.Sprintf("ensure_project failed: %v", err),
@@ -2937,6 +3354,13 @@ func fetchAgentMailData(projectKey string) (*SnapshotAgentMail, []agentmail.Agen
 
 	agents, err := client.ListProjectAgents(ctx, projectKey)
 	if err != nil {
+		if isAgentMailDBLockError(err) {
+			return &SnapshotAgentMail{
+				Available: true,
+				Reason:    "temporarily unavailable: Agent Mail resource busy",
+				Project:   projectKey,
+			}, nil, nil
+		}
 		return &SnapshotAgentMail{
 			Available: true,
 			Reason:    fmt.Sprintf("list_agents failed: %v", err),
@@ -3033,6 +3457,7 @@ func buildSnapshotAgentMail() *SnapshotAgentMail {
 type SnapshotOutput struct {
 	RobotResponse
 	Timestamp      string             `json:"ts"`
+	SafetyProfile  string             `json:"safety_profile,omitempty"`
 	Sessions       []SnapshotSession  `json:"sessions"`
 	Pagination     *PaginationInfo    `json:"pagination,omitempty"`
 	AgentHints     *AgentHints        `json:"_agent_hints,omitempty"`
@@ -3168,6 +3593,7 @@ func GetSnapshotWithOptions(cfg *config.Config, opts PaginationOptions) (*Snapsh
 	output := &SnapshotOutput{
 		RobotResponse: NewRobotResponse(true),
 		Timestamp:     time.Now().UTC().Format(time.RFC3339),
+		SafetyProfile: cfg.Safety.Profile,
 		Sessions:      []SnapshotSession{},
 		Alerts:        []string{},
 	}
@@ -3297,8 +3723,8 @@ func GetSnapshotWithOptions(cfg *config.Config, opts PaginationOptions) (*Snapsh
 
 	// Include tool inventory and health status
 	toolCtx, toolCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer toolCancel()
 	output.Tools = GetToolsSummary(toolCtx)
-	toolCancel()
 
 	// Generate and add detailed alerts using the alerts package
 	var alertCfg alerts.Config
@@ -3401,7 +3827,9 @@ func buildSwarmSnapshot(cfg *config.Config, sessions []tmux.Session) *SwarmSnaps
 	totalLimitHit := 0
 
 	for _, sess := range swarmSessions {
-		h, err := health.CheckSession(sess.name)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		h, err := health.CheckSession(ctx, sess.name)
+		cancel()
 		if err != nil {
 			continue
 		}
@@ -3579,6 +4007,9 @@ type SendOutput struct {
 	RobotResponse                     // Embed standard response fields (success, timestamp, error)
 	Session        string             `json:"session"`
 	SentAt         time.Time          `json:"sent_at"`
+	Blocked        bool               `json:"blocked"`
+	Redaction      RedactionSummary   `json:"redaction"`
+	Warnings       []string           `json:"warnings"`
 	Targets        []string           `json:"targets"`
 	Successful     []string           `json:"successful"`
 	Failed         []SendError        `json:"failed"`
@@ -3587,6 +4018,15 @@ type SendOutput struct {
 	WouldSendTo    []string           `json:"would_send_to,omitempty"`
 	CASSInjection  *CASSInjectionInfo `json:"cass_injection,omitempty"`
 	AgentHints     *SendAgentHints    `json:"_agent_hints,omitempty"`
+}
+
+// RedactionSummary is a safe-to-print summary of redaction findings.
+// It intentionally does NOT include the matched secret values.
+type RedactionSummary struct {
+	Mode       string         `json:"mode"`
+	Findings   int            `json:"findings"`
+	Categories map[string]int `json:"categories,omitempty"`
+	Action     string         `json:"action,omitempty"` // off|warn|redact|block
 }
 
 // CASSInjectionInfo reports CASS context injection details in robot responses.
@@ -3661,8 +4101,9 @@ type SendError struct {
 
 // SendOptions configures the PrintSend operation
 type SendOptions struct {
-	Session    string   // Target session name
-	Message    string   // Message to send
+	Session    string // Target session name
+	Message    string // Message to send
+	Redaction  redaction.Config
 	All        bool     // Send to all panes (including user)
 	Panes      []string // Specific pane indices (e.g., "0", "1", "2")
 	AgentTypes []string // Filter by agent types (e.g., "claude", "codex")
@@ -3678,18 +4119,150 @@ type SendOptions struct {
 	InjectConfig *InjectConfig // CASS injection configuration (optional)
 }
 
+func normalizeSendRedactionConfig(cfg redaction.Config) redaction.Config {
+	// Zero value is treated as off for backwards compatibility.
+	if cfg.Mode == "" {
+		cfg.Mode = redaction.ModeOff
+	}
+	return cfg
+}
+
+func summarizeSendRedactionResult(result redaction.Result) RedactionSummary {
+	summary := RedactionSummary{
+		Mode:     string(result.Mode),
+		Findings: len(result.Findings),
+	}
+
+	cats := make(map[string]int, len(result.Findings))
+	for _, f := range result.Findings {
+		cats[string(f.Category)]++
+	}
+	if len(cats) > 0 {
+		summary.Categories = cats
+	}
+
+	switch result.Mode {
+	case redaction.ModeOff:
+		summary.Action = "off"
+	case redaction.ModeWarn:
+		summary.Action = "warn"
+	case redaction.ModeRedact:
+		summary.Action = "redact"
+	case redaction.ModeBlock:
+		summary.Action = "block"
+	}
+
+	return summary
+}
+
+func formatRedactionCategoryCounts(categories map[string]int) string {
+	if len(categories) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(categories))
+	for k := range categories {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%d", k, categories[k]))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func applySendMessageRedaction(message string, cfg redaction.Config) (messageToSend string, preview string, summary RedactionSummary, warnings []string, blocked bool) {
+	cfg = normalizeSendRedactionConfig(cfg)
+	warnings = []string{}
+
+	// Default summary always reflects configured mode.
+	summary = RedactionSummary{
+		Mode:     string(cfg.Mode),
+		Findings: 0,
+		Action:   string(cfg.Mode),
+	}
+	if cfg.Mode == redaction.ModeOff {
+		summary.Action = "off"
+		return message, truncateMessage(message), summary, warnings, false
+	}
+
+	result := redaction.ScanAndRedact(message, cfg)
+	summary = summarizeSendRedactionResult(result)
+
+	if len(result.Findings) == 0 {
+		// No findings: keep message unchanged regardless of mode.
+		return message, truncateMessage(message), summary, warnings, false
+	}
+
+	switch cfg.Mode {
+	case redaction.ModeWarn:
+		msg := "Warning: potential secrets detected in message"
+		if parts := formatRedactionCategoryCounts(summary.Categories); parts != "" {
+			msg = fmt.Sprintf("%s (%s)", msg, parts)
+		}
+		warnings = append(warnings, msg)
+		return message, truncateMessage(message), summary, warnings, false
+	case redaction.ModeRedact:
+		msg := "Warning: redacted potential secrets in message"
+		if parts := formatRedactionCategoryCounts(summary.Categories); parts != "" {
+			msg = fmt.Sprintf("%s (%s)", msg, parts)
+		}
+		warnings = append(warnings, msg)
+		return result.Output, truncateMessage(result.Output), summary, warnings, false
+	case redaction.ModeBlock:
+		msg := "Blocked: potential secrets detected in message (redaction mode: block)"
+		if parts := formatRedactionCategoryCounts(summary.Categories); parts != "" {
+			msg = fmt.Sprintf("%s (%s)", msg, parts)
+		}
+		warnings = append(warnings, msg)
+
+		previewCfg := cfg
+		previewCfg.Mode = redaction.ModeRedact
+		previewRes := redaction.ScanAndRedact(message, previewCfg)
+		return "", truncateMessage(previewRes.Output), summary, warnings, true
+	default:
+		return message, truncateMessage(message), summary, warnings, false
+	}
+}
+
 // GetSend sends a message to multiple panes atomically and returns structured results.
 // This function returns the data struct directly, enabling CLI/REST parity.
 func GetSend(opts SendOptions) (*SendOutput, error) {
+	redactCfg := normalizeSendRedactionConfig(opts.Redaction)
+	_, initialPreview, initialSummary, initialWarnings, initialBlocked := applySendMessageRedaction(opts.Message, redactCfg)
+
+	if initialBlocked {
+		errMsg := "refusing to proceed: potential secrets detected (redaction mode: block)"
+		if parts := formatRedactionCategoryCounts(initialSummary.Categories); parts != "" {
+			errMsg = fmt.Sprintf("refusing to proceed: potential secrets detected (%s) (redaction mode: block)", parts)
+		}
+		return &SendOutput{
+			RobotResponse:  NewErrorResponse(fmt.Errorf("%s", errMsg), "SENSITIVE_DATA_BLOCKED", "Re-run with --allow-secret to bypass, or use --redact=warn/--redact=redact"),
+			Session:        opts.Session,
+			SentAt:         time.Now().UTC(),
+			Blocked:        true,
+			Redaction:      initialSummary,
+			Warnings:       initialWarnings,
+			Targets:        []string{},
+			Successful:     []string{},
+			Failed:         []SendError{},
+			MessagePreview: initialPreview,
+		}, nil
+	}
+
 	if strings.TrimSpace(opts.Session) == "" {
 		return &SendOutput{
 			RobotResponse:  NewErrorResponse(fmt.Errorf("session name is required"), ErrCodeInvalidFlag, "Provide a session name"),
 			Session:        opts.Session,
 			SentAt:         time.Now().UTC(),
+			Blocked:        false,
+			Redaction:      initialSummary,
+			Warnings:       initialWarnings,
 			Targets:        []string{},
 			Successful:     []string{},
 			Failed:         []SendError{{Pane: "session", Error: "session name is required"}},
-			MessagePreview: truncateMessage(opts.Message),
+			MessagePreview: initialPreview,
 		}, nil
 	}
 
@@ -3698,10 +4271,13 @@ func GetSend(opts SendOptions) (*SendOutput, error) {
 			RobotResponse:  NewErrorResponse(fmt.Errorf("session '%s' not found", opts.Session), ErrCodeSessionNotFound, "Use 'ntm list' to see available sessions"),
 			Session:        opts.Session,
 			SentAt:         time.Now().UTC(),
+			Blocked:        false,
+			Redaction:      initialSummary,
+			Warnings:       initialWarnings,
 			Targets:        []string{},
 			Successful:     []string{},
 			Failed:         []SendError{{Pane: "session", Error: fmt.Sprintf("session '%s' not found", opts.Session)}},
-			MessagePreview: truncateMessage(opts.Message),
+			MessagePreview: initialPreview,
 		}, nil
 	}
 
@@ -3711,10 +4287,13 @@ func GetSend(opts SendOptions) (*SendOutput, error) {
 			RobotResponse:  NewErrorResponse(fmt.Errorf("failed to get panes: %w", err), ErrCodeInternalError, "Check tmux is running"),
 			Session:        opts.Session,
 			SentAt:         time.Now().UTC(),
+			Blocked:        false,
+			Redaction:      initialSummary,
+			Warnings:       initialWarnings,
 			Targets:        []string{},
 			Successful:     []string{},
 			Failed:         []SendError{{Pane: "panes", Error: fmt.Sprintf("failed to get panes: %v", err)}},
-			MessagePreview: truncateMessage(opts.Message),
+			MessagePreview: initialPreview,
 		}, nil
 	}
 
@@ -3722,10 +4301,13 @@ func GetSend(opts SendOptions) (*SendOutput, error) {
 		RobotResponse:  NewRobotResponse(true), // Will be updated based on results
 		Session:        opts.Session,
 		SentAt:         time.Now().UTC(),
+		Blocked:        false,
+		Redaction:      initialSummary,
+		Warnings:       initialWarnings,
 		Targets:        []string{},
 		Successful:     []string{},
 		Failed:         []SendError{},
-		MessagePreview: truncateMessage(opts.Message),
+		MessagePreview: initialPreview,
 	}
 
 	// Build exclusion map
@@ -3834,6 +4416,24 @@ func GetSend(opts SendOptions) (*SendOutput, error) {
 		}
 	}
 
+	// Redaction preflight on final outbound message (after CASS injection, if any).
+	redacted, preview, summary, warnings, blocked := applySendMessageRedaction(messageToSend, redactCfg)
+	output.Redaction = summary
+	output.Warnings = warnings
+	output.Blocked = blocked
+	output.MessagePreview = preview
+
+	if blocked {
+		errMsg := "refusing to proceed: potential secrets detected (redaction mode: block)"
+		if parts := formatRedactionCategoryCounts(summary.Categories); parts != "" {
+			errMsg = fmt.Sprintf("refusing to proceed: potential secrets detected (%s) (redaction mode: block)", parts)
+		}
+		output.RobotResponse = NewErrorResponse(fmt.Errorf("%s", errMsg), "SENSITIVE_DATA_BLOCKED", "Re-run with --allow-secret to bypass, or use --redact=warn/--redact=redact")
+		output.Success = false
+		return &output, nil
+	}
+	messageToSend = redacted
+
 	// Dry-run mode: show what would happen without sending
 	if opts.DryRun {
 		output.DryRun = true
@@ -3871,7 +4471,9 @@ func GetSend(opts SendOptions) (*SendOutput, error) {
 			enterDelay = tmux.ShellEnterDelay
 		}
 
-		err := tmux.SendKeysWithDelay(pane.ID, messageToSend, sendEnter, enterDelay)
+		// Use agent-aware send method which handles Gemini's multi-line quirks
+		// by using buffer-based paste instead of send-keys when content has newlines
+		err := tmux.SendKeysForAgentWithDelay(pane.ID, messageToSend, sendEnter, enterDelay, pane.Type)
 		if err != nil {
 			output.Failed = append(output.Failed, SendError{
 				Pane:  paneKey,
@@ -4925,6 +5527,53 @@ func PrintTerse(cfg *config.Config) error {
 	return nil
 }
 
+// ensureProjectWithRetry wraps EnsureProject with a small retry window for
+// transient SQLite lock contention on the Agent Mail server.
+func ensureProjectWithRetry(ctx context.Context, client *agentmail.Client, projectKey string) (*agentmail.Project, error) {
+	const maxAttempts = 4
+	backoff := 100 * time.Millisecond
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		project, err := client.EnsureProject(ctx, projectKey)
+		if err == nil {
+			return project, nil
+		}
+		lastErr = err
+
+		if !isAgentMailDBLockError(err) || attempt == maxAttempts {
+			return nil, err
+		}
+
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+
+		if backoff < time.Second {
+			backoff *= 2
+		}
+	}
+
+	return nil, lastErr
+}
+
+func isAgentMailDBLockError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "database is locked") ||
+		strings.Contains(msg, "database is busy") ||
+		strings.Contains(msg, "resource busy")
+}
+
 // getTerseMailCount returns unread mail count for terse output (best-effort).
 func getTerseMailCount() int {
 	projectKey, err := os.Getwd()
@@ -4941,7 +5590,7 @@ func getTerseMailCount() int {
 	}
 
 	// Ensure project exists
-	if _, err := client.EnsureProject(ctx, projectKey); err != nil {
+	if _, err := ensureProjectWithRetry(ctx, client, projectKey); err != nil {
 		return 0
 	}
 
@@ -4986,13 +5635,19 @@ func getAgentMailSummary() (*AgentMailSummary, error) {
 	summary.Available = true
 
 	// Ensure project exists
-	if _, err := client.EnsureProject(ctx, projectKey); err != nil {
+	if _, err := ensureProjectWithRetry(ctx, client, projectKey); err != nil {
+		if isAgentMailDBLockError(err) {
+			return summary, nil
+		}
 		summary.Error = fmt.Sprintf("ensure_project: %v", err)
 		return summary, nil
 	}
 
 	agents, err := client.ListProjectAgents(ctx, projectKey)
 	if err != nil {
+		if isAgentMailDBLockError(err) {
+			return summary, nil
+		}
 		summary.Error = fmt.Sprintf("list_agents: %v", err)
 		return summary, nil
 	}

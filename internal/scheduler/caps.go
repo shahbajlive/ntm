@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/Dicklesworthstone/ntm/internal/ratelimit"
 )
 
 // AgentCapConfig configures concurrency caps for a specific agent type.
@@ -110,6 +112,10 @@ type AgentCaps struct {
 
 	// stats tracks cap statistics.
 	stats CapsStats
+
+	// codexThrottle provides AIMD-based rate-limit throttling for cod agents.
+	// When non-nil, TryAcquire/Acquire for "cod" agents check the throttle first.
+	codexThrottle *ratelimit.CodexThrottle
 }
 
 // agentCapState tracks the state of caps for one agent type.
@@ -164,6 +170,11 @@ func NewAgentCaps(cfg AgentCapsConfig) *AgentCaps {
 		}
 	}
 
+	// Initialize Codex throttle if cod config exists
+	if codCfg, ok := cfg.PerAgent["cod"]; ok {
+		ac.codexThrottle = ratelimit.NewCodexThrottle(codCfg.MaxConcurrent)
+	}
+
 	return ac
 }
 
@@ -198,9 +209,22 @@ func (ac *AgentCaps) getCapState(agentType string) *agentCapState {
 
 // TryAcquire tries to acquire a slot without blocking.
 // Returns true if acquired, false if at capacity.
+// For "cod" agents, the Codex throttle is checked first; if throttled,
+// the acquire is rejected without affecting other agent types.
 func (ac *AgentCaps) TryAcquire(agentType string) bool {
 	ac.mu.Lock()
 	defer ac.mu.Unlock()
+
+	// Codex rate-limit throttle gate (bd-3qoly): only affects cod agents.
+	if agentType == "cod" && ac.codexThrottle != nil {
+		if !ac.codexThrottle.MayLaunch(ac.running["cod"]) {
+			slog.Info("codex throttle blocked launch",
+				"agent_type", agentType,
+				"running", ac.running["cod"],
+			)
+			return false
+		}
+	}
 
 	state := ac.getCapState(agentType)
 	ac.updateRampUp(agentType, state)
@@ -618,6 +642,56 @@ func (ac *AgentCaps) ForceRampUp(agentType string) {
 	}
 }
 
+// CodexThrottle returns the CodexThrottle if one is configured, or nil.
+func (ac *AgentCaps) CodexThrottle() *ratelimit.CodexThrottle {
+	ac.mu.Lock()
+	defer ac.mu.Unlock()
+	return ac.codexThrottle
+}
+
+// SetCodexThrottle replaces the CodexThrottle. Pass nil to disable.
+func (ac *AgentCaps) SetCodexThrottle(ct *ratelimit.CodexThrottle) {
+	ac.mu.Lock()
+	defer ac.mu.Unlock()
+	ac.codexThrottle = ct
+}
+
+// RecordCodexRateLimit notifies the Codex throttle of a rate-limit event.
+// It also calls RecordFailure for the "cod" agent type to trigger cap cooldown.
+// This is a no-op if no throttle is configured.
+func (ac *AgentCaps) RecordCodexRateLimit(paneID string, waitSeconds int) {
+	ac.mu.Lock()
+	if ac.codexThrottle != nil {
+		ac.codexThrottle.RecordRateLimit(paneID, waitSeconds)
+	}
+	ac.mu.Unlock()
+
+	// Also trigger the existing cap cooldown mechanism
+	ac.RecordFailure("cod")
+}
+
+// RecordCodexSuccess notifies the Codex throttle of a successful completion.
+func (ac *AgentCaps) RecordCodexSuccess() {
+	ac.mu.Lock()
+	defer ac.mu.Unlock()
+
+	if ac.codexThrottle != nil {
+		ac.codexThrottle.RecordSuccess()
+	}
+}
+
+// CodexThrottleStatus returns the current throttle status snapshot, or nil.
+func (ac *AgentCaps) CodexThrottleStatus() *ratelimit.CodexThrottleStatus {
+	ac.mu.Lock()
+	defer ac.mu.Unlock()
+
+	if ac.codexThrottle == nil {
+		return nil
+	}
+	s := ac.codexThrottle.Status()
+	return &s
+}
+
 // Reset resets all cap states to initial values.
 func (ac *AgentCaps) Reset() {
 	ac.mu.Lock()
@@ -633,6 +707,11 @@ func (ac *AgentCaps) Reset() {
 			config:     capCfg,
 			currentCap: ac.initialCap(capCfg),
 		}
+	}
+
+	// Re-initialize Codex throttle
+	if ac.codexThrottle != nil {
+		ac.codexThrottle.Reset()
 	}
 
 	// Notify and clear all waiters

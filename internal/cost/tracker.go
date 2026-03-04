@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +27,7 @@ var modelPricing = map[string]ModelPricing{
 	// Claude models
 	"claude-opus":       {InputPer1K: 0.015, OutputPer1K: 0.075},
 	"claude-opus-4":     {InputPer1K: 0.015, OutputPer1K: 0.075},
+	"claude-opus-4-6":   {InputPer1K: 0.015, OutputPer1K: 0.075},
 	"claude-opus-4-5":   {InputPer1K: 0.015, OutputPer1K: 0.075},
 	"claude-sonnet":     {InputPer1K: 0.003, OutputPer1K: 0.015},
 	"claude-sonnet-4":   {InputPer1K: 0.003, OutputPer1K: 0.015},
@@ -40,9 +44,10 @@ var modelPricing = map[string]ModelPricing{
 	"gpt-4o-mini": {InputPer1K: 0.00015, OutputPer1K: 0.0006},
 	"gpt-4-turbo": {InputPer1K: 0.01, OutputPer1K: 0.03},
 	"gpt-4":       {InputPer1K: 0.03, OutputPer1K: 0.06},
-	"o1":          {InputPer1K: 0.015, OutputPer1K: 0.06},
-	"o1-mini":     {InputPer1K: 0.003, OutputPer1K: 0.012},
-	"o1-preview":  {InputPer1K: 0.015, OutputPer1K: 0.06},
+	"gpt-5.3-codex": {InputPer1K: 0.005, OutputPer1K: 0.015},
+	"o1":            {InputPer1K: 0.015, OutputPer1K: 0.06},
+	"o1-mini":       {InputPer1K: 0.003, OutputPer1K: 0.012},
+	"o1-preview":    {InputPer1K: 0.015, OutputPer1K: 0.06},
 
 	// Google models
 	"gemini-pro":       {InputPer1K: 0.00025, OutputPer1K: 0.0005},
@@ -50,11 +55,14 @@ var modelPricing = map[string]ModelPricing{
 	"gemini-ultra":     {InputPer1K: 0.00125, OutputPer1K: 0.00375},
 	"gemini-flash":     {InputPer1K: 0.000075, OutputPer1K: 0.0003},
 	"gemini-flash-1.5": {InputPer1K: 0.000075, OutputPer1K: 0.0003},
-	"gemini-2.0-flash": {InputPer1K: 0.000075, OutputPer1K: 0.0003},
+	"gemini-2.0-flash":      {InputPer1K: 0.000075, OutputPer1K: 0.0003},
+	"gemini-3-pro-preview":  {InputPer1K: 0.00125, OutputPer1K: 0.00375},
 
 	// Default fallback
 	"default": {InputPer1K: 0.003, OutputPer1K: 0.015},
 }
+
+var modelDateSuffixRegex = regexp.MustCompile(`-\d{8}$`)
 
 // AgentCost tracks token usage for a single agent.
 type AgentCost struct {
@@ -294,13 +302,45 @@ func (t *CostTracker) ClearSession(session string) {
 	delete(t.sessions, session)
 }
 
+func normalizeModelName(model string) string {
+	model = strings.TrimSpace(strings.ToLower(model))
+	model = modelDateSuffixRegex.ReplaceAllString(model, "")
+	return model
+}
+
 // GetModelPricing returns the pricing for a model.
 // If the model is not found, returns default pricing.
 func GetModelPricing(model string) ModelPricing {
 	if pricing, ok := modelPricing[model]; ok {
 		return pricing
 	}
-	return modelPricing["default"]
+
+	normalized := normalizeModelName(model)
+	if pricing, ok := modelPricing[normalized]; ok {
+		return pricing
+	}
+
+	// Prefix match for variants (longest key first).
+	keys := make([]string, 0, len(modelPricing))
+	for key := range modelPricing {
+		if key == "default" {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		return len(keys[i]) > len(keys[j])
+	})
+	for _, key := range keys {
+		if strings.HasPrefix(normalized, key) {
+			return modelPricing[key]
+		}
+	}
+
+	if pricing, ok := modelPricing["default"]; ok {
+		return pricing
+	}
+	return ModelPricing{}
 }
 
 // EstimateTokens estimates the token count for text.

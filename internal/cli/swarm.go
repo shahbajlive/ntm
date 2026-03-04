@@ -13,10 +13,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/shahbajlive/ntm/internal/health"
-	"github.com/shahbajlive/ntm/internal/output"
-	"github.com/shahbajlive/ntm/internal/swarm"
-	"github.com/shahbajlive/ntm/internal/tmux"
+	"github.com/Dicklesworthstone/ntm/internal/health"
+	"github.com/Dicklesworthstone/ntm/internal/output"
+	"github.com/Dicklesworthstone/ntm/internal/robot"
+	"github.com/Dicklesworthstone/ntm/internal/status"
+	"github.com/Dicklesworthstone/ntm/internal/swarm"
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
 func newSwarmCmd() *cobra.Command {
@@ -32,6 +34,8 @@ func newSwarmCmd() *cobra.Command {
 		autoRotate      bool
 		initialPrompt   string
 		promptFile      string
+		waitReady       bool
+		readyTimeout    int
 	)
 
 	cmd := &cobra.Command{
@@ -63,6 +67,8 @@ Examples:
 				AutoRotate:      autoRotate,
 				InitialPrompt:   initialPrompt,
 				PromptFile:      promptFile,
+				WaitReady:       waitReady,
+				ReadyTimeout:    readyTimeout,
 			})
 		},
 	}
@@ -91,6 +97,8 @@ Examples:
 	cmd.Flags().StringVar(&outputPath, "output", "", "Write swarm plan to JSON file (optional)")
 	cmd.Flags().StringVar(&initialPrompt, "prompt", "", "Initial prompt to inject into all agents after launch")
 	cmd.Flags().StringVar(&promptFile, "prompt-file", "", "File containing initial prompt (mutually exclusive with --prompt)")
+	cmd.Flags().BoolVar(&waitReady, "wait-ready", false, "Wait for all agents to reach idle/ready state before returning")
+	cmd.Flags().IntVar(&readyTimeout, "ready-timeout", 30, "Timeout in seconds for --wait-ready (default: 30)")
 	cmd.PersistentFlags().BoolVar(&autoRotate, "auto-rotate-accounts", defaultAutoRotate, "Automatically rotate accounts on usage limit hit (requires caam)")
 
 	// Add subcommands
@@ -113,6 +121,8 @@ type swarmOptions struct {
 	AutoRotate      bool
 	InitialPrompt   string
 	PromptFile      string
+	WaitReady       bool
+	ReadyTimeout    int
 }
 
 // SwarmPlanOutput is the JSON output format for swarm plan
@@ -312,6 +322,23 @@ func runSwarm(ctx context.Context, opts swarmOptions) error {
 		output.PrintSuccessf("Injected initial prompt: %d succeeded, %d failed", execResult.Injection.Successful, execResult.Injection.Failed)
 		if execResult.Injection.Failed > 0 {
 			output.PrintWarningf("%d panes failed prompt injection (see logs)", execResult.Injection.Failed)
+		}
+	}
+
+	// Phase 4 (optional): Wait for agents to reach idle/ready state.
+	// This gates external callers (e.g., --robot-send) from sending prompts
+	// before agents have fully initialized their TUIs.
+	if opts.WaitReady && execResult.Sessions != nil {
+		timeout := time.Duration(opts.ReadyTimeout) * time.Second
+		if timeout <= 0 {
+			timeout = 30 * time.Second
+		}
+		output.PrintInfof("Waiting for agents to reach ready state (timeout: %s)...", timeout)
+		ready, total := waitForSwarmAgentsReady(ctx, plan, tmuxClient, timeout, logger)
+		if ready == total {
+			output.PrintSuccessf("All %d agents are ready", total)
+		} else {
+			output.PrintWarningf("%d/%d agents reached ready state (timeout reached)", ready, total)
 		}
 	}
 
@@ -557,7 +584,9 @@ func newSwarmStatusCmd() *cobra.Command {
 			}
 
 			for _, name := range swarmSessions {
-				sessionHealth, err := health.CheckSession(name)
+				ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
+				sessionHealth, err := health.CheckSession(ctx, name)
+				cancel()
 				entry := swarmSessionStatus{Session: name}
 				if err != nil {
 					entry.Error = err.Error()
@@ -617,20 +646,246 @@ func newSwarmStatusCmd() *cobra.Command {
 // Subcommand: swarm stop
 func newSwarmStopCmd() *cobra.Command {
 	var (
-		force bool
+		force           bool
+		timeout         time.Duration
+		sessionPatterns []string
+		jsonOutput      bool
 	)
 
 	cmd := &cobra.Command{
-		Use:   "stop",
+		Use:   "stop [session-pattern...]",
 		Short: "Stop the swarm and destroy all sessions",
+		Long: `Gracefully stop swarm agent sessions.
+
+By default, discovers and stops all swarm sessions (cc_agents_*, cod_agents_*, gmi_agents_*).
+Optionally specify session name patterns to stop specific sessions.
+
+The graceful shutdown process:
+  1. Send exit signals to all agents (Ctrl+C for Claude, /exit for Codex, etc.)
+  2. Wait for graceful timeout to allow agents to exit cleanly
+  3. Destroy all tmux sessions
+
+Examples:
+  ntm swarm stop                    # Stop all swarm sessions gracefully
+  ntm swarm stop --force            # Immediately destroy without graceful exit
+  ntm swarm stop cc_agents_*        # Stop only Claude Code sessions
+  ntm swarm stop --timeout=10s      # Wait 10s for graceful exit`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// TODO: Implement swarm stop
-			output.PrintInfo("Swarm stop not yet implemented")
+			ctx := cmd.Context()
+			if ctx == nil {
+				ctx = context.Background()
+			}
+
+			// Determine which sessions to stop
+			patterns := sessionPatterns
+			if len(args) > 0 {
+				patterns = args
+			}
+
+			// If no patterns specified, use default swarm session patterns
+			if len(patterns) == 0 {
+				patterns = []string{"cc_agents_*", "cod_agents_*", "gmi_agents_*"}
+			}
+
+			// Discover matching sessions
+			sessions, err := discoverSwarmSessions(patterns)
+			if err != nil {
+				return fmt.Errorf("discovering sessions: %w", err)
+			}
+
+			if len(sessions) == 0 {
+				output.PrintInfo("No swarm sessions found matching the specified patterns")
+				return nil
+			}
+
+			output.PrintInfof("Found %d swarm session(s) to stop", len(sessions))
+			for _, sess := range sessions {
+				output.PrintInfof("  - %s", sess)
+			}
+
+			// Configure shutdown
+			cfg := swarm.DefaultShutdownConfig()
+			cfg.ForceKill = force
+			if timeout > 0 {
+				cfg.GracefulTimeout = timeout
+			}
+
+			// Execute shutdown
+			orchestrator := swarm.NewSwarmOrchestrator()
+			result, err := orchestrator.GracefulShutdown(ctx, sessions, cfg)
+			if err != nil {
+				return fmt.Errorf("shutdown failed: %w", err)
+			}
+
+			// Output results
+			if jsonOutput {
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(result)
+			}
+
+			output.PrintInfof("Shutdown complete:")
+			output.PrintInfof("  Sessions destroyed: %d", result.SessionsDestroyed)
+			output.PrintInfof("  Panes signaled: %d", result.PanesKilled)
+			output.PrintInfof("  Graceful exits: %d", result.GracefulExits)
+			output.PrintInfof("  Duration: %s", result.Duration.Round(time.Millisecond))
+
+			if len(result.Errors) > 0 {
+				output.PrintWarningf("  Errors: %d", len(result.Errors))
+				for _, e := range result.Errors {
+					output.PrintWarningf("    - %v", e)
+				}
+			}
+
 			return nil
 		},
 	}
 
-	cmd.Flags().BoolVar(&force, "force", false, "Force stop without confirmation")
+	cmd.Flags().BoolVar(&force, "force", false, "Force stop without graceful exit")
+	cmd.Flags().DurationVar(&timeout, "timeout", 5*time.Second, "Timeout for graceful exit")
+	cmd.Flags().StringSliceVar(&sessionPatterns, "sessions", nil, "Session name patterns to stop")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output results as JSON")
 
 	return cmd
+}
+
+// discoverSwarmSessions finds tmux sessions matching the given patterns.
+func discoverSwarmSessions(patterns []string) ([]string, error) {
+	client := tmux.DefaultClient
+
+	// List all sessions
+	allSessions, err := client.ListSessions()
+	if err != nil {
+		return nil, fmt.Errorf("listing sessions: %w", err)
+	}
+
+	// Match sessions against patterns
+	var matched []string
+	seen := make(map[string]bool)
+
+	for _, pattern := range patterns {
+		// Compile pattern as glob-like regex
+		regexPattern := globToRegex(pattern)
+		re, err := regexp.Compile("^" + regexPattern + "$")
+		if err != nil {
+			slog.Warn("invalid session pattern", "pattern", pattern, "error", err)
+			continue
+		}
+
+		for _, sess := range allSessions {
+			if seen[sess.Name] {
+				continue
+			}
+			if re.MatchString(sess.Name) {
+				matched = append(matched, sess.Name)
+				seen[sess.Name] = true
+			}
+		}
+	}
+
+	return matched, nil
+}
+
+// globToRegex converts a glob pattern to a regex pattern.
+func globToRegex(glob string) string {
+	result := ""
+	for _, c := range glob {
+		switch c {
+		case '*':
+			result += ".*"
+		case '?':
+			result += "."
+		case '.', '+', '^', '$', '(', ')', '[', ']', '{', '}', '|', '\\':
+			result += "\\" + string(c)
+		default:
+			result += string(c)
+		}
+	}
+	return result
+}
+
+// swarmAgentTypeToLong maps short swarm agent types to the long form used
+// by the robot pattern library.
+var swarmAgentTypeToLong = map[string]string{
+	"cc":  "claude",
+	"cod": "codex",
+	"gmi": "gemini",
+}
+
+// waitForSwarmAgentsReady polls all agent panes in the swarm plan until they
+// show idle/ready state or the timeout expires.  Returns (readyCount, totalCount).
+// This implements the readiness gate for --wait-ready (issue #61).
+func waitForSwarmAgentsReady(ctx context.Context, plan *swarm.SwarmPlan, client *tmux.Client, timeout time.Duration, logger *slog.Logger) (int, int) {
+	deadline := time.Now().Add(timeout)
+	pollInterval := 500 * time.Millisecond
+
+	// Collect all pane targets: "session:0.index"
+	type paneInfo struct {
+		target        string
+		shortType     string // "cc", "cod", "gmi" (for status package)
+		longType      string // "claude", "codex", "gemini" (for robot patterns)
+		ready         bool
+	}
+	var panes []paneInfo
+	for _, sess := range plan.Sessions {
+		longType := swarmAgentTypeToLong[sess.AgentType]
+		if longType == "" {
+			longType = sess.AgentType
+		}
+		for _, ps := range sess.Panes {
+			target := fmt.Sprintf("%s:0.%d", sess.Name, ps.Index)
+			panes = append(panes, paneInfo{
+				target:    target,
+				shortType: sess.AgentType,
+				longType:  longType,
+			})
+		}
+	}
+
+	if len(panes) == 0 {
+		return 0, 0
+	}
+
+	for time.Now().Before(deadline) {
+		if ctx.Err() != nil {
+			break
+		}
+
+		allReady := true
+		for i := range panes {
+			if panes[i].ready {
+				continue
+			}
+
+			captured, err := client.CapturePaneOutput(panes[i].target, 50)
+			if err != nil {
+				allReady = false
+				continue
+			}
+
+			// Check idle using both the status package (short types) and
+			// robot pattern library (long types) for comprehensive detection.
+			if status.DetectIdleFromOutput(captured, panes[i].shortType) ||
+				robot.HasIdlePattern(captured, panes[i].longType) {
+				panes[i].ready = true
+				logger.Debug("agent ready", "pane", panes[i].target, "type", panes[i].shortType)
+			} else {
+				allReady = false
+			}
+		}
+
+		if allReady {
+			return len(panes), len(panes)
+		}
+
+		time.Sleep(pollInterval)
+	}
+
+	readyCount := 0
+	for _, p := range panes {
+		if p.ready {
+			readyCount++
+		}
+	}
+	return readyCount, len(panes)
 }

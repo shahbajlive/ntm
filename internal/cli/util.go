@@ -12,11 +12,12 @@ import (
 
 	"github.com/mattn/go-isatty"
 
-	"github.com/shahbajlive/ntm/internal/cass"
-	"github.com/shahbajlive/ntm/internal/config"
-	"github.com/shahbajlive/ntm/internal/git"
-	"github.com/shahbajlive/ntm/internal/palette"
-	"github.com/shahbajlive/ntm/internal/tmux"
+	"github.com/Dicklesworthstone/ntm/internal/cass"
+	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/Dicklesworthstone/ntm/internal/git"
+	"github.com/Dicklesworthstone/ntm/internal/palette"
+	sessionPkg "github.com/Dicklesworthstone/ntm/internal/session"
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
 // parseEditorCommand splits the editor string into command and arguments.
@@ -165,43 +166,7 @@ func ResolveSessionWithOptions(session string, w io.Writer, opts SessionResolveO
 }
 
 func resolveExplicitSessionName(input string, sessions []tmux.Session, allowPrefix bool) (string, string, error) {
-	names := sessionNames(sessions)
-	if len(names) == 0 {
-		return "", "", fmt.Errorf("session %q not found (no tmux sessions running)", input)
-	}
-	for _, name := range names {
-		if name == input {
-			return name, "exact match", nil
-		}
-	}
-	if !allowPrefix {
-		return "", "", fmt.Errorf("session %q not found (available: %s)", input, strings.Join(names, ", "))
-	}
-	var matches []string
-	for _, name := range names {
-		if strings.HasPrefix(name, input) {
-			matches = append(matches, name)
-		}
-	}
-	sort.Strings(matches)
-	if len(matches) == 1 {
-		return matches[0], "prefix match", nil
-	}
-	if len(matches) > 1 {
-		return "", "", fmt.Errorf("session %q matches multiple sessions: %s (please be more specific)", input, strings.Join(matches, ", "))
-	}
-	return "", "", fmt.Errorf("session %q not found (available: %s)", input, strings.Join(names, ", "))
-}
-
-func sessionNames(sessions []tmux.Session) []string {
-	names := make([]string, 0, len(sessions))
-	for _, s := range sessions {
-		if s.Name != "" {
-			names = append(names, s.Name)
-		}
-	}
-	sort.Strings(names)
-	return names
+	return sessionPkg.ResolveExplicitSessionName(input, sessions, allowPrefix)
 }
 
 func inferSessionFromCWD(sessions []tmux.Session) (string, string) {
@@ -221,7 +186,8 @@ func inferSessionFromCWD(sessions []tmux.Session) (string, string) {
 		activeCfg = config.Default()
 	}
 
-	bestName := ""
+	// Collect all sessions matching CWD, grouped by longest prefix (bd-3cu02.8)
+	var bestMatches []tmux.Session
 	bestLen := 0
 	for _, s := range sessions {
 		projectDir := filepath.Clean(activeCfg.GetProjectDir(s.Name))
@@ -229,14 +195,30 @@ func inferSessionFromCWD(sessions []tmux.Session) (string, string) {
 			continue
 		}
 		if cwd == projectDir || strings.HasPrefix(cwd, projectDir+string(os.PathSeparator)) {
-			if len(projectDir) > bestLen {
-				bestName = s.Name
-				bestLen = len(projectDir)
+			dirLen := len(projectDir)
+			if dirLen > bestLen {
+				bestMatches = []tmux.Session{s}
+				bestLen = dirLen
+			} else if dirLen == bestLen {
+				bestMatches = append(bestMatches, s)
 			}
 		}
 	}
-	if bestName != "" {
-		return bestName, "current directory"
+	if len(bestMatches) == 1 {
+		return bestMatches[0].Name, "current directory"
+	}
+	if len(bestMatches) > 1 {
+		// Tier 1: prefer unlabeled (base) session if it exists
+		for _, m := range bestMatches {
+			if !config.HasLabel(m.Name) {
+				return m.Name, "current directory (base session preferred)"
+			}
+		}
+		// Tier 2: all labeled, ambiguous — pick first alphabetically for determinism
+		sort.Slice(bestMatches, func(i, j int) bool {
+			return bestMatches[i].Name < bestMatches[j].Name
+		})
+		return bestMatches[0].Name, "current directory (first labeled session)"
 	}
 
 	// Fallback heuristic: match session name to the current directory name.

@@ -8,9 +8,9 @@
 
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-blue.svg)
 ![Go Version](https://img.shields.io/badge/go-1.25+-00ADD8.svg)
-![License](https://img.shields.io/badge/license-MIT-green.svg)
-![CI](https://img.shields.io/github/actions/workflow/status/shahbajlive/ntm/ci.yml?label=CI)
-![Release](https://img.shields.io/github/v/release/shahbajlive/ntm?include_prereleases)
+![License](https://img.shields.io/badge/License-MIT%2BOpenAI%2FAnthropic%20Rider-blue.svg)
+![CI](https://img.shields.io/github/actions/workflow/status/Dicklesworthstone/ntm/ci.yml?label=CI)
+![Release](https://img.shields.io/github/v/release/Dicklesworthstone/ntm?include_prereleases)
 
 </div>
 
@@ -21,7 +21,7 @@ Spawn, manage, and coordinate Claude Code, OpenAI Codex, and Google Gemini CLI a
 <div align="center">
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/shahbajlive/ntm/main/install.sh?$(date +%s)" | bash -s -- --easy-mode
+curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/install.sh?$(date +%s)" | bash -s -- --easy-mode
 ```
 
 </div>
@@ -46,7 +46,7 @@ ntm --robot-send=myproject --message "Summarize this repo and propose next steps
 ## Quick Start
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/shahbajlive/ntm/main/install.sh?$(date +%s)" | bash -s -- --easy-mode
+curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/install.sh?$(date +%s)" | bash -s -- --easy-mode
 ```
 
 Add shell integration:
@@ -167,6 +167,19 @@ ntm zoom myproject 2          # Zoom to specific pane
 ntm dashboard myproject       # Open interactive visual dashboard
 ntm kill -f myproject         # Kill session (force, no confirmation)
 ```
+
+### Multi-Session Labels
+
+Run multiple agent swarms on the same project with different goals:
+
+    ntm spawn myproject --label frontend --cc=3
+    ntm spawn myproject --label backend --cc=2
+
+Both sessions work in the same project directory. Labels are organizational — agents coordinate via Agent Mail.
+
+    ntm list --project myproject     # show all sessions
+    ntm send --project myproject "commit changes"  # broadcast
+    ntm kill --project myproject     # kill all
 
 ### Output Capture
 
@@ -289,13 +302,13 @@ scoop install dicklesworthstone/ntm
 ### Alternative: One-Line Install
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/shahbajlive/ntm/main/install.sh?$(date +%s)" | bash -s -- --easy-mode
+curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/install.sh?$(date +%s)" | bash -s -- --easy-mode
 ```
 
 ### Go Install
 
 ```bash
-go install github.com/shahbajlive/ntm/cmd/ntm@latest
+go install github.com/Dicklesworthstone/ntm/cmd/ntm@latest
 ```
 
 ### Docker
@@ -316,7 +329,7 @@ docker pull ghcr.io/dicklesworthstone/ntm:v1.0.0
 ### From Source
 
 ```bash
-git clone https://github.com/shahbajlive/ntm.git
+git clone https://github.com/Dicklesworthstone/ntm.git
 cd ntm
 go build -o ntm ./cmd/ntm
 sudo mv ntm /usr/local/bin/
@@ -606,13 +619,16 @@ NTM provides machine-readable output for integration with AI coding agents and a
 
 **Robot Output Formats + Verbosity:**
 
-- `--robot-format=json|toon|auto` (Env: `NTM_ROBOT_FORMAT`, `NTM_OUTPUT_FORMAT`, `TOON_DEFAULT_FORMAT`; Config: `[robot.output] format` = json|toon). `auto` currently resolves to JSON.
+- `--robot-format=json|toon|auto` (Alias: `--robot-output-format=...`; Env: `NTM_ROBOT_FORMAT`, `NTM_OUTPUT_FORMAT`, `TOON_DEFAULT_FORMAT`; Config: `[robot.output] format` = json|toon). `auto` currently resolves to JSON.
 - `--robot-verbosity=terse|default|debug` (Env: `NTM_ROBOT_VERBOSITY`). Applies to JSON/TOON only.
 - Config default for verbosity: `~/.config/ntm/config.toml` → `[robot] verbosity = "default"`.
 - `--robot-terse` is a **separate single-line format** and ignores `--robot-format` / `--robot-verbosity`.
-- TOON is token-efficient but only supports uniform arrays and simple objects; unsupported shapes return an error. Use `--robot-format=json` or `auto` to avoid TOON failures.
+- JSON remains the default. For scripts that must always get JSON, pass `--robot-format=json` (or `--robot-output-format=json`) explicitly.
+- TOON is token-efficient (often ~40-60% fewer tokens for tabular outputs) but only supports uniform arrays and simple objects; unsupported shapes return an error. Use `--robot-format=json` or `auto` to avoid TOON failures.
 
 **Example output (JSON vs TOON):**
+
+JSON (default; also `--robot-format=json`):
 
 ```json
 {
@@ -623,6 +639,8 @@ NTM provides machine-readable output for integration with AI coding agents and a
   ]
 }
 ```
+
+TOON (e.g. `--robot-output-format=toon`):
 
 ```text
 success: true
@@ -993,7 +1011,7 @@ $EDITOR ~/.config/ntm/config.toml
 
 ```toml
 # NTM (Named Tmux Manager) Configuration
-# https://github.com/shahbajlive/ntm
+# https://github.com/Dicklesworthstone/ntm
 
 # Base directory for projects
 projects_base = "~/Developer"
@@ -1887,7 +1905,7 @@ export NTM_THEME=plain   # Explicit no-color theme (escape hatch)
 1) Install + shell integration (zsh example):
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/shahbajlive/ntm/main/install.sh?$(date +%s)" | bash -s -- --easy-mode
+curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/install.sh?$(date +%s)" | bash -s -- --easy-mode
 echo 'eval "$(ntm shell zsh)"' >> ~/.zshrc && source ~/.zshrc
 ```
 
@@ -3278,6 +3296,81 @@ ntm policy edit                # Open in $EDITOR
 
 ---
 
+## Privacy & Redaction
+
+NTM scans prompts and outputs for secrets/PII at critical IO boundaries (send/copy/save/mail/export) and supports a privacy mode for sessions that should not persist data. The canonical redaction engine lives in `internal/redaction` and is documented in `docs/REDACTION_SPEC.md`.
+
+### Redaction Modes
+
+Redaction can be controlled per-command with `--redact=off|warn|redact|block` or in config via `redaction.mode`.
+
+- `off`: no scanning or redaction.
+- `warn`: detect secrets and emit warnings without changing content.
+- `redact`: replace matches with placeholders like `[REDACTED:OPENAI_KEY:deadbeef]`.
+- `block`: fail the operation when secrets are detected.
+
+Examples (synthetic secrets only):
+
+```bash
+ntm send myproject --redact=warn --cc "Use sk-proj-FAKEtestkey1234567890123456789012345678901234 for testing"
+ntm send myproject --redact=block --all "token=ghp_FAKEtesttokenvalue12345678901234567"
+ntm send myproject --redact=block --allow-secret --all "token=ghp_FAKEtesttokenvalue12345678901234567"
+```
+
+`--allow-secret` downgrades `block` to `warn` for a single invocation (use with caution).
+
+### Prompt Preflight
+
+Use `ntm preflight` to lint prompts and run secret detection before dispatching:
+
+```bash
+ntm preflight "Review auth changes in src/auth.go"
+ntm preflight --strict "rm -rf /tmp/cache"
+ntm preflight --json "Deploy with token=ghp_FAKEtesttokenvalue12345678901234567"
+```
+
+`--strict` treats warnings as failures, making it safe to enforce in automation.
+
+### Privacy Mode
+
+Privacy mode disables persistence of sensitive session data (prompt history, event logs, checkpoints, scrollback capture). Enable per session:
+
+```bash
+ntm spawn myproject --cc=2 --privacy
+```
+
+Override for a single command when you explicitly want to persist or export:
+
+```bash
+ntm support-bundle myproject --allow-persist
+```
+
+Privacy defaults can be set in config:
+
+```toml
+[redaction]
+mode = "warn"
+allowlist = ["^dev-"]
+
+[privacy]
+enabled = false
+disable_prompt_history = true
+disable_event_logs = true
+disable_checkpoints = true
+disable_scrollback_capture = true
+require_explicit_persist = true
+```
+
+### Scrub Artifacts
+
+Scan NTM artifacts without leaking raw secrets:
+
+```bash
+ntm scrub --path .ntm --format json
+```
+
+---
+
 ## Configuration Management
 
 NTM provides commands for inspecting and managing your configuration.
@@ -4643,7 +4736,7 @@ Total RAM ≈ 10 + (panes × 2) + (claude × 300) + (codex × 200) + (gemini × 
 ### Building from Source
 
 ```bash
-git clone https://github.com/shahbajlive/ntm.git
+git clone https://github.com/Dicklesworthstone/ntm.git
 cd ntm
 go build -o ntm ./cmd/ntm
 ```
@@ -4754,7 +4847,7 @@ ntm/
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+MIT License (with OpenAI/Anthropic Rider). See [LICENSE](LICENSE) for details.
 
 ---
 

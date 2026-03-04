@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strconv"
@@ -16,16 +17,18 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
-	"github.com/shahbajlive/ntm/internal/agent"
-	"github.com/shahbajlive/ntm/internal/agentmail"
-	"github.com/shahbajlive/ntm/internal/assign"
-	"github.com/shahbajlive/ntm/internal/assignment"
-	"github.com/shahbajlive/ntm/internal/bv"
-	"github.com/shahbajlive/ntm/internal/completion"
-	"github.com/shahbajlive/ntm/internal/config"
-	"github.com/shahbajlive/ntm/internal/robot"
-	"github.com/shahbajlive/ntm/internal/tmux"
-	"github.com/shahbajlive/ntm/internal/tui/theme"
+	"github.com/Dicklesworthstone/ntm/internal/agent"
+	"github.com/Dicklesworthstone/ntm/internal/agentmail"
+	"github.com/Dicklesworthstone/ntm/internal/assign"
+	"github.com/Dicklesworthstone/ntm/internal/assignment"
+	"github.com/Dicklesworthstone/ntm/internal/bv"
+	"github.com/Dicklesworthstone/ntm/internal/completion"
+	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/Dicklesworthstone/ntm/internal/events"
+	"github.com/Dicklesworthstone/ntm/internal/robot"
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
+	"github.com/Dicklesworthstone/ntm/internal/webhook"
 )
 
 var (
@@ -248,6 +251,24 @@ func runAssign(cmd *cobra.Command, args []string) error {
 	res.ExplainIfInferred(cmd.ErrOrStderr())
 	session = res.Session
 
+	// Enable project webhooks (if configured) so assignment lifecycle events
+	// can fan out while this command runs (including watch mode).
+	projectDir := ""
+	if cfg != nil {
+		projectDir = cfg.GetProjectDir(session)
+	} else if wd, err := os.Getwd(); err == nil {
+		projectDir = wd
+	}
+	if cfg != nil && projectDir != "" {
+		redactCfg := cfg.Redaction.ToRedactionLibConfig()
+		bridge, err := webhook.StartBridgeFromProjectConfig(projectDir, session, events.DefaultBus, &redactCfg)
+		if err != nil {
+			slog.Default().Debug("webhook bridge init failed", "session", session, "error", err)
+		} else if bridge != nil {
+			defer bridge.Close()
+		}
+	}
+
 	// Apply config default for strategy if not explicitly set via flag
 	if !cmd.Flags().Changed("strategy") {
 		// Load config to get default strategy
@@ -406,6 +427,7 @@ func runWatchMode(cmd *cobra.Command, session string) error {
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
 
 	go func() {
 		<-sigCh
@@ -492,6 +514,16 @@ func resolveAgentTypeFilter() string {
 		return "gemini"
 	}
 	return "" // No filter
+}
+
+func resolveAssignTimeout(timeout time.Duration) time.Duration {
+	if timeout > 0 {
+		return timeout
+	}
+	if assignTimeout > 0 {
+		return assignTimeout
+	}
+	return 30 * time.Second
 }
 
 // AssignCommandOptions holds all options for the assign command
@@ -789,13 +821,24 @@ func detectModelFromTitle(agentType, title string) string {
 }
 
 // determineAgentState checks if agent is idle or working
-func determineAgentState(scrollback, agentType string) string {
+func determineAgentState(scrollback, agentTypeStr string) string {
 	// Use the robust agent parser
 	parser := agent.NewParser()
-	
-	// If agentType is known, we can hint it or verify it, but Parse detects it too.
-	// For now, let Parse do its work.
-	state, err := parser.Parse(scrollback)
+
+	// Map string type to AgentType hint
+	var hint agent.AgentType
+	switch strings.ToLower(agentTypeStr) {
+	case "claude", "cc", "cc_added":
+		hint = agent.AgentTypeClaudeCode
+	case "codex", "cod", "codex_added":
+		hint = agent.AgentTypeCodex
+	case "gemini", "gmi", "gemini_added":
+		hint = agent.AgentTypeGemini
+	default:
+		hint = agent.AgentTypeUnknown
+	}
+
+	state, err := parser.ParseWithHint(scrollback, hint)
 	if err != nil {
 		return "unknown"
 	}
@@ -806,7 +849,7 @@ func determineAgentState(scrollback, agentType string) string {
 	if state.IsWorking {
 		return "working"
 	}
-	
+
 	return "unknown"
 }
 
@@ -2782,7 +2825,7 @@ func runReassignment(cmd *cobra.Command, session string) error {
 	if beadTitle == "" {
 		beadTitle = getBeadTitle(beadID)
 	}
-	reservationResult := reserveFilesForBead(session, beadID, beadTitle, targetAgentType, assignVerbose)
+	reservationResult := reserveFilesForBead(session, beadID, beadTitle, targetAgentType, assignVerbose, assignTimeout)
 
 	// Update assignment store using Reassign method
 	newAssignment, err := store.Reassign(beadID, targetPane.Index, targetAgentType, newAgentName)
@@ -2913,7 +2956,7 @@ func releaseFileReservationsWithIDs(session, beadID, agentName string, reservati
 
 	// Create a reservation manager
 	manager := assign.NewFileReservationManager(amClient, projectKey)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), resolveAssignTimeout(assignTimeout))
 	defer cancel()
 
 	// Release reservations by IDs
@@ -2963,7 +3006,7 @@ func releaseFileReservations(session, beadID, agentName string) ([]string, error
 
 	// Create a reservation manager
 	manager := assign.NewFileReservationManager(amClient, projectKey)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), resolveAssignTimeout(assignTimeout))
 	defer cancel()
 
 	// Release reservations by paths
@@ -3455,7 +3498,7 @@ func runDirectPaneAssignment(cmd *cobra.Command, opts *AssignCommandOptions) err
 	// Reserve files via Agent Mail (if enabled)
 	var fileReservations *DirectAssignFileReservations
 	if opts.ReserveFiles {
-		reservationResult := reserveFilesForBead(opts.Session, beadID, beadTitle, agentType, opts.Verbose)
+		reservationResult := reserveFilesForBead(opts.Session, beadID, beadTitle, agentType, opts.Verbose, opts.Timeout)
 		if reservationResult != nil {
 			// Compute denied paths (requested but not granted)
 			grantedSet := make(map[string]bool)
@@ -3579,7 +3622,7 @@ func getBeadTitle(beadID string) string {
 }
 
 // reserveFilesForBead reserves files mentioned in a bead for an agent
-func reserveFilesForBead(session, beadID, beadTitle, agentType string, verbose bool) *assign.FileReservationResult {
+func reserveFilesForBead(session, beadID, beadTitle, agentType string, verbose bool, timeout time.Duration) *assign.FileReservationResult {
 	// Get project key (use working directory)
 	projectKey, _ := os.Getwd()
 
@@ -3596,7 +3639,9 @@ func reserveFilesForBead(session, beadID, beadTitle, agentType string, verbose b
 	}
 
 	// Attempt reservation (will return result even without client)
-	result, err := manager.ReserveForBead(context.Background(), beadID, beadTitle, "", agentName)
+	ctx, cancel := context.WithTimeout(context.Background(), resolveAssignTimeout(timeout))
+	defer cancel()
+	result, err := manager.ReserveForBead(ctx, beadID, beadTitle, "", agentName)
 	if err != nil && verbose {
 		fmt.Fprintf(os.Stderr, "[RESERVE] Warning: %v\n", err)
 	}

@@ -6,28 +6,31 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shahbajlive/ntm/internal/bv"
-	"github.com/shahbajlive/ntm/internal/config"
-	"github.com/shahbajlive/ntm/internal/handoff"
-	"github.com/shahbajlive/ntm/internal/recovery"
-	"github.com/shahbajlive/ntm/internal/tmux"
+	"github.com/Dicklesworthstone/ntm/internal/audit"
+	"github.com/Dicklesworthstone/ntm/internal/bv"
+	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/Dicklesworthstone/ntm/internal/handoff"
+	"github.com/Dicklesworthstone/ntm/internal/recovery"
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
 // SpawnOptions configures the robot-spawn operation.
 type SpawnOptions struct {
 	Session        string
-	CCCount        int    // Claude agents
-	CodCount       int    // Codex agents
-	GmiCount       int    // Gemini agents
-	Preset         string // Recipe/preset name
-	NoUserPane     bool   // Don't create user pane
-	WorkingDir     string // Override working directory
-	WaitReady      bool   // Wait for agents to be ready
-	ReadyTimeout   int    // Timeout in seconds for ready detection
-	DryRun         bool   // Preview mode: show what would happen without executing
-	Safety         bool   // Fail if session already exists
-	AssignWork     bool   // Enable orchestrator work assignment mode
-	AssignStrategy string // Assignment strategy: top-n, diverse, dependency-aware, skill-matched
+	Label          string   // Session label — constructs "{Session}--{Label}" if set
+	CCCount        int      // Claude agents
+	CodCount       int      // Codex agents
+	GmiCount       int      // Gemini agents
+	Preset         string   // Recipe/preset name
+	NoUserPane     bool     // Don't create user pane
+	WorkingDir     string   // Override working directory
+	WaitReady      bool     // Wait for agents to be ready
+	ReadyTimeout   int      // Timeout in seconds for ready detection
+	DryRun         bool     // Preview mode: show what would happen without executing
+	Safety         bool     // Fail if session already exists
+	AssignWork     bool     // Enable orchestrator work assignment mode
+	AssignStrategy string   // Assignment strategy: top-n, diverse, dependency-aware, skill-matched
+	CustomNames    []string // Custom agent names (used in order, then NATO alphabet)
 }
 
 // SpawnOutput is the structured output for --robot-spawn.
@@ -76,6 +79,7 @@ type SpawnAssignment struct {
 // SpawnedAgent represents an agent created during spawn.
 type SpawnedAgent struct {
 	Pane      string `json:"pane"`
+	Name      string `json:"name,omitempty"`
 	Type      string `json:"type"`
 	Variant   string `json:"variant,omitempty"`
 	Title     string `json:"title"`
@@ -88,6 +92,34 @@ type SpawnedAgent struct {
 // This function returns the data struct directly, enabling CLI/REST parity.
 func GetSpawn(opts SpawnOptions, cfg *config.Config) (*SpawnOutput, error) {
 	startTime := time.Now()
+	correlationID := audit.NewCorrelationID()
+	auditStart := time.Now()
+	auditWorkingDir := ""
+	auditSessionCreated := false
+	auditPanesAdded := 0
+
+	// Validate project name unconditionally: "--" is reserved for labels.
+	if err := config.ValidateProjectName(opts.Session); err != nil {
+		errOutput := &SpawnOutput{
+			RobotResponse: NewErrorResponse(err, ErrCodeInvalidFlag, "Project names cannot contain '--' (reserved as label separator)"),
+			Session:       opts.Session,
+			Error:         err.Error(),
+		}
+		return errOutput, nil
+	}
+
+	// Apply goal label to session name (bd-1933u)
+	if opts.Label != "" {
+		if err := config.ValidateLabel(opts.Label); err != nil {
+			errOutput := &SpawnOutput{
+				RobotResponse: NewErrorResponse(fmt.Errorf("invalid label: %w", err), ErrCodeInvalidFlag, "Use a valid label (alphanumeric, dash, underscore)"),
+				Session:       opts.Session,
+				Error:         fmt.Sprintf("invalid label: %v", err),
+			}
+			return errOutput, nil
+		}
+		opts.Session = config.FormatSessionName(opts.Session, opts.Label)
+	}
 
 	output := &SpawnOutput{
 		RobotResponse: NewRobotResponse(true),
@@ -97,6 +129,47 @@ func GetSpawn(opts SpawnOptions, cfg *config.Config) (*SpawnOutput, error) {
 		Agents:        []SpawnedAgent{},
 		Layout:        "tiled",
 	}
+	_ = audit.LogEvent(opts.Session, audit.EventTypeSpawn, audit.ActorSystem, "robot.spawn", map[string]interface{}{
+		"phase":           "start",
+		"session":         opts.Session,
+		"total_agents":    opts.CCCount + opts.CodCount + opts.GmiCount,
+		"preset":          opts.Preset,
+		"no_user_pane":    opts.NoUserPane,
+		"dry_run":         opts.DryRun,
+		"safety":          opts.Safety,
+		"assign_work":     opts.AssignWork,
+		"assign_strategy": opts.AssignStrategy,
+		"correlation_id":  correlationID,
+	}, nil)
+	defer func() {
+		agentsLaunched := 0
+		if output != nil {
+			agentsLaunched = len(output.Agents)
+		}
+		success := output != nil && output.RobotResponse.Success
+		payload := map[string]interface{}{
+			"phase":           "finish",
+			"session":         opts.Session,
+			"total_agents":    opts.CCCount + opts.CodCount + opts.GmiCount,
+			"preset":          opts.Preset,
+			"no_user_pane":    opts.NoUserPane,
+			"dry_run":         opts.DryRun,
+			"safety":          opts.Safety,
+			"assign_work":     opts.AssignWork,
+			"assign_strategy": opts.AssignStrategy,
+			"session_created": auditSessionCreated,
+			"panes_added":     auditPanesAdded,
+			"agents_launched": agentsLaunched,
+			"success":         success,
+			"duration_ms":     time.Since(auditStart).Milliseconds(),
+			"working_dir":     auditWorkingDir,
+			"correlation_id":  correlationID,
+		}
+		if output != nil && output.Error != "" {
+			payload["error"] = output.Error
+		}
+		_ = audit.LogEvent(opts.Session, audit.EventTypeSpawn, audit.ActorSystem, "robot.spawn", payload, nil)
+	}()
 
 	// Validate session name
 	if err := tmux.ValidateSessionName(opts.Session); err != nil {
@@ -134,6 +207,7 @@ func GetSpawn(opts SpawnOptions, cfg *config.Config) (*SpawnOutput, error) {
 		}
 	}
 	output.WorkingDir = dir
+	auditWorkingDir = dir
 
 	// Load handoff context for session recovery (non-fatal if not found)
 	spawnRecovery, handoffCtx := loadLatestHandoff(dir, opts.Session)
@@ -161,11 +235,21 @@ func GetSpawn(opts SpawnOptions, cfg *config.Config) (*SpawnOutput, error) {
 		output.DryRun = true
 		output.WouldCreate = []SpawnedAgent{}
 
+		// Initialize name map for dry-run preview
+		var dryRunNameMap *AgentNameMap
+		if len(opts.CustomNames) > 0 {
+			dryRunNameMap = NewAgentNameMapWithCustomNames(opts.Session, opts.CustomNames)
+		} else {
+			dryRunNameMap = NewAgentNameMap(opts.Session)
+		}
+
 		// Build list of what would be created
 		paneIdx := 0
 		if !opts.NoUserPane {
+			userPane := fmt.Sprintf("0.%d", paneIdx)
 			output.WouldCreate = append(output.WouldCreate, SpawnedAgent{
-				Pane:  fmt.Sprintf("0.%d", paneIdx),
+				Pane:  userPane,
+				Name:  dryRunNameMap.AssignNew("user", userPane),
 				Type:  "user",
 				Title: fmt.Sprintf("%s__user", opts.Session),
 				Ready: true,
@@ -174,8 +258,10 @@ func GetSpawn(opts SpawnOptions, cfg *config.Config) (*SpawnOutput, error) {
 		}
 
 		for i := 0; i < opts.CCCount; i++ {
+			ccPane := fmt.Sprintf("0.%d", paneIdx)
 			output.WouldCreate = append(output.WouldCreate, SpawnedAgent{
-				Pane:  fmt.Sprintf("0.%d", paneIdx),
+				Pane:  ccPane,
+				Name:  dryRunNameMap.AssignNew("claude", ccPane),
 				Type:  "claude",
 				Title: fmt.Sprintf("%s__cc_%d", opts.Session, i+1),
 			})
@@ -183,8 +269,10 @@ func GetSpawn(opts SpawnOptions, cfg *config.Config) (*SpawnOutput, error) {
 		}
 
 		for i := 0; i < opts.CodCount; i++ {
+			codPane := fmt.Sprintf("0.%d", paneIdx)
 			output.WouldCreate = append(output.WouldCreate, SpawnedAgent{
-				Pane:  fmt.Sprintf("0.%d", paneIdx),
+				Pane:  codPane,
+				Name:  dryRunNameMap.AssignNew("codex", codPane),
 				Type:  "codex",
 				Title: fmt.Sprintf("%s__cod_%d", opts.Session, i+1),
 			})
@@ -192,8 +280,10 @@ func GetSpawn(opts SpawnOptions, cfg *config.Config) (*SpawnOutput, error) {
 		}
 
 		for i := 0; i < opts.GmiCount; i++ {
+			gmiPane := fmt.Sprintf("0.%d", paneIdx)
 			output.WouldCreate = append(output.WouldCreate, SpawnedAgent{
-				Pane:  fmt.Sprintf("0.%d", paneIdx),
+				Pane:  gmiPane,
+				Name:  dryRunNameMap.AssignNew("gemini", gmiPane),
 				Type:  "gemini",
 				Title: fmt.Sprintf("%s__gmi_%d", opts.Session, i+1),
 			})
@@ -214,12 +304,17 @@ func GetSpawn(opts SpawnOptions, cfg *config.Config) (*SpawnOutput, error) {
 	// Create session if it doesn't exist
 	sessionCreated := false
 	if !tmux.SessionExists(opts.Session) {
-		if err := tmux.CreateSession(opts.Session, dir); err != nil {
+		historyLimit := tmux.DefaultHistoryLimit
+		if cfg != nil && cfg.Tmux.HistoryLimit > 0 {
+			historyLimit = cfg.Tmux.HistoryLimit
+		}
+		if err := tmux.CreateSessionWithHistoryLimit(opts.Session, dir, historyLimit); err != nil {
 			output.Error = fmt.Sprintf("creating session: %v", err)
 			output.RobotResponse = NewErrorResponse(err, ErrCodeInternalError, "Check tmux availability and session name")
 			return output, nil
 		}
 		sessionCreated = true
+		auditSessionCreated = true
 	}
 
 	// Get current panes
@@ -234,6 +329,7 @@ func GetSpawn(opts SpawnOptions, cfg *config.Config) (*SpawnOutput, error) {
 	existingPanes := len(panes)
 	if existingPanes < totalPanes {
 		toAdd := totalPanes - existingPanes
+		auditPanesAdded = toAdd
 		for i := 0; i < toAdd; i++ {
 			if _, err := tmux.SplitWindow(opts.Session, dir); err != nil {
 				output.Error = fmt.Sprintf("creating pane: %v", err)
@@ -254,14 +350,25 @@ func GetSpawn(opts SpawnOptions, cfg *config.Config) (*SpawnOutput, error) {
 	// Apply tiled layout
 	_ = tmux.ApplyTiledLayout(opts.Session)
 
+	// Initialize agent name map
+	var nameMap *AgentNameMap
+	if len(opts.CustomNames) > 0 {
+		nameMap = NewAgentNameMapWithCustomNames(opts.Session, opts.CustomNames)
+	} else {
+		nameMap = NewAgentNameMap(opts.Session)
+	}
+
 	// Start assigning agents (skip first pane if user pane)
 	startIdx := 0
 	if !opts.NoUserPane {
 		startIdx = 1
 		// Add user pane info
 		if len(panes) > 0 {
+			userPaneRef := fmt.Sprintf("0.%d", panes[0].Index)
+			userName := nameMap.AssignNew("user", userPaneRef)
 			output.Agents = append(output.Agents, SpawnedAgent{
-				Pane:      fmt.Sprintf("0.%d", panes[0].Index),
+				Pane:      userPaneRef,
+				Name:      userName,
 				Type:      "user",
 				Title:     panes[0].Title,
 				Ready:     true,
@@ -276,6 +383,7 @@ func GetSpawn(opts SpawnOptions, cfg *config.Config) (*SpawnOutput, error) {
 	// Launch Claude agents
 	for i := 0; i < opts.CCCount && agentNum < len(panes); i++ {
 		agent := launchAgent(panes[agentNum], opts.Session, "claude", i+1, dir, agentCommands["claude"])
+		agent.Name = nameMap.AssignNew("claude", agent.Pane)
 		output.Agents = append(output.Agents, agent)
 		agentNum++
 	}
@@ -283,6 +391,7 @@ func GetSpawn(opts SpawnOptions, cfg *config.Config) (*SpawnOutput, error) {
 	// Launch Codex agents
 	for i := 0; i < opts.CodCount && agentNum < len(panes); i++ {
 		agent := launchAgent(panes[agentNum], opts.Session, "codex", i+1, dir, agentCommands["codex"])
+		agent.Name = nameMap.AssignNew("codex", agent.Pane)
 		output.Agents = append(output.Agents, agent)
 		agentNum++
 	}
@@ -290,6 +399,7 @@ func GetSpawn(opts SpawnOptions, cfg *config.Config) (*SpawnOutput, error) {
 	// Launch Gemini agents
 	for i := 0; i < opts.GmiCount && agentNum < len(panes); i++ {
 		agent := launchAgent(panes[agentNum], opts.Session, "gemini", i+1, dir, agentCommands["gemini"])
+		agent.Name = nameMap.AssignNew("gemini", agent.Pane)
 		output.Agents = append(output.Agents, agent)
 		agentNum++
 	}
@@ -812,7 +922,7 @@ func generateWorkPrompt(item workItem) string {
 		}
 	}
 
-	sb.WriteString("\nWhen done, mark it completed with: `br update " + item.ID + " --status done`")
+	sb.WriteString("\nWhen done, close it with: `br close " + item.ID + " --reason \"Completed\"`")
 
 	return sb.String()
 }

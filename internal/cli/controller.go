@@ -11,9 +11,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/shahbajlive/ntm/internal/kernel"
-	"github.com/shahbajlive/ntm/internal/output"
-	"github.com/shahbajlive/ntm/internal/tmux"
+	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/Dicklesworthstone/ntm/internal/kernel"
+	"github.com/Dicklesworthstone/ntm/internal/output"
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
 // ControllerInput is the kernel input for sessions.controller.
@@ -27,13 +28,13 @@ type ControllerInput struct {
 // ControllerResponse is the JSON output for the controller command.
 type ControllerResponse struct {
 	output.TimestampedResponse
-	Session     string `json:"session"`
-	PaneID      string `json:"pane_id"`
-	PaneIndex   int    `json:"pane_index"`
-	AgentType   string `json:"agent_type"`
-	PromptUsed  string `json:"prompt_used,omitempty"`
-	AgentCount  int    `json:"agent_count"`
-	AgentList   string `json:"agent_list,omitempty"`
+	Session    string `json:"session"`
+	PaneID     string `json:"pane_id"`
+	PaneIndex  int    `json:"pane_index"`
+	AgentType  string `json:"agent_type"`
+	PromptUsed string `json:"prompt_used,omitempty"`
+	AgentCount int    `json:"agent_count"`
+	AgentList  string `json:"agent_list,omitempty"`
 }
 
 // Default controller prompt template
@@ -198,6 +199,18 @@ func buildControllerResponse(opts ControllerInput) (*ControllerResponse, error) 
 		return nil, err
 	}
 
+	{
+		res, err := ResolveSession(session, nil)
+		if err != nil {
+			return nil, err
+		}
+		if res.Session == "" {
+			return nil, fmt.Errorf("session is required")
+		}
+		session = res.Session
+		opts.Session = res.Session
+	}
+
 	if !tmux.SessionExists(session) {
 		return nil, fmt.Errorf("session '%s' not found", session)
 	}
@@ -226,22 +239,33 @@ func buildControllerResponse(opts ControllerInput) (*ControllerResponse, error) 
 
 	// Resolve agent type to full name
 	var agentTypeFull string
-	var agentCmd string
+	var agentCmdTemplate string
 	switch agentType {
 	case "cc", "claude":
 		agentTypeFull = "claude"
-		agentCmd = cfg.Agents.Claude
+		agentCmdTemplate = cfg.Agents.Claude
 	case "cod", "codex":
 		agentTypeFull = "codex"
-		agentCmd = cfg.Agents.Codex
+		agentCmdTemplate = cfg.Agents.Codex
 	case "gmi", "gemini":
 		agentTypeFull = "gemini"
-		agentCmd = cfg.Agents.Gemini
+		agentCmdTemplate = cfg.Agents.Gemini
 	default:
 		return nil, fmt.Errorf("unknown agent type: %s (use cc, cod, or gmi)", agentType)
 	}
 
 	dir := cfg.GetProjectDir(session)
+
+	// Render the agent command template (fixes raw {{}} being sent to shell)
+	agentCmd, err := config.GenerateAgentCommand(agentCmdTemplate, config.AgentTemplateVars{
+		AgentType:   agentType,
+		SessionName: session,
+		PaneIndex:   1,
+		ProjectDir:  dir,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("rendering agent command template: %w", err)
+	}
 
 	// Find or create pane 1
 	var targetPaneID string

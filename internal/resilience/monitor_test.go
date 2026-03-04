@@ -100,8 +100,8 @@ func TestRegisterAgent(t *testing.T) {
 	cfg := config.Default()
 	m := NewMonitor("test-session", "/tmp/project", cfg, true)
 
-	m.RegisterAgent("pane-1", 1, "cc", "opus", "claude --model opus")
-	m.RegisterAgent("pane-2", 2, "gmi", "pro", "gemini --model pro")
+	m.RegisterAgent("pane-1", 1, 0, "cc", "opus", "claude --model opus")
+	m.RegisterAgent("pane-2", 2, 0, "gmi", "pro", "gemini --model pro")
 
 	states := m.GetAgentStates()
 	if len(states) != 2 {
@@ -143,7 +143,7 @@ func TestGetRestartCount(t *testing.T) {
 		t.Errorf("expected 0 for nonexistent, got %d", count)
 	}
 
-	m.RegisterAgent("pane-1", 1, "cc", "opus", "claude")
+	m.RegisterAgent("pane-1", 1, 0, "cc", "opus", "claude")
 
 	// Initial restart count should be 0
 	if count := m.GetRestartCount("pane-1"); count != 0 {
@@ -164,7 +164,7 @@ func TestGetAgentStatesReturnsCopy(t *testing.T) {
 	cfg := config.Default()
 	m := NewMonitor("test-session", "/tmp/project", cfg, true)
 
-	m.RegisterAgent("pane-1", 1, "cc", "opus", "claude")
+	m.RegisterAgent("pane-1", 1, 0, "cc", "opus", "claude")
 
 	states := m.GetAgentStates()
 	// Modify the copy
@@ -186,7 +186,7 @@ func TestStartAndStop(t *testing.T) {
 
 	// Mock checkSessionFn to avoid actual tmux calls
 	setHooksLocked(func() {
-		checkSessionFn = func(session string) (*health.SessionHealth, error) {
+		checkSessionFn = func(ctx context.Context, session string) (*health.SessionHealth, error) {
 			return &health.SessionHealth{
 				Session: session,
 				Agents:  []health.AgentHealth{},
@@ -241,7 +241,7 @@ func TestCheckHealthWithHealthyAgent(t *testing.T) {
 	defer restore()
 
 	setHooksLocked(func() {
-		checkSessionFn = func(session string) (*health.SessionHealth, error) {
+		checkSessionFn = func(ctx context.Context, session string) (*health.SessionHealth, error) {
 			return &health.SessionHealth{
 				Session: session,
 				Agents: []health.AgentHealth{
@@ -257,7 +257,7 @@ func TestCheckHealthWithHealthyAgent(t *testing.T) {
 
 	cfg := config.Default()
 	m := NewMonitor("test-session", "/tmp/project", cfg, true)
-	m.RegisterAgent("pane-1", 1, "cc", "opus", "claude")
+	m.RegisterAgent("pane-1", 1, 0, "cc", "opus", "claude")
 
 	// Mark as unhealthy first
 	m.mu.Lock()
@@ -281,7 +281,7 @@ func TestCheckHealthDetectsCrash(t *testing.T) {
 	defer restore()
 
 	setHooksLocked(func() {
-		checkSessionFn = func(session string) (*health.SessionHealth, error) {
+		checkSessionFn = func(ctx context.Context, session string) (*health.SessionHealth, error) {
 			return &health.SessionHealth{
 				Session: session,
 				Agents: []health.AgentHealth{
@@ -307,9 +307,10 @@ func TestCheckHealthDetectsCrash(t *testing.T) {
 	cfg.Resilience.AutoRestart = true
 	cfg.Resilience.MaxRestarts = 3
 	cfg.Resilience.RestartDelaySeconds = 0
+	cfg.Resilience.CrashThreshold = 1 // Single text-based failure triggers crash (no PID available)
 
 	m := NewMonitor("test-session", "/tmp/project", cfg, true)
-	m.RegisterAgent("pane-1", 1, "cc", "opus", "claude")
+	m.RegisterAgent("pane-1", 1, 0, "cc", "opus", "claude")
 
 	m.checkHealth(context.Background())
 
@@ -333,7 +334,7 @@ func TestCheckHealthDetectsPaneMissing(t *testing.T) {
 
 	setHooksLocked(func() {
 		// Return empty agents list - pane doesn't exist
-		checkSessionFn = func(session string) (*health.SessionHealth, error) {
+		checkSessionFn = func(ctx context.Context, session string) (*health.SessionHealth, error) {
 			return &health.SessionHealth{
 				Session: session,
 				Agents:  []health.AgentHealth{},
@@ -353,7 +354,7 @@ func TestCheckHealthDetectsPaneMissing(t *testing.T) {
 	cfg.Resilience.RestartDelaySeconds = 0
 
 	m := NewMonitor("test-session", "/tmp/project", cfg, true)
-	m.RegisterAgent("pane-1", 1, "cc", "opus", "claude")
+	m.RegisterAgent("pane-1", 1, 0, "cc", "opus", "claude")
 
 	m.checkHealth(context.Background())
 
@@ -375,7 +376,7 @@ func TestCheckHealthDetectsRateLimit(t *testing.T) {
 	defer restore()
 
 	setHooksLocked(func() {
-		checkSessionFn = func(session string) (*health.SessionHealth, error) {
+		checkSessionFn = func(ctx context.Context, session string) (*health.SessionHealth, error) {
 			return &health.SessionHealth{
 				Session: session,
 				Agents: []health.AgentHealth{
@@ -398,7 +399,7 @@ func TestCheckHealthDetectsRateLimit(t *testing.T) {
 	cfg := config.Default()
 	cfg.Resilience.RateLimit.Detect = true
 	m := NewMonitor("test-session", "/tmp/project", cfg, true)
-	m.RegisterAgent("pane-1", 1, "cc", "opus", "claude")
+	m.RegisterAgent("pane-1", 1, 0, "cc", "opus", "claude")
 
 	m.checkHealth(context.Background())
 
@@ -423,7 +424,7 @@ func TestCheckHealthRateLimitUpdatesTracker(t *testing.T) {
 	defer restore()
 
 	setHooksLocked(func() {
-		checkSessionFn = func(session string) (*health.SessionHealth, error) {
+		checkSessionFn = func(ctx context.Context, session string) (*health.SessionHealth, error) {
 			return &health.SessionHealth{
 				Session: session,
 				Agents: []health.AgentHealth{
@@ -443,7 +444,7 @@ func TestCheckHealthRateLimitUpdatesTracker(t *testing.T) {
 	cfg.Resilience.RateLimit.Detect = true
 	projectDir := t.TempDir()
 	m := NewMonitor("test-session", projectDir, cfg, true)
-	m.RegisterAgent("pane-1", 1, "cod", "gpt-4", "codex")
+	m.RegisterAgent("pane-1", 1, 0, "cod", "gpt-4", "codex")
 
 	m.checkHealth(context.Background())
 
@@ -464,7 +465,7 @@ func TestCheckHealthRateLimitCleared(t *testing.T) {
 	defer restore()
 
 	setHooksLocked(func() {
-		checkSessionFn = func(session string) (*health.SessionHealth, error) {
+		checkSessionFn = func(ctx context.Context, session string) (*health.SessionHealth, error) {
 			return &health.SessionHealth{
 				Session: session,
 				Agents: []health.AgentHealth{
@@ -481,7 +482,7 @@ func TestCheckHealthRateLimitCleared(t *testing.T) {
 
 	cfg := config.Default()
 	m := NewMonitor("test-session", "/tmp/project", cfg, true)
-	m.RegisterAgent("pane-1", 1, "cc", "opus", "claude")
+	m.RegisterAgent("pane-1", 1, 0, "cc", "opus", "claude")
 
 	// Pre-set as rate limited
 	m.mu.Lock()
@@ -509,7 +510,7 @@ func TestCheckHealthRateLimitClearedRecordsSuccess(t *testing.T) {
 	defer restore()
 
 	setHooksLocked(func() {
-		checkSessionFn = func(session string) (*health.SessionHealth, error) {
+		checkSessionFn = func(ctx context.Context, session string) (*health.SessionHealth, error) {
 			return &health.SessionHealth{
 				Session: session,
 				Agents: []health.AgentHealth{
@@ -528,7 +529,7 @@ func TestCheckHealthRateLimitClearedRecordsSuccess(t *testing.T) {
 	cfg.Resilience.RateLimit.Detect = true
 	projectDir := t.TempDir()
 	m := NewMonitor("test-session", projectDir, cfg, true)
-	m.RegisterAgent("pane-1", 1, "cod", "gpt-4", "codex")
+	m.RegisterAgent("pane-1", 1, 0, "cod", "gpt-4", "codex")
 
 	m.mu.Lock()
 	m.agents["pane-1"].RateLimited = true
@@ -550,14 +551,14 @@ func TestCheckHealthError(t *testing.T) {
 	defer restore()
 
 	setHooksLocked(func() {
-		checkSessionFn = func(session string) (*health.SessionHealth, error) {
+		checkSessionFn = func(ctx context.Context, session string) (*health.SessionHealth, error) {
 			return nil, fmt.Errorf("session check failed")
 		}
 	})
 
 	cfg := config.Default()
 	m := NewMonitor("test-session", "/tmp/project", cfg, true)
-	m.RegisterAgent("pane-1", 1, "cc", "opus", "claude")
+	m.RegisterAgent("pane-1", 1, 0, "cc", "opus", "claude")
 
 	// Should not panic
 	m.checkHealth(context.Background())
@@ -591,7 +592,7 @@ func TestHandleCrashMaxRestartsExceeded(t *testing.T) {
 	cfg := config.Default()
 	cfg.Resilience.MaxRestarts = 3
 	m := NewMonitor("test-session", "/tmp/project", cfg, true)
-	m.RegisterAgent("pane-1", 1, "cc", "opus", "claude")
+	m.RegisterAgent("pane-1", 1, 0, "cc", "opus", "claude")
 
 	// Set restart count at max
 	m.mu.Lock()
@@ -625,7 +626,7 @@ func TestHandleCrashSuggestsManualRespawnWhenAutoRestartDisabled(t *testing.T) {
 	cfg.Resilience.AutoRestart = false
 
 	m := NewMonitor("test-session", "/tmp/project", cfg, false)
-	m.RegisterAgent("pane-1", 1, "cc", "opus", "claude")
+	m.RegisterAgent("pane-1", 1, 0, "cc", "opus", "claude")
 
 	m.handleCrash(context.Background(), m.agents["pane-1"], "test crash")
 
@@ -652,7 +653,7 @@ func TestRestartAgentIncreasesCount(t *testing.T) {
 	cfg := config.Default()
 	cfg.Resilience.RestartDelaySeconds = 0
 	m := NewMonitor("test-session", "/tmp/project", cfg, true)
-	m.RegisterAgent("pane-1", 1, "cc", "opus", "claude")
+	m.RegisterAgent("pane-1", 1, 0, "cc", "opus", "claude")
 
 	m.mu.Lock()
 	m.agents["pane-1"].Healthy = false
@@ -692,7 +693,7 @@ func TestRestartAgentSkipsIfHealthy(t *testing.T) {
 	cfg := config.Default()
 	cfg.Resilience.RestartDelaySeconds = 0
 	m := NewMonitor("test-session", "/tmp/project", cfg, true)
-	m.RegisterAgent("pane-1", 1, "cc", "opus", "claude")
+	m.RegisterAgent("pane-1", 1, 0, "cc", "opus", "claude")
 
 	// Agent is healthy by default
 	m.restartAgent(context.Background(), m.agents["pane-1"])
@@ -722,7 +723,7 @@ func TestRestartAgentHandlesBuildError(t *testing.T) {
 	cfg.Resilience.RestartDelaySeconds = 0
 
 	m := NewMonitor("test-session", "/tmp/project", cfg, true)
-	m.RegisterAgent("pane-1", 1, "cc", "opus", "claude")
+	m.RegisterAgent("pane-1", 1, 0, "cc", "opus", "claude")
 
 	m.mu.Lock()
 	m.agents["pane-1"].Healthy = false
@@ -753,7 +754,7 @@ func TestRestartAgentHandlesSendKeysError(t *testing.T) {
 	cfg.Resilience.RestartDelaySeconds = 0
 
 	m := NewMonitor("test-session", "/tmp/project", cfg, true)
-	m.RegisterAgent("pane-1", 1, "cc", "opus", "claude")
+	m.RegisterAgent("pane-1", 1, 0, "cc", "opus", "claude")
 
 	m.mu.Lock()
 	m.agents["pane-1"].Healthy = false
@@ -779,7 +780,7 @@ func TestMonitorLoopRespectsMinCheckInterval(t *testing.T) {
 	var checkCount int
 	var mu sync.Mutex
 	setHooksLocked(func() {
-		checkSessionFn = func(session string) (*health.SessionHealth, error) {
+		checkSessionFn = func(ctx context.Context, session string) (*health.SessionHealth, error) {
 			mu.Lock()
 			checkCount++
 			mu.Unlock()
@@ -897,7 +898,7 @@ func TestHandleRateLimitTriggersRotationAssistance(t *testing.T) {
 	cfg.Rotation.AutoTrigger = true
 
 	m := NewMonitor("test-session", "/tmp/project", cfg, true)
-	m.RegisterAgent("pane-1", 1, "cc", "opus", "claude")
+	m.RegisterAgent("pane-1", 1, 0, "cc", "opus", "claude")
 
 	agent := m.agents["pane-1"]
 	m.handleRateLimit(agent, 60)
@@ -958,5 +959,184 @@ func TestTriggerRotationAssistanceEmptySession(t *testing.T) {
 
 	if displayCalled {
 		t.Error("should not display tmux message for empty session")
+	}
+}
+
+func TestEnsureRateLimitTracker_LazyInit(t *testing.T) {
+	cfg := config.Default()
+	cfg.Resilience.RateLimit.Detect = true
+	projectDir := t.TempDir()
+
+	m := NewMonitor("test-session", projectDir, cfg, true)
+	// NewMonitor already creates the tracker when Detect=true.
+	// Nil it to exercise the lazy init path in ensureRateLimitTracker.
+	m.rateLimitTracker = nil
+
+	tracker := m.ensureRateLimitTracker()
+	if tracker == nil {
+		t.Fatal("ensureRateLimitTracker should create tracker when Detect=true")
+	}
+	// Verify it was cached
+	if m.rateLimitTracker != tracker {
+		t.Error("ensureRateLimitTracker should cache the tracker")
+	}
+	// Calling again should return cached instance
+	tracker2 := m.ensureRateLimitTracker()
+	if tracker2 != tracker {
+		t.Error("expected same tracker on second call")
+	}
+}
+
+func TestEnsureRateLimitTracker_DisabledReturnsNil(t *testing.T) {
+	cfg := config.Default()
+	cfg.Resilience.RateLimit.Detect = false
+	m := NewMonitor("test-session", t.TempDir(), cfg, true)
+	m.rateLimitTracker = nil
+
+	tracker := m.ensureRateLimitTracker()
+	if tracker != nil {
+		t.Error("ensureRateLimitTracker should return nil when Detect=false")
+	}
+}
+
+func TestRecordRateLimitHit_Direct(t *testing.T) {
+	cfg := config.Default()
+	cfg.Resilience.RateLimit.Detect = true
+	projectDir := t.TempDir()
+	m := NewMonitor("test-session", projectDir, cfg, true)
+
+	m.recordRateLimitHit("cod", 30)
+
+	state := m.rateLimitTracker.GetProviderState("openai")
+	if state == nil {
+		t.Fatal("expected rate limit state for openai")
+	}
+	if state.TotalRateLimits != 1 {
+		t.Errorf("TotalRateLimits = %d, want 1", state.TotalRateLimits)
+	}
+}
+
+func TestRecordRateLimitHit_DisabledIsNoOp(t *testing.T) {
+	cfg := config.Default()
+	cfg.Resilience.RateLimit.Detect = false
+	m := NewMonitor("test-session", t.TempDir(), cfg, true)
+
+	// Should not panic
+	m.recordRateLimitHit("cc", 60)
+}
+
+func TestRecordRateLimitSuccess_Direct(t *testing.T) {
+	cfg := config.Default()
+	cfg.Resilience.RateLimit.Detect = true
+	projectDir := t.TempDir()
+	m := NewMonitor("test-session", projectDir, cfg, true)
+
+	m.recordRateLimitSuccess("cod")
+
+	state := m.rateLimitTracker.GetProviderState("openai")
+	if state == nil {
+		t.Fatal("expected rate limit state for openai")
+	}
+	if state.TotalSuccesses != 1 {
+		t.Errorf("TotalSuccesses = %d, want 1", state.TotalSuccesses)
+	}
+}
+
+func TestRecordRateLimitSuccess_DisabledIsNoOp(t *testing.T) {
+	cfg := config.Default()
+	cfg.Resilience.RateLimit.Detect = false
+	m := NewMonitor("test-session", t.TempDir(), cfg, true)
+
+	// Should not panic
+	m.recordRateLimitSuccess("cc")
+}
+
+func TestMonitorStart_NilContextAndDoubleStartAreSafe(t *testing.T) {
+	cfg := config.Default()
+	cfg.Resilience.AutoRestart = false
+
+	m := NewMonitor("test-session", t.TempDir(), cfg, false)
+
+	// Should not panic on nil context.
+	m.Start(nil)
+
+	// Calling Start twice should be a no-op (monitor is single-use due to done channel).
+	m.Start(context.Background())
+
+	done := make(chan struct{})
+	go func() {
+		m.Stop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop() hung after Start(nil) + Start()")
+	}
+}
+
+func TestCheckHealthIsWorkingGuardSkipsCrash(t *testing.T) {
+	// When the health check reports StatusError/ProcessExited but the agent
+	// is still actively producing output (ActivityActive), the IsWorking
+	// guard should prevent handleCrash from being called. This addresses
+	// issue #48 where AI agents printing "exit status" in normal output
+	// caused false-positive crash detection.
+	restore := saveHooks()
+	defer restore()
+
+	var restartAttempted bool
+	setHooksLocked(func() {
+		checkSessionFn = func(ctx context.Context, session string) (*health.SessionHealth, error) {
+			return &health.SessionHealth{
+				Session: session,
+				Agents: []health.AgentHealth{
+					{
+						PaneID:        "pane-1",
+						Status:        health.StatusError,
+						ProcessStatus: health.ProcessExited,
+						Activity:      health.ActivityActive, // Agent is working!
+						Issues:        []health.Issue{{Type: "crash", Message: "Process exited"}},
+					},
+				},
+			}, nil
+		}
+
+		sleepFn = func(d time.Duration) {}
+		sendKeysFn = func(paneID, cmd string, enter bool) error {
+			restartAttempted = true
+			return nil
+		}
+		buildPaneCmdFn = func(projectDir, agentCmd string) (string, error) {
+			return agentCmd, nil
+		}
+	})
+
+	cfg := config.Default()
+	cfg.Resilience.AutoRestart = true
+	cfg.Resilience.MaxRestarts = 3
+	cfg.Resilience.RestartDelaySeconds = 0
+
+	m := NewMonitor("test-session", "/tmp/project", cfg, true)
+	m.RegisterAgent("pane-1", 1, 0, "cc", "opus", "claude")
+
+	m.checkHealth(context.Background())
+
+	// Give async goroutine time (should NOT run)
+	time.Sleep(100 * time.Millisecond)
+
+	m.mu.RLock()
+	healthy := m.agents["pane-1"].Healthy
+	restartCount := m.agents["pane-1"].RestartCount
+	m.mu.RUnlock()
+
+	if !healthy {
+		t.Error("agent should remain healthy when IsWorking guard fires")
+	}
+	if restartCount != 0 {
+		t.Errorf("expected restart count 0 (IsWorking guard), got %d", restartCount)
+	}
+	if restartAttempted {
+		t.Error("restart should not have been attempted for actively working agent")
 	}
 }
